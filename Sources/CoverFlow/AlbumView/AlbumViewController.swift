@@ -79,7 +79,7 @@ final class AlbumViewController: NSObject, ObservableObject, NSWindowDelegate {
         case .compact:
             size = NSSize(width: 320, height: 430)
         case .large:
-            size = NSSize(width: min(700, vf.width * 0.9), height: min(860, vf.height * 0.94))
+            size = NSSize(width: min(vf.width * 0.9, vf.height * 0.88), height: vf.height * 0.94)
         case .immersive:
             size = NSSize(width: vf.width * 0.96, height: vf.height * 0.96)
         }

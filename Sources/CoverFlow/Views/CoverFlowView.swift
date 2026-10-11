@@ -88,6 +88,13 @@ final class CoverFlowController: ObservableObject {
     }
 }
 
+private enum CoverFlowLayout {
+    static let reflectionFraction: CGFloat = 0.14
+    static let reflectionSpacing: CGFloat = 3
+    static let verticalPadding: CGFloat = 8
+    static let captionSpacing: CGFloat = 4
+}
+
 struct CoverFlowView: View {
     let albums: [Album]
     @EnvironmentObject private var library: LibraryStore
@@ -102,16 +109,18 @@ struct CoverFlowView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let size = coverSize(for: geo.size)
+            let compactCaption = geo.size.width >= 900
+            let captionHeight: CGFloat = compactCaption ? 100 : 148
+            let scrubberHeight: CGFloat = albums.count > 6 ? 20 : 0
+            let size = coverSize(for: geo.size, captionHeight: captionHeight, scrubberHeight: scrubberHeight)
             let unit = size * 0.3
             VStack(spacing: 0) {
-                Spacer(minLength: 8)
                 CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
                                playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
-                               showFocus: focused, reduceMotion: reduceMotion) { index in
+                               reduceMotion: reduceMotion) { index in
                     handleTap(index)
                 }
-                .frame(width: geo.size.width, height: size * 1.36)
+                .frame(width: geo.size.width, height: size * (1 + CoverFlowLayout.reflectionFraction) + CoverFlowLayout.reflectionSpacing)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 4)
@@ -133,17 +142,17 @@ struct CoverFlowView: View {
                 .accessibilityAction(named: "Play") { playCurrent() }
                 .accessibilityAction(named: "Show Tracks") { openCurrent() }
 
-                AlbumCaption(album: current, onPlay: playCurrent, onTracks: openCurrent)
-                    .frame(height: 148)
-                    .padding(.top, 4)
+                AlbumCaption(album: current, compact: compactCaption, onPlay: playCurrent, onTracks: openCurrent)
+                    .frame(height: captionHeight)
+                    .padding(.top, CoverFlowLayout.captionSpacing)
 
                 if albums.count > 6 {
                     CollectionScrubber(flow: flow, count: albums.count)
                         .frame(maxWidth: min(560, geo.size.width - 80))
-                        .padding(.top, 2)
+                        .frame(height: scrubberHeight)
                 }
-                Spacer(minLength: 12)
             }
+            .padding(.vertical, CoverFlowLayout.verticalPadding)
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .focusable()
@@ -179,9 +188,11 @@ struct CoverFlowView: View {
         .onChange(of: reduceMotion) { flow.reduceMotion = reduceMotion }
     }
 
-    private func coverSize(for size: CGSize) -> CGFloat {
-        let byHeight = (size.height - 148 - 70) / 1.36
-        return max(140, min(byHeight, size.width * 0.38, 560))
+    private func coverSize(for size: CGSize, captionHeight: CGFloat, scrubberHeight: CGFloat) -> CGFloat {
+        let reservedHeight = captionHeight + scrubberHeight + CoverFlowLayout.captionSpacing
+            + CoverFlowLayout.verticalPadding * 2 + CoverFlowLayout.reflectionSpacing
+        let byHeight = (size.height - reservedHeight) / (1 + CoverFlowLayout.reflectionFraction)
+        return max(1, min(byHeight, size.width * 0.58))
     }
 
     private func handleTap(_ index: Int) {
@@ -215,7 +226,6 @@ struct CoverFlowStage: View, Animatable {
     let coverSize: CGFloat
     let playingAlbumID: UUID?
     let isPlaying: Bool
-    let showFocus: Bool
     let reduceMotion: Bool
     let onTap: (Int) -> Void
 
@@ -235,7 +245,7 @@ struct CoverFlowStage: View, Animatable {
                     let d = Double(i) - position
                     CoverItem(album: albums[i], size: coverSize,
                               isPlayingAlbum: albums[i].id == playingAlbumID, isPlaying: isPlaying,
-                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1), showFocus: showFocus && i == center)
+                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1))
                         .modifier(CoverTransform(d: d, size: coverSize, reduceMotion: reduceMotion))
                         .zIndex(-abs(d))
                         .onTapGesture { onTap(i) }
@@ -276,11 +286,10 @@ struct CoverItem: View {
     let isPlaying: Bool
     let emphasis: Double
     let shade: Double
-    let showFocus: Bool
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: CoverFlowLayout.reflectionSpacing) {
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)
                 .frame(width: size, height: size)
                 .overlay(Color.black.opacity((scheme == .dark ? 0.4 : 0.22) * shade).allowsHitTesting(false))
@@ -293,18 +302,12 @@ struct CoverItem: View {
                             .padding(size * 0.035)
                     }
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(Palette.accent(scheme), lineWidth: 2.5)
-                        .padding(-6)
-                        .opacity(showFocus ? 1 : 0)
-                )
                 .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.25), radius: 18 * emphasis + 6, y: 10 * emphasis + 4)
             // Subtle reflection on the "shelf".
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)
                 .frame(width: size, height: size)
                 .scaleEffect(x: 1, y: -1)
-                .frame(width: size, height: size * 0.32, alignment: .top)
+                .frame(width: size, height: size * CoverFlowLayout.reflectionFraction, alignment: .top)
                 .clipped()
                 .opacity(1 - shade * 0.5)
                 .mask(LinearGradient(colors: [.black.opacity(scheme == .dark ? 0.22 : 0.16), .clear], startPoint: .top, endPoint: .bottom))
@@ -317,6 +320,7 @@ struct CoverItem: View {
 
 struct AlbumCaption: View {
     let album: Album?
+    let compact: Bool
     let onPlay: () -> Void
     let onTracks: () -> Void
     @EnvironmentObject private var library: LibraryStore
@@ -325,70 +329,81 @@ struct AlbumCaption: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(spacing: 5) {
+        let layout = compact
+            ? AnyLayout(HStackLayout(alignment: .center, spacing: 24))
+            : AnyLayout(VStackLayout(spacing: 8))
+        Group {
             if let album {
                 let isCurrent = player.currentAlbumID == album.id
-                HStack(spacing: 8) {
-                    if album.isDemo { DemoChip() }
-                    if album.missingMetadata {
-                        Label("Missing album info", systemImage: "exclamationmark.circle")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(height: 16)
-                Text(album.title)
-                    .font(Typography.albumTitle(26))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(album.artist)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(meta(album))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                HStack(spacing: 10) {
-                    Button(action: onPlay) {
-                        Label(isCurrent ? (player.isPlaying ? "Pause" : "Resume") : "Play",
-                              systemImage: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
-                    }
-                    .buttonStyle(PillButtonStyle(prominent: true))
-                    .help(isCurrent ? "Pause or resume this album" : "Play this album from the start")
-                    Button(action: onTracks) {
-                        Label("Tracks", systemImage: "list.bullet")
-                    }
-                    .buttonStyle(PillButtonStyle())
-                    .help("Show the track list (Return)")
-                    if isCurrent {
-                        HStack(spacing: 6) {
-                            NowPlayingBars(playing: player.isPlaying, color: Palette.accent(scheme), height: 11)
-                            Text(player.isPlaying ? "Now Playing" : "Paused")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Palette.accent(scheme))
-                        }
-                        .padding(.leading, 4)
-                        .accessibilityElement(children: .combine)
-                    } else if let playing = player.currentAlbum {
-                        Button {
-                            state.reveal(playing.id)
-                        } label: {
-                            HStack(spacing: 6) {
-                                NowPlayingBars(playing: player.isPlaying, color: .secondary, height: 10)
-                                Text("Playing: \(playing.title)").lineLimit(1)
+                layout {
+                    VStack(alignment: compact ? .leading : .center, spacing: 4) {
+                        if album.isDemo || album.missingMetadata {
+                            HStack(spacing: 8) {
+                                if album.isDemo { DemoChip() }
+                                if album.missingMetadata {
+                                    Label("Missing album info", systemImage: "exclamationmark.circle")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .frame(height: 16)
                         }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: 220)
-                        .help("Go to the album that’s playing (⌘L)")
+                        Text(album.title)
+                            .font(Typography.albumTitle(compact ? 24 : 26))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(album.artist)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text(meta(album))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: compact ? .leading : .center)
+                    HStack(spacing: 10) {
+                        Button(action: onPlay) {
+                            Label(isCurrent ? (player.isPlaying ? "Pause" : "Resume") : "Play",
+                                  systemImage: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                        }
+                        .buttonStyle(PillButtonStyle(prominent: true))
+                        .help(isCurrent ? "Pause or resume this album" : "Play this album from the start")
+                        Button(action: onTracks) {
+                            Label("Tracks", systemImage: "list.bullet")
+                        }
+                        .buttonStyle(PillButtonStyle())
+                        .help("Show the track list (Return)")
+                        if isCurrent {
+                            HStack(spacing: 6) {
+                                NowPlayingBars(playing: player.isPlaying, color: Palette.accent(scheme), height: 11)
+                                Text(player.isPlaying ? "Now Playing" : "Paused")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Palette.accent(scheme))
+                            }
+                            .padding(.leading, 4)
+                            .accessibilityElement(children: .combine)
+                        } else if let playing = player.currentAlbum {
+                            Button {
+                                state.reveal(playing.id)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    NowPlayingBars(playing: player.isPlaying, color: .secondary, height: 10)
+                                    Text("Playing: \(playing.title)").lineLimit(1)
+                                }
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: 220)
+                            .help("Go to the album that’s playing (⌘L)")
+                        }
+                    }
+                    .fixedSize(horizontal: compact, vertical: true)
                 }
-                .padding(.top, 8)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 40)
+        .padding(.horizontal, compact ? 32 : 24)
         .animation(nil, value: album?.id)
     }
 

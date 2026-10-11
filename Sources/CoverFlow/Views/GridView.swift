@@ -5,21 +5,20 @@ struct GridView: View {
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
 
-    private let columns = [GridItem(.adaptive(minimum: 168, maximum: 230), spacing: 28, alignment: .top)]
+    private let columns = [GridItem(.adaptive(minimum: 240, maximum: 360), spacing: 20, alignment: .top)]
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                     ForEach(albums) { album in
                         GridCell(album: album,
-                                 isSelected: album.id == state.browsedAlbumID,
                                  isPlayingAlbum: album.id == player.currentAlbumID)
                             .id(album.id)
                     }
                 }
-                .padding(.horizontal, 36)
-                .padding(.vertical, 30)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
             }
             .onAppear {
                 if let id = state.browsedAlbumID { proxy.scrollTo(id, anchor: .center) }
@@ -34,13 +33,11 @@ struct GridView: View {
 
 struct GridCell: View {
     let album: Album
-    let isSelected: Bool
     let isPlayingAlbum: Bool
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.colorScheme) private var scheme
     @State private var hover = false
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -48,18 +45,12 @@ struct GridCell: View {
                 state.browsedAlbumID = album.id
                 state.detailAlbum = IDRef(id: album.id)
             } label: {
-                ArtworkView(album: album, pointSize: 230, cornerRadius: 4)
+                ArtworkView(album: album, pointSize: 360, cornerRadius: 4)
                     .aspectRatio(1, contentMode: .fit)
                     .shadow(color: .black.opacity(scheme == .dark ? (hover ? 0.6 : 0.4) : 0.18), radius: hover ? 16 : 8, y: hover ? 9 : 5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Palette.accent(scheme), lineWidth: 2.5)
-                            .padding(-5)
-                            .opacity(focused ? 1 : (isSelected ? 0.35 : 0))
-                    )
             }
             .buttonStyle(.plain)
-            .focused($focused)
+            .focusEffectDisabled()
             .accessibilityLabel("\(album.title) by \(album.artist)\(isPlayingAlbum ? ", now playing" : "")")
             .accessibilityHint("Shows the track list")
             .overlay(alignment: .bottomTrailing) {
