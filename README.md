@@ -1,8 +1,12 @@
+<p align="center"><img src="docs/banner.png" alt="Cover Flow — a record-collection music player for macOS" width="100%"></p>
+
 # Cover Flow
 
 A native macOS audio player built around browsing a record collection: a 3D Cover Flow,
 a grid, and **Album View**, a player window that scales from a compact mini-player to an
 almost full-screen cover.
+
+**[Download the latest release](https://github.com/dustalexw/cover-flow/releases/latest)** · macOS 14+ · Apple silicon
 
 ## Build & run
 
