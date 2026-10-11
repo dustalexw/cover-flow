@@ -57,6 +57,12 @@ The selection bar plays or queues albums together in their displayed order. **Co
 selects all visible albums and **Escape** clears the selection. Double-click an album or
 press Return to show its tracks. The downloadable 1.0.4 release predates these features.
 
+The album track panel takes its cues from early iTunes: Helvetica typography, compact song
+columns, small playback buttons and a large cover on the right. Its full background and text
+colors come from the artwork, with readable foregrounds for both light and dark covers.
+Long albums scroll, multiple discs retain their headings, and albums without artwork use a
+palette matching their generated placeholder.
+
 ## Why this stack
 
 SwiftUI + AVFoundation, packaged with Swift Package Manager: native 3D transforms and springs
