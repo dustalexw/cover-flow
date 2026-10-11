@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+*.app
+build.log
+build.status
+.transfer/
+Test Import/
+Import Sample/
+.DS_Store
