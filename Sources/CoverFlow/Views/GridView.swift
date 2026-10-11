@@ -28,7 +28,7 @@ struct GridView: View {
                                 state.selection.select(album.id, ordered: albums.map(\.id),
                                                        extend: flags.contains(.shift), toggle: flags.contains(.command))
                                 state.browsedAlbumID = album.id
-                                if (NSApp.currentEvent?.clickCount ?? 0) >= 2 && !flags.contains(.shift) && !flags.contains(.command) {
+                                if !flags.contains(.shift) && !flags.contains(.command) {
                                     state.detailAlbum = IDRef(id: album.id)
                                 }
                             }
@@ -87,6 +87,7 @@ struct GridView: View {
             }
         }
         .focusable().focused($focused).focusEffectDisabled()
+        .onKeyPress(.space) { player.togglePlayPause(); return .handled }
         .onKeyPress(.escape) { state.selection.clear(); return .handled }
         .onKeyPress(.return) {
             if let id = state.browsedAlbumID { state.detailAlbum = IDRef(id: id) }
@@ -131,7 +132,7 @@ struct GridCell: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .accessibilityLabel("\(album.title) by \(album.artist)\(isPlayingAlbum ? ", now playing" : "")")
-            .accessibilityHint("Click to select. Shift-click selects a range. Double-click shows tracks.")
+            .accessibilityHint("Click shows tracks. Shift-click selects a range.")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAction(named: "Show Tracks") { state.detailAlbum = IDRef(id: album.id) }
             .overlay(alignment: .bottomTrailing) {
