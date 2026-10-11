@@ -268,7 +268,7 @@ def badge(path, label, value, fill, text):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="1.0.1")
+    ap.add_argument("--version", default="1.0.2")
     v = ap.parse_args().version
     os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
     app_icon(os.path.join(ROOT, "Resources/AppIcon-1024.png"))
