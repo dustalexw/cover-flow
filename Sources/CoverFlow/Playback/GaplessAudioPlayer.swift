@@ -10,6 +10,7 @@ struct AudioSource: Equatable {
 /// callbacks update the UI; they never initiate the next track's audio.
 @MainActor
 final class GaplessAudioPlayer {
+    let visualizerAudio = VisualizerAudioBuffer()
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private var pump: Task<Void, Never>?
@@ -51,6 +52,11 @@ final class GaplessAudioPlayer {
     init() {
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: PCMDecoder.outputFormat)
+        let audio = visualizerAudio
+        node.installTap(onBus: 0, bufferSize: 1024, format: PCMDecoder.outputFormat) { buffer, _ in
+            guard let channels = buffer.floatChannelData, buffer.format.channelCount >= 2 else { return }
+            audio.append(left: channels[0], right: channels[1], frames: Int(buffer.frameLength))
+        }
         updateVolume()
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             Task { @MainActor in
@@ -197,6 +203,7 @@ final class GaplessAudioPlayer {
     func pause() {
         pausedFrames = renderedFrames
         node.pause()
+        visualizerAudio.clear()
         wantsPlayback = false
         isPlaying = false
         isBuffering = false
@@ -239,6 +246,7 @@ final class GaplessAudioPlayer {
     }
 
     private func reset() {
+        visualizerAudio.clear()
         generation = UUID()
         pump?.cancel()
         pump = nil

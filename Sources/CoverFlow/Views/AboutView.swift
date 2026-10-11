@@ -57,6 +57,7 @@ struct AboutView: View {
                 Text("Made by dustalexw")
                     .font(.system(size: 12, weight: .medium))
                 Text("Powered by SwiftUI · AppKit · AVFoundation")
+                Link("MilkDrop visuals by projectM · LGPL 2.1+", destination: URL(string: "https://github.com/projectM-visualizer/projectm")!)
                 Text("macOS 14 or later · Apple silicon")
             }
             .font(.system(size: 11))

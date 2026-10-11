@@ -32,6 +32,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     private let player = GaplessAudioPlayer()
+    var visualizerAudio: VisualizerAudioBuffer { player.visualizerAudio }
     private unowned let library: LibraryStore
     private let scrobbler: LastFmScrobbler
     private var unshuffled: [UUID]?

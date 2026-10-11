@@ -37,6 +37,12 @@ final class GaplessPlaybackTests: XCTestCase {
         let node = AVAudioPlayerNode()
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: PCMDecoder.outputFormat)
+        let visualizerAudio = VisualizerAudioBuffer()
+        visualizerAudio.setEnabled(true)
+        node.installTap(onBus: 0, bufferSize: 1024, format: PCMDecoder.outputFormat) { buffer, _ in
+            guard let channels = buffer.floatChannelData else { return }
+            visualizerAudio.append(left: channels[0], right: channels[1], frames: Int(buffer.frameLength))
+        }
         try engine.enableManualRenderingMode(.offline, format: PCMDecoder.outputFormat, maximumFrameCount: 1_024)
         var boundaries: [Int] = [0]
         var frames = 0
@@ -60,6 +66,10 @@ final class GaplessPlaybackTests: XCTestCase {
             XCTAssertEqual(status, .success)
             samples.append(contentsOf: UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
         }
+        var tapped = Array(repeating: Float(0), count: 8192)
+        let tappedFrames = tapped.withUnsafeMutableBufferPointer { visualizerAudio.drain(into: $0) }
+        XCTAssertGreaterThan(tappedFrames, 0)
+        XCTAssertTrue(tapped.prefix(tappedFrames * 2).contains { abs($0) > 0.15 })
         // A constant signal makes even one inserted zero frame observable.
         for boundary in boundaries.dropFirst().dropLast() {
             for frame in (boundary - 64)..<(boundary + 64) {
