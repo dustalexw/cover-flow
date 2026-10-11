@@ -146,7 +146,7 @@ struct CoverFlowView: View {
             state.selection.selectAll(albums.map(\.id)); return .handled
         }
         .onKeyPress(.return) { openCurrent(); return .handled }
-        .onKeyPress(.space) { playCurrent(); return .handled }
+        .onKeyPress(.space) { player.togglePlayPause(); return .handled }
         .onAppear {
             flow.reduceMotion = reduceMotion
             flow.count = albums.count
@@ -188,7 +188,7 @@ struct CoverFlowView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Cover Flow")
         .accessibilityValue(browseDescription)
-        .accessibilityHint("Use left and right arrows to browse. Return shows tracks, Space plays.")
+        .accessibilityHint("Use left and right arrows to browse. Click or Return shows tracks. Space pauses or resumes playback.")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: flow.step(1)
@@ -244,7 +244,7 @@ struct CoverFlowView: View {
         }
         state.selection.select(album.id, ordered: albums.map(\.id), extend: flags.contains(.shift), toggle: flags.contains(.command))
         flow.go(to: index)
-        if (NSApp.currentEvent?.clickCount ?? 0) >= 2 && !flags.contains(.shift) && !flags.contains(.command) {
+        if !flags.contains(.shift) && !flags.contains(.command) {
             state.detailAlbum = IDRef(id: album.id)
         }
     }
