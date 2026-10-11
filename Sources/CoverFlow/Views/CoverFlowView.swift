@@ -108,7 +108,7 @@ struct CoverFlowView: View {
                 Spacer(minLength: 8)
                 CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
                                playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
-                               showFocus: focused, reduceMotion: reduceMotion) { index in
+                               reduceMotion: reduceMotion) { index in
                     handleTap(index)
                 }
                 .frame(width: geo.size.width, height: size * 1.36)
@@ -215,7 +215,6 @@ struct CoverFlowStage: View, Animatable {
     let coverSize: CGFloat
     let playingAlbumID: UUID?
     let isPlaying: Bool
-    let showFocus: Bool
     let reduceMotion: Bool
     let onTap: (Int) -> Void
 
@@ -235,7 +234,7 @@ struct CoverFlowStage: View, Animatable {
                     let d = Double(i) - position
                     CoverItem(album: albums[i], size: coverSize,
                               isPlayingAlbum: albums[i].id == playingAlbumID, isPlaying: isPlaying,
-                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1), showFocus: showFocus && i == center)
+                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1))
                         .modifier(CoverTransform(d: d, size: coverSize, reduceMotion: reduceMotion))
                         .zIndex(-abs(d))
                         .onTapGesture { onTap(i) }
@@ -276,7 +275,6 @@ struct CoverItem: View {
     let isPlaying: Bool
     let emphasis: Double
     let shade: Double
-    let showFocus: Bool
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -293,12 +291,6 @@ struct CoverItem: View {
                             .padding(size * 0.035)
                     }
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(Palette.accent(scheme), lineWidth: 2.5)
-                        .padding(-6)
-                        .opacity(showFocus ? 1 : 0)
-                )
                 .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.25), radius: 18 * emphasis + 6, y: 10 * emphasis + 4)
             // Subtle reflection on the "shelf".
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)

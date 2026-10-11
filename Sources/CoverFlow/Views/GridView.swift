@@ -13,7 +13,6 @@ struct GridView: View {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
                     ForEach(albums) { album in
                         GridCell(album: album,
-                                 isSelected: album.id == state.browsedAlbumID,
                                  isPlayingAlbum: album.id == player.currentAlbumID)
                             .id(album.id)
                     }
@@ -34,13 +33,11 @@ struct GridView: View {
 
 struct GridCell: View {
     let album: Album
-    let isSelected: Bool
     let isPlayingAlbum: Bool
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.colorScheme) private var scheme
     @State private var hover = false
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -51,15 +48,9 @@ struct GridCell: View {
                 ArtworkView(album: album, pointSize: 230, cornerRadius: 4)
                     .aspectRatio(1, contentMode: .fit)
                     .shadow(color: .black.opacity(scheme == .dark ? (hover ? 0.6 : 0.4) : 0.18), radius: hover ? 16 : 8, y: hover ? 9 : 5)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Palette.accent(scheme), lineWidth: 2.5)
-                            .padding(-5)
-                            .opacity(focused ? 1 : (isSelected ? 0.35 : 0))
-                    )
             }
             .buttonStyle(.plain)
-            .focused($focused)
+            .focusEffectDisabled()
             .accessibilityLabel("\(album.title) by \(album.artist)\(isPlayingAlbum ? ", now playing" : "")")
             .accessibilityHint("Shows the track list")
             .overlay(alignment: .bottomTrailing) {
