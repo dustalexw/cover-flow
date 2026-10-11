@@ -62,6 +62,8 @@ columns, small playback buttons and a large cover on the right. Its full backgro
 colors come from the artwork, with readable foregrounds for both light and dark covers.
 Long albums scroll, multiple discs retain their headings, and albums without artwork use a
 palette matching their generated placeholder.
+Artwork colors and the cover thumbnail are prepared before the track panel opens and cached
+by artwork version, so opening an album does not flash a temporary background color.
 
 ## Why this stack
 

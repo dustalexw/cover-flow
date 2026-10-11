@@ -8,6 +8,18 @@ struct RootView: View {
     @EnvironmentObject private var albumView: AlbumViewController
     @Environment(\.colorScheme) private var scheme
     @State private var dropTargeted = false
+    @State private var preparedDetail: AlbumDetailPresentation?
+
+    private struct AlbumDetailPresentation: Identifiable {
+        let id: UUID
+        let colors: AlbumDetailPalette
+    }
+
+    private var detailArtworkKey: String? {
+        guard let album = library.album(state.detailAlbum?.id) else { return nil }
+        // Include metadata for the placeholder palette when there is no artwork.
+        return album.hasArtwork ? album.artworkKey : "\(album.artworkKey):\(album.title):\(album.artist):\(album.tintHex ?? "")"
+    }
 
     var body: some View {
         let albums = library.visibleAlbums(sort: state.sortOrder, search: state.searchText)
@@ -57,8 +69,18 @@ struct RootView: View {
             QueueView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
         }
-        .sheet(item: $state.detailAlbum) { ref in
-            AlbumDetailView(albumID: ref.id)
+        .task(id: detailArtworkKey) {
+            guard let album = library.album(state.detailAlbum?.id) else { preparedDetail = nil; return }
+            let colors = await library.artwork.albumDetailPalette(album)
+            guard !Task.isCancelled, state.detailAlbum?.id == album.id else { return }
+            // Never present a temporary palette: the sheet's first frame has its final colors.
+            preparedDetail = AlbumDetailPresentation(id: album.id, colors: colors)
+        }
+        .sheet(item: Binding(get: { preparedDetail }, set: { value in
+            preparedDetail = value
+            if value == nil { state.detailAlbum = nil }
+        })) { ref in
+            AlbumDetailView(albumID: ref.id, colors: ref.colors)
                 .environmentObject(library).environmentObject(player).environmentObject(state)
         }
         .sheet(item: Binding(get: { state.detailAlbum == nil ? state.editAlbum : nil },

@@ -3,24 +3,16 @@ import AppKit
 
 struct AlbumDetailView: View {
     let albumID: UUID
+    let colors: AlbumDetailPalette
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
-    @State private var loadedPalette: (key: String, colors: AlbumDetailPalette)?
 
     var body: some View {
         Group {
             if let album = library.album(albumID) {
-                let colors = loadedPalette?.key == album.artworkKey ? loadedPalette!.colors : AlbumDetailPalette.fallback(album)
                 content(album, colors: colors)
-                    .task(id: album.artworkKey) {
-                        guard let image = await library.artwork.thumbnail(album, pixels: 720),
-                              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-                        let colors = await Task.detached(priority: .userInitiated) { AlbumDetailPalette.extract(from: cg) }.value
-                        guard !Task.isCancelled, let colors else { return }
-                        loadedPalette = (album.artworkKey, colors)
-                    }
             } else {
                 VStack(spacing: 12) {
                     Text("This album is no longer in your collection.").foregroundStyle(.secondary)
