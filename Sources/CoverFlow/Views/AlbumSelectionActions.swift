@@ -23,18 +23,3 @@ struct AlbumSelectionBar: View {
         .background(.thinMaterial)
     }
 }
-
-struct SelectedAlbumBadge: View {
-    let selected: Bool
-    var body: some View {
-        if selected {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundStyle(.white, Color.accentColor)
-                .shadow(color: .black.opacity(0.4), radius: 3)
-                .padding(10)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-    }
-}

@@ -134,7 +134,6 @@ struct GridCell: View {
             .accessibilityHint("Click to select. Shift-click selects a range. Double-click shows tracks.")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAction(named: "Show Tracks") { state.detailAlbum = IDRef(id: album.id) }
-            .overlay(alignment: .topTrailing) { SelectedAlbumBadge(selected: isSelected) }
             .overlay(alignment: .bottomTrailing) {
                 if hover || isPlayingAlbum {
                     Button {

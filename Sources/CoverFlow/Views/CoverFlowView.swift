@@ -177,7 +177,7 @@ struct CoverFlowView: View {
     private func artworkStage(size: CGFloat, unit: CGFloat) -> some View {
         CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
                        playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
-                       reduceMotion: reduceMotion, selectedAlbumIDs: state.selection.ids) { index in
+                       reduceMotion: reduceMotion) { index in
             handleTap(index)
         }
         .frame(maxWidth: .infinity)
@@ -272,7 +272,6 @@ struct CoverFlowStage: View, Animatable {
     let playingAlbumID: UUID?
     let isPlaying: Bool
     let reduceMotion: Bool
-    let selectedAlbumIDs: Set<UUID>
     let onTap: (Int) -> Void
 
     var animatableData: Double {
@@ -291,8 +290,7 @@ struct CoverFlowStage: View, Animatable {
                     let d = Double(i) - position
                     CoverItem(album: albums[i], size: coverSize,
                               isPlayingAlbum: albums[i].id == playingAlbumID, isPlaying: isPlaying,
-                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1),
-                              isSelected: selectedAlbumIDs.contains(albums[i].id))
+                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1))
                         .modifier(CoverTransform(d: d, size: coverSize, reduceMotion: reduceMotion))
                         .zIndex(-abs(d))
                         .onTapGesture { onTap(i) }
@@ -333,7 +331,6 @@ struct CoverItem: View {
     let isPlaying: Bool
     let emphasis: Double
     let shade: Double
-    let isSelected: Bool
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -350,7 +347,6 @@ struct CoverItem: View {
                             .padding(size * 0.035)
                     }
                 }
-                .overlay(alignment: .topLeading) { SelectedAlbumBadge(selected: isSelected) }
                 .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.25), radius: 18 * emphasis + 6, y: 10 * emphasis + 4)
             // Subtle reflection on the "shelf".
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)
