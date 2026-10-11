@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "CoverFlow",
             path: "Sources/CoverFlow"
-        )
+        ),
+        .testTarget(name: "CoverFlowTests", dependencies: ["CoverFlow"], resources: [.copy("Fixtures")])
     ]
 )
