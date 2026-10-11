@@ -18,6 +18,8 @@ final class AppState: ObservableObject {
     @Published var browsedAlbumID: UUID? {
         didSet { UserDefaults.standard.set(browsedAlbumID?.uuidString, forKey: "browsedAlbum") }
     }
+    @Published var selection = AlbumSelection()
+    @Published var selectedAlbumRemoval: [UUID]?
     @Published var detailAlbum: IDRef?
     @Published var editAlbum: IDRef?
     @Published var showQueue: Bool {
@@ -66,13 +68,15 @@ final class AppEnvironment {
     let artwork: ArtworkStore
     let library: LibraryStore
     let player: PlayerEngine
+    let lastfm: LastFmScrobbler
     let state: AppState
     let albumView: AlbumViewController
 
     private init() {
         artwork = ArtworkStore(directory: AppPaths.artwork)
         library = LibraryStore(artwork: artwork)
-        player = PlayerEngine(library: library)
+        lastfm = LastFmScrobbler()
+        player = PlayerEngine(library: library, scrobbler: lastfm)
         state = AppState()
         albumView = AlbumViewController()
         library.load()
@@ -129,6 +133,7 @@ struct CoverFlowApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(env.lastfm)
                 .environmentObject(env.library)
                 .environmentObject(env.player)
                 .environmentObject(env.state)

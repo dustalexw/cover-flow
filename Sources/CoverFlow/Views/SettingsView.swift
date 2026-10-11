@@ -25,10 +25,12 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            LastFmSettings()
+
             Section("Your Library & Saved Data") {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Cover Flow plays your audio files where they are — it never copies, moves or edits them. If you move or rename a file, it will show as missing.")
-                    Text("Saved on this Mac only:")
+                    Text("Library data saved on this Mac:")
                         .padding(.top, 4)
                     Text("• Collection, album edits and play history — Library.json")
                     Text("• Queue, playback position, shuffle, repeat and volume — Playback.json")

@@ -102,6 +102,7 @@ struct CoverFlowView: View {
     @EnvironmentObject private var state: AppState
     @StateObject private var flow = CoverFlowController()
     @FocusState private var focused: Bool
+    @State private var selectionDragStart: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
 
@@ -115,32 +116,7 @@ struct CoverFlowView: View {
             let size = coverSize(for: geo.size, captionHeight: captionHeight, scrubberHeight: scrubberHeight)
             let unit = size * 0.3
             VStack(spacing: 0) {
-                CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
-                               playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
-                               reduceMotion: reduceMotion) { index in
-                    handleTap(index)
-                }
-                .frame(width: geo.size.width, height: size * (1 + CoverFlowLayout.reflectionFraction) + CoverFlowLayout.reflectionSpacing)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 4)
-                        .onChanged { flow.dragChanged($0.translation.width, unit: unit) }
-                        .onEnded { flow.dragEnded(predicted: $0.predictedEndTranslation.width, unit: unit) }
-                )
-                .background(ScrollWheelCatcher { flow.scroll($0, unit: unit) })
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Cover Flow")
-                .accessibilityValue(current.map { "\($0.title) by \($0.artist), album \(flow.index + 1) of \(albums.count)" } ?? "Empty")
-                .accessibilityHint("Use left and right arrows to browse. Return shows tracks, Space plays.")
-                .accessibilityAdjustableAction { direction in
-                    switch direction {
-                    case .increment: flow.step(1)
-                    case .decrement: flow.step(-1)
-                    @unknown default: break
-                    }
-                }
-                .accessibilityAction(named: "Play") { playCurrent() }
-                .accessibilityAction(named: "Show Tracks") { openCurrent() }
+                artworkStage(size: size, unit: unit)
 
                 AlbumCaption(album: current, compact: compactCaption, onPlay: playCurrent, onTracks: openCurrent)
                     .frame(height: captionHeight)
@@ -158,12 +134,17 @@ struct CoverFlowView: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(.leftArrow) { flow.step(-1); return .handled }
-        .onKeyPress(.rightArrow) { flow.step(1); return .handled }
+        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { event in navigate(-1, extend: event.modifiers.contains(.shift)); return .handled }
+        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { event in navigate(1, extend: event.modifiers.contains(.shift)); return .handled }
         .onKeyPress(.home) { flow.go(to: 0); return .handled }
         .onKeyPress(.end) { flow.go(to: albums.count - 1); return .handled }
         .onKeyPress(.pageUp) { flow.step(-5); return .handled }
         .onKeyPress(.pageDown) { flow.step(5); return .handled }
+        .onKeyPress(.escape) { state.selection.clear(); return .handled }
+        .onKeyPress(phases: .down) { event in
+            guard event.modifiers.contains(.command), event.characters.lowercased() == "a" else { return .ignored }
+            state.selection.selectAll(albums.map(\.id)); return .handled
+        }
         .onKeyPress(.return) { openCurrent(); return .handled }
         .onKeyPress(.space) { playCurrent(); return .handled }
         .onAppear {
@@ -188,6 +169,57 @@ struct CoverFlowView: View {
         .onChange(of: reduceMotion) { flow.reduceMotion = reduceMotion }
     }
 
+    private var browseDescription: String {
+        guard let current else { return "Empty" }
+        return "\(current.title) by \(current.artist), album \(flow.index + 1) of \(albums.count)"
+    }
+
+    private func artworkStage(size: CGFloat, unit: CGFloat) -> some View {
+        CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
+                       playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
+                       reduceMotion: reduceMotion, selectedAlbumIDs: state.selection.ids) { index in
+            handleTap(index)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: size * (1 + CoverFlowLayout.reflectionFraction) + CoverFlowLayout.reflectionSpacing)
+        .contentShape(Rectangle())
+        .gesture(browseDrag(unit: unit))
+        .background(ScrollWheelCatcher { flow.scroll($0, unit: unit) })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Cover Flow")
+        .accessibilityValue(browseDescription)
+        .accessibilityHint("Use left and right arrows to browse. Return shows tracks, Space plays.")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: flow.step(1)
+            case .decrement: flow.step(-1)
+            @unknown default: break
+            }
+        }
+        .accessibilityAction(named: "Play") { playCurrent() }
+        .accessibilityAction(named: "Show Tracks") { openCurrent() }
+    }
+
+    private func browseDrag(unit: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                if selectionDragStart != nil || (NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false) {
+                    if selectionDragStart == nil {
+                        selectionDragStart = flow.index
+                        if state.selection.anchor == nil, let id = current?.id { state.selection.select(id, ordered: albums.map(\.id)) }
+                    }
+                    let travel = Int((value.translation.width / unit).rounded())
+                    let index = ((selectionDragStart ?? 0) - travel).clamped(0, albums.count - 1)
+                    if let id = albums[safe: index]?.id { state.selection.select(id, ordered: albums.map(\.id), extend: true) }
+                    flow.go(to: index, animated: false)
+                } else { flow.dragChanged(value.translation.width, unit: unit) }
+            }
+            .onEnded { value in
+                if selectionDragStart != nil { selectionDragStart = nil }
+                else { flow.dragEnded(predicted: value.predictedEndTranslation.width, unit: unit) }
+            }
+    }
+
     private func coverSize(for size: CGSize, captionHeight: CGFloat, scrubberHeight: CGFloat) -> CGFloat {
         let reservedHeight = captionHeight + scrubberHeight + CoverFlowLayout.captionSpacing
             + CoverFlowLayout.verticalPadding * 2 + CoverFlowLayout.reflectionSpacing
@@ -195,12 +227,25 @@ struct CoverFlowView: View {
         return max(1, min(byHeight, size.width * 0.58))
     }
 
+    private func navigate(_ delta: Int, extend: Bool) {
+        if extend, state.selection.anchor == nil, let album = current { state.selection.select(album.id, ordered: albums.map(\.id)) }
+        flow.step(delta)
+        if extend, let album = albums[safe: flow.target] {
+            state.selection.select(album.id, ordered: albums.map(\.id), extend: true)
+        }
+    }
+
     private func handleTap(_ index: Int) {
+        guard let album = albums[safe: index] else { return }
         focused = true
-        if index == flow.index && abs(flow.position - Double(index)) < 0.05 {
-            openCurrent()
-        } else {
-            flow.go(to: index)
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        if flags.contains(.shift), state.selection.anchor == nil, let current {
+            state.selection.select(current.id, ordered: albums.map(\.id))
+        }
+        state.selection.select(album.id, ordered: albums.map(\.id), extend: flags.contains(.shift), toggle: flags.contains(.command))
+        flow.go(to: index)
+        if (NSApp.currentEvent?.clickCount ?? 0) >= 2 && !flags.contains(.shift) && !flags.contains(.command) {
+            state.detailAlbum = IDRef(id: album.id)
         }
     }
 
@@ -227,6 +272,7 @@ struct CoverFlowStage: View, Animatable {
     let playingAlbumID: UUID?
     let isPlaying: Bool
     let reduceMotion: Bool
+    let selectedAlbumIDs: Set<UUID>
     let onTap: (Int) -> Void
 
     var animatableData: Double {
@@ -245,7 +291,8 @@ struct CoverFlowStage: View, Animatable {
                     let d = Double(i) - position
                     CoverItem(album: albums[i], size: coverSize,
                               isPlayingAlbum: albums[i].id == playingAlbumID, isPlaying: isPlaying,
-                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1))
+                              emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1),
+                              isSelected: selectedAlbumIDs.contains(albums[i].id))
                         .modifier(CoverTransform(d: d, size: coverSize, reduceMotion: reduceMotion))
                         .zIndex(-abs(d))
                         .onTapGesture { onTap(i) }
@@ -286,6 +333,7 @@ struct CoverItem: View {
     let isPlaying: Bool
     let emphasis: Double
     let shade: Double
+    let isSelected: Bool
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -302,6 +350,7 @@ struct CoverItem: View {
                             .padding(size * 0.035)
                     }
                 }
+                .overlay(alignment: .topLeading) { SelectedAlbumBadge(selected: isSelected) }
                 .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.25), radius: 18 * emphasis + 6, y: 10 * emphasis + 4)
             // Subtle reflection on the "shelf".
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)
