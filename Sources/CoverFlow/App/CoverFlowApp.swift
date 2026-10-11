@@ -131,6 +131,14 @@ struct CoverFlowApp: App {
             AppCommands(player: env.player, state: env.state, library: env.library, albumView: env.albumView)
         }
 
+        // A value-based group opens only on request and reuses the About window.
+        WindowGroup("About Cover Flow", id: "about", for: String.self) { _ in
+            AboutView().environmentObject(env.state)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         Settings {
             SettingsView()
                 .environmentObject(env.lastfm)
@@ -143,12 +151,17 @@ struct CoverFlowApp: App {
 }
 
 struct AppCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var player: PlayerEngine
     @ObservedObject var state: AppState
     @ObservedObject var library: LibraryStore
     @ObservedObject var albumView: AlbumViewController
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Cover Flow…") { openWindow(id: "about", value: "about") }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Import Music…") { library.presentImportPanel() }
                 .keyboardShortcut("o")
