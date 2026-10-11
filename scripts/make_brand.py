@@ -48,7 +48,7 @@ def vgrad(w, h, top, bot):
     return g.resize((w, h))
 
 
-CHOCOLATE = (92, 56, 36)      # #5C3824 record sleeve
+SLEEVE = (92, 52, 140)         # #5C348C record sleeve (purple)
 CORAL = (232, 115, 90)
 TEAL = (63, 184, 175)
 PLUM = (122, 74, 140)
@@ -116,14 +116,14 @@ def record(img, cx, cy, r):
         d.ellipse([bx - bead, by - bead, bx + bead, by + bead], fill=CREAM + (255,))
     # spindle hole
     hole = L * 0.11
-    d.ellipse(box(hole), fill=CHOCOLATE + (255,))
+    d.ellipse(box(hole), fill=SLEEVE + (255,))
     d.ellipse(box(hole), outline=BRASS + (255,), width=max(1, int(r * 0.008)))
 
     img.alpha_composite(disc)
 
 
 def mark(img, cx, cy, s):
-    """The Cover Flow mark: a chocolate-brown record sleeve, its ornate record, and two receding
+    """The Cover Flow mark: a purple record sleeve, its ornate record, and two receding
     covers on each side."""
     draw = ImageDraw.Draw(img)
     h = s / 2
@@ -135,7 +135,7 @@ def mark(img, cx, cy, s):
             outer_h = h * (0.94 - (k - 1) * 0.04)
             draw.polygon([(inner_x, cy - inner_h), (outer_x, cy - outer_h),
                           (outer_x, cy + outer_h), (inner_x, cy + inner_h)], fill=col)
-    draw.rounded_rectangle([cx - h, cy - h, cx + h, cy + h], radius=s * 0.035, fill=CHOCOLATE)
+    draw.rounded_rectangle([cx - h, cy - h, cx + h, cy + h], radius=s * 0.035, fill=SLEEVE)
     record(img, cx, cy, s * 0.40)
 
 
