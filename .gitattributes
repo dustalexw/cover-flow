@@ -1,0 +1,3 @@
+# Preserve original third-party notices and C API headers verbatim.
+Resources/Licenses/** -whitespace
+Sources/CProjectM/include/projectM-4/** -whitespace
