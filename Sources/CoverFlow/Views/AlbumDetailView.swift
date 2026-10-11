@@ -21,6 +21,7 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
+        .background(AlbumOutsideClickDismissal(enabled: state.editAlbum == nil && state.confirmRemoval == nil) { dismiss() })
         .sheet(item: $state.editAlbum) { ref in
             AlbumEditView(albumID: ref.id).environmentObject(library)
         }

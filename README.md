@@ -64,6 +64,8 @@ Long albums scroll, multiple discs retain their headings, and albums without art
 palette matching their generated placeholder.
 Artwork colors and the cover thumbnail are prepared before the track panel opens and cached
 by artwork version, so opening an album does not flash a temporary background color.
+Click outside the album track panel or press **Escape** to close it. Outside clicks keep
+an active editing or confirmation dialog open.
 
 ## Why this stack
 
