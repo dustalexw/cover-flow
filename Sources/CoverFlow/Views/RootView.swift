@@ -44,6 +44,7 @@ struct RootView: View {
                         .allowsHitTesting(false)
                 }
             }
+            if !state.selection.ids.isEmpty { AlbumSelectionBar(albums: albums) }
             NowPlayingBar()
         }
         .background(TintBackground(tintHex: (browsed ?? player.currentAlbum)?.tintHex))
@@ -70,6 +71,19 @@ struct RootView: View {
             library.importURLs(urls)
             return true
         } isTargeted: { dropTargeted = $0 }
+        .onChange(of: albums.map(\.id)) { state.selection.retainVisible(albums.map(\.id)) }
+        .confirmationDialog("Remove \(state.selectedAlbumRemoval?.count ?? 0) albums from your collection?",
+                            isPresented: Binding(get: { state.selectedAlbumRemoval != nil },
+                                                 set: { if !$0 { state.selectedAlbumRemoval = nil } })) {
+            Button("Remove Selected Albums", role: .destructive) {
+                library.removeAlbums(Set(state.selectedAlbumRemoval ?? []))
+                state.selectedAlbumRemoval = nil
+                state.selection.clear()
+            }
+            Button("Cancel", role: .cancel) { state.selectedAlbumRemoval = nil }
+        } message: {
+            Text("Your imported audio files stay on disk. Generated demo audio belonging to these albums will be deleted.")
+        }
         .preferredColorScheme(state.colorScheme)
     }
 

@@ -36,6 +36,27 @@ recording is preserved. The downloadable 1.0.4 release predates this change.
 
 Run the playback checks with `swift test`.
 
+## Last.fm and album selection (source builds)
+
+In **Settings → Last.fm → Set Up Last.fm**, enter the API key and shared secret from your
+[Last.fm API account](https://www.last.fm/api/account/create). Choose **Connect Last.fm**,
+approve access in your browser, then click **Finish Connecting**. Credentials are saved in
+macOS Keychain; Cover Flow never asks for your Last.fm password. You can pause scrobbling or
+disconnect in Settings.
+
+Tagged tracks send Now Playing and scrobble after half the song or four minutes of actual
+listening, whichever comes first. Tracks must be longer than 30 seconds. Pauses and seeks do
+not earn listening credit; demo tracks and tracks with incomplete metadata are skipped.
+Eligible listens are cached locally during outages and retried for the same account.
+Changing app credentials or disconnecting clears pending listens.
+
+Click an album to select it, **Shift-click** to select a range, and **Command-click** to toggle
+individual albums. In Grid, drag across cards to select a group; hold Shift or Command while
+dragging to add to the selection. In Cover Flow, Shift-drag or Shift-arrow selects a range.
+The selection bar plays or queues albums together in their displayed order. **Command-A**
+selects all visible albums and **Escape** clears the selection. Double-click an album or
+press Return to show its tracks. The downloadable 1.0.4 release predates these features.
+
 ## Why this stack
 
 SwiftUI + AVFoundation, packaged with Swift Package Manager: native 3D transforms and springs
@@ -49,6 +70,7 @@ for Cover Flow, AVFoundation for playback and tag/artwork reading, AppKit where 
 | `Model` | Track / Album values, sort and repeat modes, storage paths |
 | `Library` | Import, metadata (AVFoundation + a small FLAC reader), album grouping, artwork cache, persistence, demo collection |
 | `Playback` | `PlayerEngine` — queue, shuffle/repeat, seeking, volume, errors, Now Playing + media keys |
+| `Scrobbling` | Last.fm authorization, Keychain credentials, listening progress and durable retry queue |
 | `Views` | Cover Flow, grid, album sheet, editor, queue, player bar, settings |
 | `AlbumView` | Album View window controller (presets, resize, position memory) and its content |
 
@@ -57,10 +79,12 @@ without touching the others. Every view observes the same `PlayerEngine`, which 
 
 ## What's saved
 
-Everything stays on this Mac in `~/Library/Application Support/CoverFlow/`:
+Library and playback data stay on this Mac in `~/Library/Application Support/CoverFlow/`:
 `Library.json` (collection, edits, play history), `Playback.json` (queue, position, shuffle,
 repeat, volume) and `Artwork/` (original cover images). Audio files are read where they are —
 never copied, moved or modified. Window layout and preferences use standard macOS defaults.
+Last.fm is optional: connecting sends track metadata and listening timestamps to Last.fm.
+`LastfmPending.json` stores pending listens locally; API credentials and the session key use Keychain.
 
 ## Keyboard
 

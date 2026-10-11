@@ -33,6 +33,7 @@ final class PlayerEngine: ObservableObject {
 
     private let player = GaplessAudioPlayer()
     private unowned let library: LibraryStore
+    private let scrobbler: LastFmScrobbler
     private var unshuffled: [UUID]?
     private var consecutiveFailures = 0
     private var pendingSave: DispatchWorkItem?
@@ -40,8 +41,9 @@ final class PlayerEngine: ObservableObject {
     private var failureSkip: DispatchWorkItem?
     private var playbackRequested = false
 
-    init(library: LibraryStore) {
+    init(library: LibraryStore, scrobbler: LastFmScrobbler) {
         self.library = library
+        self.scrobbler = scrobbler
         player.volume = volume
         player.nextSource = { [weak self] source in
             guard let self, let next = PlaybackOrder.successor(after: source.index, count: self.queue.count,
@@ -52,15 +54,21 @@ final class PlayerEngine: ObservableObject {
             guard let self else { return }
             self.isPlaying = self.player.isPlaying
             self.isBuffering = self.player.isBuffering
+            self.observeScrobbling()
             self.updateNowPlayingInfo()
         }
         player.onTimeChanged = { [weak self] time in self?.tick(time) }
         player.onTrackChanged = { [weak self] source, duration, transitioned in
             guard let self, self.queue[safe: source.index] == source.trackID else { return }
+            if transitioned {
+                self.scrobbler.observe(position: self.duration, duration: self.duration, playing: false)
+                self.scrobbler.newPlayback(track: self.library.track(source.trackID), duration: duration, position: self.player.currentTime)
+            }
             self.currentIndex = source.index
             self.duration = duration
             self.currentTime = self.player.currentTime
             self.consecutiveFailures = 0
+            self.observeScrobbling()
             if transitioned && self.isPlaying { self.announceCurrentTrack() }
             self.updateNowPlayingInfo()
             self.scheduleSave()
@@ -116,8 +124,9 @@ final class PlayerEngine: ObservableObject {
         setQueue(album.trackIDs, startIndex: start, autoplay: true)
     }
 
-    func setQueue(_ ids: [UUID], startIndex: Int, autoplay: Bool) {
+    func setQueue(_ ids: [UUID], startIndex: Int, autoplay: Bool, shuffled: Bool? = nil) {
         guard !ids.isEmpty else { return }
+        if let shuffled { shuffle = shuffled }
         var q = ids
         var idx = startIndex.clamped(0, ids.count - 1)
         if shuffle {
@@ -182,6 +191,8 @@ final class PlayerEngine: ObservableObject {
         player.synchronize()
         guard hasTrack else { return }
         let target = seconds.clamped(0, max(duration, 0))
+        observeScrobbling()
+        scrobbler.seek(to: target)
         currentTime = target
         player.seek(to: target)
         updateNowPlayingInfo()
@@ -330,6 +341,7 @@ final class PlayerEngine: ObservableObject {
         playbackRequested = false
         failureSkip?.cancel()
         player.stop()
+        scrobbler.newPlayback(track: nil, duration: 0, position: 0)
         queue = []
         currentIndex = nil
         currentTime = 0
@@ -395,6 +407,8 @@ final class PlayerEngine: ObservableObject {
             updateNowPlayingInfo()
             return
         }
+        observeScrobbling()
+        scrobbler.newPlayback(track: track, duration: track.duration, position: start)
         duration = track.duration
         currentTime = start
         player.load(source, autoplay: autoplay, at: start)
@@ -422,10 +436,15 @@ final class PlayerEngine: ObservableObject {
     private func tick(_ time: Double) {
         guard player.source != nil else { return }
         if time.isFinite { currentTime = time }
+        observeScrobbling()
         if isPlaying, Date().timeIntervalSince(lastPositionSave) > 10 {
             lastPositionSave = Date()
             saveNow()
         }
+    }
+
+    private func observeScrobbling() {
+        scrobbler.observe(position: player.currentTime, duration: duration, playing: player.isPlaying && !player.isBuffering)
     }
 
     // MARK: Persistence
