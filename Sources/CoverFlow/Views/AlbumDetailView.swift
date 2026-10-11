@@ -3,16 +3,16 @@ import AppKit
 
 struct AlbumDetailView: View {
     let albumID: UUID
+    let colors: AlbumDetailPalette
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Group {
             if let album = library.album(albumID) {
-                content(album)
+                content(album, colors: colors)
             } else {
                 VStack(spacing: 12) {
                     Text("This album is no longer in your collection.").foregroundStyle(.secondary)
@@ -21,126 +21,140 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
-        .background(TintBackground(tintHex: library.album(albumID)?.tintHex))
+        .background(AlbumOutsideClickDismissal(enabled: state.editAlbum == nil && state.confirmRemoval == nil) { dismiss() })
         .sheet(item: $state.editAlbum) { ref in
-            AlbumEditView(albumID: ref.id)
-                .environmentObject(library)
+            AlbumEditView(albumID: ref.id).environmentObject(library)
         }
         .modifier(RemoveAlbumConfirmation(active: true))
     }
 
-    private func content(_ album: Album) -> some View {
+    private func content(_ album: Album, colors: AlbumDetailPalette) -> some View {
         let tracks = library.tracks(of: album)
-        let discs = Set(tracks.map { $0.discNumber ?? 1 })
-        let multiDisc = discs.count > 1
-        return HStack(alignment: .top, spacing: 30) {
-            VStack(alignment: .leading, spacing: 16) {
-                ArtworkView(album: album, pointSize: 290, cornerRadius: 4)
-                    .frame(width: 290, height: 290)
-                    .shadow(color: .black.opacity(0.45), radius: 20, y: 10)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        if album.isDemo { DemoChip() }
-                        if album.missingMetadata {
-                            Label("Some info was guessed from file names", systemImage: "exclamationmark.circle")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+        let multiDisc = Set(tracks.map { $0.discNumber ?? 1 }).count > 1
+        let columns = trackColumns(tracks)
+        let height = max(540, min(660, CGFloat(columns.map(\.count).max() ?? 0) * 32 + 220))
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(album.title)
-                        .font(Typography.albumTitle(24))
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                    Text(album.artist)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Text(detailLine(album, tracks: tracks))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(width: 290, alignment: .leading)
-                HStack(spacing: 8) {
-                    Button {
-                        player.play(albumID: album.id, shuffled: false)
-                    } label: { Label("Play", systemImage: "play.fill") }
-                        .buttonStyle(PillButtonStyle(prominent: true))
-                    Button {
-                        player.play(albumID: album.id, shuffled: true)
-                    } label: { Label("Shuffle", systemImage: "shuffle") }
-                        .buttonStyle(PillButtonStyle())
-                    Menu {
-                        Button("Play Next") { player.playNext(album.trackIDs) }
-                        Button("Add to Queue") { player.addToQueue(album.trackIDs) }
-                        Divider()
-                        Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
-                        Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
-                        if album.hasArtwork && !album.isDemo {
-                            Button("Remove Artwork") { library.removeArtwork(album.id) }
-                        }
-                        Divider()
-                        Button("Remove from Collection…", role: .destructive) {
-                            state.confirmRemoval = IDRef(id: album.id)
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
+                        .font(.custom("Helvetica Neue", size: 28).weight(.bold))
+                        .foregroundStyle(colors.foreground.color)
+                        .lineLimit(2).textSelection(.enabled)
+                    HStack(spacing: 8) {
+                        Text(album.artist).font(.custom("Helvetica Neue", size: 17))
+                        if album.isDemo { DemoChip() }
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 34, height: 30)
-                    .background(Circle().fill(Palette.raised(scheme)))
-                    .accessibilityLabel("More actions")
+                    .foregroundStyle(colors.accent.color)
+                    Text(metadataLine(album))
+                        .font(.custom("Helvetica Neue", size: 12))
+                        .foregroundStyle(colors.secondary.color)
+                    if album.missingMetadata {
+                        Label("Some info was guessed from file names", systemImage: "exclamationmark.circle")
+                            .font(.custom("Helvetica Neue", size: 11)).foregroundStyle(colors.secondary.color)
+                    }
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 12)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 21))
+                        .foregroundStyle(colors.secondary.color)
+                }
+                .buttonStyle(.plain).keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Done").help("Close album tracks (Esc)")
             }
-            .frame(width: 290)
+            .padding(.bottom, 19)
 
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Tracks")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Spacer()
-                    Button {
-                        state.editAlbum = IDRef(id: album.id)
-                    } label: { Label("Edit Info", systemImage: "pencil") }
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 12))
-                    Button("Done") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                        .buttonStyle(PillButtonStyle())
-                        .padding(.leading, 8)
-                }
-                .padding(.bottom, 10)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(tracks.enumerated()), id: \.element.id) { i, track in
-                            let disc = track.discNumber ?? 1
-                            if multiDisc && (i == 0 || (tracks[i - 1].discNumber ?? 1) != disc) {
-                                Text("Disc \(disc)")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, i == 0 ? 2 : 14)
-                                    .padding(.bottom, 4)
-                                    .padding(.leading, 8)
+            HStack(alignment: .top, spacing: 32) {
+                VStack(alignment: .leading, spacing: 14) {
+                    albumControls(album, colors: colors)
+                    Rectangle().fill(colors.foreground.color.opacity(0.18)).frame(height: 1)
+                    ScrollView {
+                        HStack(alignment: .top, spacing: 22) {
+                            ForEach(columns.indices, id: \.self) { column in
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(columns[column], id: \.id) { track in
+                                        let index = tracks.firstIndex(where: { $0.id == track.id }) ?? 0
+                                        let disc = track.discNumber ?? 1
+                                        if multiDisc && (track.id == columns[column].first?.id || index == 0 || (tracks[index - 1].discNumber ?? 1) != disc) {
+                                            Text("Disc \(disc)")
+                                                .font(.custom("Helvetica Neue", size: 11).weight(.bold))
+                                                .foregroundStyle(colors.secondary.color)
+                                                .padding(.top, track.id == columns[column].first?.id ? 0 : 14)
+                                                .padding(.bottom, 5).padding(.leading, 8)
+                                        }
+                                        TrackRow(track: track, position: index + 1, album: album, colors: colors)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
                             }
-                            TrackRow(track: track, position: i + 1, album: album)
                         }
+                        .padding(.bottom, 8)
                     }
+                    Text(summaryLine(tracks))
+                        .font(.custom("Helvetica Neue", size: 11))
+                        .foregroundStyle(colors.secondary.color)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                ArtworkView(album: album, pointSize: 340, cornerRadius: 0)
+                    .frame(width: 340, height: 340)
+                    .overlay(Rectangle().strokeBorder(colors.foreground.color.opacity(0.10)))
+                    .shadow(color: .black.opacity(0.24), radius: 10, x: 0, y: 5)
+                    .padding(.top, 2)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .padding(28)
-        .frame(width: 860, height: 600)
+        .padding(30)
+        .frame(width: 1080, height: height, alignment: .topLeading)
+        .background(colors.background.color.ignoresSafeArea())
+        .environment(\.colorScheme, colors.foreground.luminance < 0.5 ? .light : .dark)
     }
 
-    private func detailLine(_ album: Album, tracks: [Track]) -> String {
-        var parts: [String] = []
-        if let y = album.year { parts.append(String(y)) }
-        if let g = album.genre { parts.append(g) }
-        parts.append(tracks.count == 1 ? "1 track" : "\(tracks.count) tracks")
-        parts.append(formatLongDuration(tracks.reduce(0) { $0 + $1.duration }))
-        return parts.joined(separator: " · ")
+    private func albumControls(_ album: Album, colors: AlbumDetailPalette) -> some View {
+        HStack(spacing: 8) {
+            Button { player.play(albumID: album.id, shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
+                .buttonStyle(AlbumDetailButtonStyle(palette: colors))
+            Button { player.play(albumID: album.id, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                .buttonStyle(AlbumDetailButtonStyle(palette: colors))
+            Menu {
+                Button("Play Next") { player.playNext(album.trackIDs) }
+                Button("Add to Queue") { player.addToQueue(album.trackIDs) }
+                Divider()
+                Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
+                Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
+                if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
+                Divider()
+                Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
+            } label: { Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden)
+            .frame(width: 30, height: 26)
+            .foregroundStyle(colors.foreground.color)
+            .background(colors.foreground.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+            .accessibilityLabel("More actions")
+            Spacer()
+            Button("Edit Info") { state.editAlbum = IDRef(id: album.id) }
+                .buttonStyle(.plain).font(.custom("Helvetica Neue", size: 11))
+                .foregroundStyle(colors.secondary.color)
+        }
+    }
+
+    private func trackColumns(_ tracks: [Track]) -> [[Track]] {
+        guard tracks.count > 9 else { return [tracks] }
+        let midpoint = (tracks.count + 1) / 2
+        // Prefer a disc boundary near the middle, without creating an unbalanced list.
+        let boundaries = (1..<tracks.count).filter {
+            (tracks[$0].discNumber ?? 1) != (tracks[$0 - 1].discNumber ?? 1)
+                && abs($0 - midpoint) <= max(2, tracks.count / 6)
+        }
+        let split = boundaries.min { abs($0 - midpoint) < abs($1 - midpoint) } ?? midpoint
+        return [Array(tracks[..<split]), Array(tracks[split...])]
+    }
+
+    private func metadataLine(_ album: Album) -> String {
+        [album.genre?.nonEmpty, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func summaryLine(_ tracks: [Track]) -> String {
+        "\(tracks.count == 1 ? "1 song" : "\(tracks.count) songs"), \(formatLongDuration(tracks.reduce(0) { $0 + $1.duration }))"
     }
 }
 
@@ -148,9 +162,9 @@ struct TrackRow: View {
     let track: Track
     let position: Int
     let album: Album
+    let colors: AlbumDetailPalette
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
-    @Environment(\.colorScheme) private var scheme
     @State private var hover = false
     @State private var exists = true
 
@@ -159,45 +173,43 @@ struct TrackRow: View {
         Button {
             if isCurrent { player.togglePlayPause() } else { player.play(albumID: album.id, startAt: track.id) }
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 ZStack {
                     if isCurrent {
-                        NowPlayingBars(playing: player.isPlaying, color: Palette.accent(scheme), height: 11)
+                        NowPlayingBars(playing: player.isPlaying, color: colors.accent.color, height: 11)
                     } else if hover {
-                        Image(systemName: "play.fill").font(.system(size: 11))
+                        Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(colors.accent.color)
                     } else {
-                        Text(track.trackNumber.map(String.init) ?? "–")
-                            .font(.system(size: 12).monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        Text(track.trackNumber.map(String.init) ?? String(position))
+                            .font(.custom("Helvetica Neue", size: 12).monospacedDigit())
+                            .foregroundStyle(colors.secondary.color)
                     }
                 }
-                .frame(width: 26)
+                .frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.title)
-                        .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                        .foregroundStyle(isCurrent ? Palette.accent(scheme) : Color.primary)
-                        .lineLimit(1)
-                    if track.artist != album.artist && album.artist != "" {
-                        Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.custom("Helvetica Neue", size: 13).weight(isCurrent ? .medium : .regular))
+                        .foregroundStyle(isCurrent ? colors.accent.color : colors.foreground.color)
+                        .lineLimit(1).help(track.title)
+                    if track.artist != album.artist && !album.artist.isEmpty {
+                        Text(track.artist).font(.custom("Helvetica Neue", size: 11))
+                            .foregroundStyle(colors.secondary.color).lineLimit(1)
                     }
                 }
-                Spacer(minLength: 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if !exists {
-                    Label("File missing", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.orange)
-                        .help(track.fileURL.path)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11)).foregroundStyle(colors.foreground.color)
+                        .help("File missing: \(track.fileURL.path)")
                 }
                 Text(formatTime(track.duration))
-                    .font(.system(size: 12).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.custom("Helvetica Neue", size: 12).monospacedDigit())
+                    .foregroundStyle(colors.secondary.color)
+                    .frame(width: 42, alignment: .trailing)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(hover ? Palette.raisedHover(scheme) : (isCurrent ? Palette.raised(scheme) : Color.clear))
-            )
+            .padding(.horizontal, 6).padding(.vertical, 6)
+            .frame(minHeight: 30)
+            .background(colors.foreground.color.opacity(hover ? 0.10 : (isCurrent ? 0.07 : 0)), in: RoundedRectangle(cornerRadius: 3))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -209,7 +221,7 @@ struct TrackRow: View {
             Divider()
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([track.fileURL]) }
         }
-        .task { exists = library.fileExists(track) }
+        .task(id: track.fileURL) { exists = library.fileExists(track) }
         .accessibilityLabel("Track \(track.trackNumber ?? position), \(track.title), \(formatTime(track.duration))\(isCurrent ? ", now playing" : "")\(exists ? "" : ", file missing")")
         .accessibilityHint(isCurrent ? "Play or pause" : "Play from this track")
     }

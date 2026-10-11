@@ -20,11 +20,17 @@ final class ArtworkStore: @unchecked Sendable {
     let directory: URL
     private let cache = NSCache<NSString, NSImage>()
     private let fullCache = NSCache<NSString, NSImage>()
+    private final class PaletteBox {
+        let colors: AlbumDetailPalette
+        init(_ colors: AlbumDetailPalette) { self.colors = colors }
+    }
+    private let detailPaletteCache = NSCache<NSString, PaletteBox>()
 
     init(directory: URL) {
         self.directory = directory
         cache.totalCostLimit = 320 * 1024 * 1024
         fullCache.countLimit = 3
+        detailPaletteCache.countLimit = 512
     }
 
     func fileURL(_ file: String) -> URL { directory.appendingPathComponent(file) }
@@ -126,6 +132,22 @@ final class ArtworkStore: @unchecked Sendable {
     }
 
     // MARK: Colour
+
+    /// Prepare the palette and cover before presenting album tracks. The cache is
+    /// versioned with the artwork so replacing a cover naturally gets fresh colors.
+    @MainActor
+    func albumDetailPalette(_ album: Album) async -> AlbumDetailPalette {
+        let key = album.artworkKey as NSString
+        if let hit = detailPaletteCache.object(forKey: key) { return hit.colors }
+        guard let image = await thumbnail(album, pixels: 720),
+              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return AlbumDetailPalette.fallback(album)
+        }
+        let colors = await Task.detached(priority: .userInitiated) { AlbumDetailPalette.extract(from: cg) }.value
+        guard let colors else { return AlbumDetailPalette.fallback(album) }
+        detailPaletteCache.setObject(PaletteBox(colors), forKey: key)
+        return colors
+    }
 
     static func averageColor(source: CGImageSource) -> NSColor? {
         let opts: [CFString: Any] = [
