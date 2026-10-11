@@ -28,6 +28,25 @@ Double-click **build.command** in Finder (or run `./build.command` in Terminal).
 release build with the Swift toolchain from Xcode, assembles **Cover Flow.app** next to the
 script, signs it for local use and launches it. Requires macOS 14 or later and Xcode (or the
 Command Line Tools). You can drag `Cover Flow.app` into /Applications.
+The first build downloads verified projectM 4.1.8 source and, if needed, a local
+CMake tool. Later builds reuse them. No Homebrew installation is required.
+Use `./build.command --no-launch` to assemble the app without launching it.
+
+## MilkDrop visualizer
+
+Click the waveform button in the top bar or press **⌘3** to open MilkDrop.
+The resizable window uses projectM to render real MilkDrop presets from the
+audio currently playing. Eight original presets are included. Use **← / →**
+to switch presets, **Space** to pause or resume, and the full-screen button to
+fill the display. **Escape** leaves full screen or closes the visualizer.
+Turn **Auto** off to hold a preset; otherwise it changes every 25 seconds.
+
+Choose **Add MilkDrop Presets…** from the preset menu to import `.milk` files.
+Imported presets are stored in Application Support/CoverFlow/Visualizer/Presets.
+Rendering stops when the window closes or is hidden, and opening or resizing it
+does not restart music. The visualizer uses the player's audio directly.
+See [third-party notices](Resources/ThirdPartyNotices.md) for licenses, included
+engine source, and instructions for replacing the projectM library.
 
 ## Gapless playback
 
@@ -110,6 +129,7 @@ Last.fm is optional: connecting sends track metadata and listening timestamps to
 | ⌘↑ / ⌘↓ / ⌥⌘↓ | Volume up / down / mute |
 | ⌃⌘S / ⌃⌘R | Shuffle / repeat |
 | ⌘1 / ⌘2 | Cover Flow / Grid |
+| ⌘3 / ⌘F | MilkDrop visualizer / search music |
 | ⌘U / ⌘L | Queue / show playing album |
 | ⇧⌘A | Album View; ⌥⌘1/2/3 Compact / Large / Immersive |
 | In Album View | Space, ←/→, 1/2/3 sizes, F artwork focus, Esc exit Immersive / close |

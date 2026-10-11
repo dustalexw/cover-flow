@@ -64,7 +64,6 @@ struct RootView: View {
         .navigationTitle("Cover Flow")
         .navigationSubtitle(subtitle(visible: albums.count))
         .toolbar { toolbar }
-        .searchable(text: $state.searchText, placement: .toolbar, prompt: "Albums, artists, tracks")
         .inspector(isPresented: $state.showQueue) {
             QueueView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
@@ -147,27 +146,30 @@ struct RootView: View {
                 }
             }
         }
-        ToolbarItemGroup(placement: .primaryAction) {
-            Menu {
-                Picker("Sort By", selection: $state.sortOrder) {
-                    ForEach(SortOrder.allCases) { Text($0.label).tag($0) }
+        ToolbarItem(placement: .primaryAction) {
+            HStack(spacing: 12) {
+                CollectionSearchField(text: $state.searchText, focusRequest: state.searchFocusRequest)
+                    .frame(width: 210, height: 28)
+
+                Button { AppEnvironment.shared.visualizer.show() } label: {
+                    Image(systemName: "waveform.path")
                 }
-                .pickerStyle(.inline)
-            } label: {
-                Label("Sort: \(state.sortOrder.label)", systemImage: "arrow.up.arrow.down")
-            }
-            .help("Sort albums")
+                .accessibilityLabel("MilkDrop Visualizer").help("Open MilkDrop Visualizer (⌘3)")
 
-            Button { library.presentImportPanel() } label: {
-                Label("Import Music", systemImage: "plus")
-            }
-            .help("Import audio files or folders (⌘O)")
-            .disabled(library.importProgress != nil)
+                Button { state.showQueue.toggle() } label: { Image(systemName: "sidebar.right") }
+                    .accessibilityLabel("Queue").help("Show or hide the queue (⌘U)")
 
-            Button { state.showQueue.toggle() } label: {
-                Label("Queue", systemImage: "sidebar.right")
+                Menu {
+                    Button("Import Music…") { library.presentImportPanel() }
+                        .disabled(library.importProgress != nil)
+                    Divider()
+                    Picker("Sort By", selection: $state.sortOrder) {
+                        ForEach(SortOrder.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                } label: { Image(systemName: "ellipsis.circle") }
+                .accessibilityLabel("Collection options").help("Import music and sort albums")
             }
-            .help("Show or hide the queue (⌘U)")
         }
     }
 }

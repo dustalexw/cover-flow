@@ -13,7 +13,17 @@ sw_vers >> "$LOG" 2>&1
 xcrun swift --version >> "$LOG" 2>&1
 
 echo "Building Cover Flow (release)…"
-xcrun swift build -c release >> "$LOG" 2>&1
+bash scripts/build-visualizer.sh >> "$LOG" 2>&1
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "FAILED $rc" > "$STATUS"
+  echo "Visualizer build failed. Details are in build.log."
+  exit $rc
+fi
+export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
+export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
+xcrun swift build -c release --disable-sandbox --cache-path "$PWD/.build/swift-cache" \
+  -Xswiftc -module-cache-path -Xswiftc "$CLANG_MODULE_CACHE_PATH" >> "$LOG" 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
   echo "FAILED $rc" > "$STATUS"
@@ -25,8 +35,14 @@ fi
 
 BIN_DIR=$(xcrun swift build -c release --show-bin-path)
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/ThirdPartySources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/CoverFlow" "$APP/Contents/MacOS/CoverFlow"
+cp -R "$BIN_DIR/CoverFlow_CoverFlow.bundle" "$APP/Contents/Resources/"
+cp .build/vendor/projectm-install/lib/libprojectM-4.4.1.8.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
+install_name_tool -id @rpath/libprojectM-4.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
+cp -R Resources/Licenses "$APP/Contents/Resources/"
+cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
+cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
 
 # App icon
 if [ -f Resources/AppIcon-1024.png ]; then
@@ -37,7 +53,9 @@ if [ -f Resources/AppIcon-1024.png ]; then
     d=$((s * 2))
     sips -z $d $d Resources/AppIcon-1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null 2>&1
   done
-  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" >> "$LOG" 2>&1
+  if ! iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" >> "$LOG" 2>&1; then
+    cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns" || exit 1
+  fi
 fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -62,10 +80,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+codesign --force --sign - "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1
 codesign --force --sign - "$APP" >> "$LOG" 2>&1
+codesign --verify --deep --strict "$APP" >> "$LOG" 2>&1 || exit 1
 
 echo "OK" > "$STATUS"
 echo "=== Build succeeded — $(date)" >> "$LOG"
 echo "Built $APP. Launching…"
+if [ "${1:-}" = "--no-launch" ]; then exit 0; fi
 pkill -x CoverFlow 2>/dev/null; sleep 0.5
 open "$APP"

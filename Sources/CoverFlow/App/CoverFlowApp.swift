@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); AppEnvironment.shared.albumView.applyTheme() }
     }
     @Published var searchText = ""
+    @Published var searchFocusRequest = 0
     /// The album being browsed. Independent from what is playing.
     @Published var browsedAlbumID: UUID? {
         didSet { UserDefaults.standard.set(browsedAlbumID?.uuidString, forKey: "browsedAlbum") }
@@ -71,6 +72,7 @@ final class AppEnvironment {
     let lastfm: LastFmScrobbler
     let state: AppState
     let albumView: AlbumViewController
+    lazy var visualizer = VisualizerController(player: player)
 
     private init() {
         artwork = ArtworkStore(directory: AppPaths.artwork)
@@ -177,6 +179,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut("1")
             Button("Grid") { state.browseMode = .grid }
                 .keyboardShortcut("2")
+            Button("MilkDrop Visualizer") { AppEnvironment.shared.visualizer.show() }
+                .keyboardShortcut("3")
+            Button("Search Music") { state.searchFocusRequest += 1 }
+                .keyboardShortcut("f")
             Menu("Sort By") {
                 ForEach(SortOrder.allCases) { order in
                     Button {

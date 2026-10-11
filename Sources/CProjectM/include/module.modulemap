@@ -1,0 +1,4 @@
+module CProjectM {
+    header "CFProjectM.h"
+    export *
+}
