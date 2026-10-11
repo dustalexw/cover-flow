@@ -150,7 +150,7 @@ struct AlbumViewScreen: View {
     }
 }
 
-/// The cover itself: full-resolution source, aspect preserved, never upscaled past 2× its pixels.
+/// The cover itself: full-resolution source, aspect preserved, sized to the available window space.
 struct HeroArtwork: View {
     let album: Album?
     let maxSize: CGSize
@@ -187,7 +187,6 @@ struct HeroArtwork: View {
         .clipShape(RoundedRectangle(cornerRadius: hasTrack ? 6 : 14, style: .continuous))
         .shadow(color: .black.opacity(hasTrack ? (scheme == .dark ? 0.6 : 0.3) : 0), radius: 30, y: 16)
         .animation(reduceMotion ? .linear(duration: 0.15) : .easeInOut(duration: 0.6), value: shown?.key)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: size)
         .task(id: key) {
             guard let album, album.hasArtwork else {
                 shown = nil
@@ -213,13 +212,8 @@ struct HeroArtwork: View {
     private func fittedSize() -> CGSize {
         guard hasTrack else { return CGSize(width: min(maxSize.width, 300), height: min(maxSize.height, 260)) }
         let aspect = album?.artworkAspect ?? 1
-        var w = min(maxSize.width, maxSize.height * aspect)
-        var h = w / aspect
-        if let px = album?.artworkPixelWidth, album?.hasArtwork == true {
-            // Points on a Retina display are 2 px: allow at most 2× upsampling of the source pixels.
-            let cap = CGFloat(px)
-            if w > cap { w = cap; h = w / aspect }
-        }
+        let w = min(maxSize.width, maxSize.height * aspect)
+        let h = w / aspect
         return CGSize(width: max(1, w.rounded()), height: max(1, h.rounded()))
     }
 
@@ -306,6 +300,11 @@ struct AlbumViewControls: View {
                 .font(.system(size: compact ? 11 : 12.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            if immersive, let year = album?.year {
+                Text(String(year))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.secondary)
+            }
         }
         .multilineTextAlignment(align == .center ? .center : .leading)
         .accessibilityElement(children: .combine)
