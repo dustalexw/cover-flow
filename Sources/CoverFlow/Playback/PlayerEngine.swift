@@ -31,36 +31,53 @@ final class PlayerEngine: ObservableObject {
         didSet { player.volume = volume; scheduleSave() }
     }
 
-    private let player = AVPlayer()
+    private let player = GaplessAudioPlayer()
     private unowned let library: LibraryStore
     private var unshuffled: [UUID]?
-    private var timeObserver: Any?
-    private var cancellables = Set<AnyCancellable>()
-    private var itemCancellables = Set<AnyCancellable>()
     private var consecutiveFailures = 0
-    private var isSeeking = false
     private var pendingSave: DispatchWorkItem?
     private var lastPositionSave = Date.distantPast
     private var failureSkip: DispatchWorkItem?
+    private var playbackRequested = false
 
     init(library: LibraryStore) {
         self.library = library
         player.volume = volume
-        player.actionAtItemEnd = .pause
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] time in
-            MainActor.assumeIsolated { self?.tick(time) }
+        player.nextSource = { [weak self] source in
+            guard let self, let next = PlaybackOrder.successor(after: source.index, count: self.queue.count,
+                                                              repeatMode: self.repeatMode) else { return nil }
+            return self.audioSource(at: next)
         }
-        player.publisher(for: \.timeControlStatus)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.isPlaying = status != .paused
-                    self.isBuffering = status == .waitingToPlayAtSpecifiedRate
-                    self.updateNowPlayingInfo()
-                }
-            }
-            .store(in: &cancellables)
+        player.onStateChanged = { [weak self] in
+            guard let self else { return }
+            self.isPlaying = self.player.isPlaying
+            self.isBuffering = self.player.isBuffering
+            self.updateNowPlayingInfo()
+        }
+        player.onTimeChanged = { [weak self] time in self?.tick(time) }
+        player.onTrackChanged = { [weak self] source, duration, transitioned in
+            guard let self, self.queue[safe: source.index] == source.trackID else { return }
+            self.currentIndex = source.index
+            self.duration = duration
+            self.currentTime = self.player.currentTime
+            self.consecutiveFailures = 0
+            if transitioned && self.isPlaying { self.announceCurrentTrack() }
+            self.updateNowPlayingInfo()
+            self.scheduleSave()
+        }
+        player.onEnd = { [weak self] in
+            guard let self else { return }
+            self.loadCurrent(autoplay: false)
+            Announcer.announce("End of queue")
+        }
+        player.onFailure = { [weak self] source, error in
+            guard let self, let track = self.library.track(source.trackID) else { return }
+            self.player.stop()
+            self.currentIndex = source.index
+            self.currentTime = 0
+            self.duration = track.duration
+            self.handleFailure(track, reason: error.localizedDescription, wantedToPlay: self.playbackRequested)
+        }
         library.onTracksRemoved = { [weak self] ids in
             MainActor.assumeIsolated { self?.purge(ids) }
         }
@@ -120,25 +137,33 @@ final class PlayerEngine: ObservableObject {
     }
 
     func togglePlayPause() {
+        player.synchronize()
         guard hasTrack else { return }
-        if player.currentItem == nil {
+        if player.source == nil {
             loadCurrent(autoplay: true, at: currentTime)
             return
         }
         if isPlaying {
-            player.pause()
+            pause()
         } else {
+            playbackRequested = true
             if duration > 0 && currentTime >= duration - 0.25 { seek(to: 0) }
             player.play()
         }
         scheduleSave()
     }
 
-    func pause() { player.pause() }
+    func pause() {
+        playbackRequested = false
+        failureSkip?.cancel()
+        player.pause()
+        scheduleSave()
+    }
 
     func next() { advance(automatic: false) }
 
     func previous() {
+        player.synchronize()
         guard let idx = currentIndex else { return }
         if currentTime > 3 {
             seek(to: 0)
@@ -154,16 +179,12 @@ final class PlayerEngine: ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        player.synchronize()
         guard hasTrack else { return }
         let target = seconds.clamped(0, max(duration, 0))
         currentTime = target
-        isSeeking = true
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
-                self?.isSeeking = false
-                self?.updateNowPlayingInfo()
-            }
-        }
+        player.seek(to: target)
+        updateNowPlayingInfo()
         scheduleSave()
     }
 
@@ -181,6 +202,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     func toggleShuffle() {
+        player.synchronize()
         shuffle.toggle()
         guard let idx = currentIndex, queue.indices.contains(idx) else { return }
         let current = queue[idx]
@@ -197,18 +219,22 @@ final class PlayerEngine: ObservableObject {
             unshuffled = nil
         }
         Announcer.announce(shuffle ? "Shuffle on" : "Shuffle off")
+        refreshUpcoming()
         scheduleSave()
     }
 
     func cycleRepeat() {
+        player.synchronize()
         repeatMode = repeatMode.next
         Announcer.announce(repeatMode.label)
+        refreshUpcoming()
         scheduleSave()
     }
 
     // MARK: Queue editing
 
     func playNext(_ ids: [UUID]) {
+        player.synchronize()
         guard !ids.isEmpty else { return }
         if queue.isEmpty || currentIndex == nil {
             setQueue(ids, startIndex: 0, autoplay: false)
@@ -217,10 +243,12 @@ final class PlayerEngine: ObservableObject {
         let at = (currentIndex ?? -1) + 1
         queue.insert(contentsOf: ids, at: at)
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
     func addToQueue(_ ids: [UUID]) {
+        player.synchronize()
         guard !ids.isEmpty else { return }
         if queue.isEmpty || currentIndex == nil {
             setQueue(ids, startIndex: 0, autoplay: false)
@@ -228,21 +256,25 @@ final class PlayerEngine: ObservableObject {
         }
         queue.append(contentsOf: ids)
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
     func moveUpNext(from offsets: IndexSet, to destination: Int) {
+        player.synchronize()
         let base = (currentIndex ?? -1) + 1
         var upcoming = Array(queue[base...])
         upcoming.move(fromOffsets: offsets, toOffset: destination)
         queue = Array(queue[..<base]) + upcoming
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
     enum QueueMove { case top, up, down }
 
     func move(absoluteIndex i: Int, _ move: QueueMove) {
+        player.synchronize()
         let base = (currentIndex ?? -1) + 1
         guard i >= base, queue.indices.contains(i) else { return }
         let target: Int
@@ -255,10 +287,12 @@ final class PlayerEngine: ObservableObject {
         let id = queue.remove(at: i)
         queue.insert(id, at: target)
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
     func removeFromQueue(absoluteIndex i: Int) {
+        player.synchronize()
         guard queue.indices.contains(i) else { return }
         if i == currentIndex {
             queue.remove(at: i)
@@ -271,13 +305,16 @@ final class PlayerEngine: ObservableObject {
             if let c = currentIndex, i < c { currentIndex = c - 1 }
         }
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
     func clearUpNext() {
+        player.synchronize()
         guard let idx = currentIndex else { queue = []; return }
         queue = Array(queue[...idx])
         unshuffled = nil
+        refreshUpcoming()
         scheduleSave()
     }
 
@@ -290,8 +327,9 @@ final class PlayerEngine: ObservableObject {
 
     func stop() {
         player.pause()
-        player.replaceCurrentItem(with: nil)
-        itemCancellables.removeAll()
+        playbackRequested = false
+        failureSkip?.cancel()
+        player.stop()
         queue = []
         currentIndex = nil
         currentTime = 0
@@ -301,6 +339,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func purge(_ ids: Set<UUID>) {
+        player.synchronize()
         guard !queue.isEmpty else { return }
         let currentID = currentTrackID
         let currentRemoved = currentID.map { ids.contains($0) } ?? false
@@ -315,37 +354,42 @@ final class PlayerEngine: ObservableObject {
         } else if let currentID {
             currentIndex = queue.firstIndex(of: currentID)
         }
+        refreshUpcoming()
         scheduleSave()
     }
 
     // MARK: Internals
 
+    private func audioSource(at index: Int) -> AudioSource? {
+        guard let id = queue[safe: index], let track = library.track(id) else { return nil }
+        return AudioSource(index: index, trackID: id, url: track.fileURL)
+    }
+
+    private func refreshUpcoming() {
+        guard let index = currentIndex, let source = audioSource(at: index) else { return }
+        player.refreshUpcoming(current: source)
+    }
+
     private func advance(automatic: Bool) {
-        guard let idx = currentIndex else { return }
-        if automatic && repeatMode == .one {
-            seek(to: 0)
-            player.play()
-            return
-        }
-        if idx + 1 < queue.count {
-            currentIndex = idx + 1
-            loadCurrent(autoplay: true)
-        } else if repeatMode == .all && !queue.isEmpty {
-            currentIndex = 0
-            loadCurrent(autoplay: true)
-        } else if automatic {
-            // End of the queue: stay on the last track, rewound and paused.
-            player.pause()
-            seek(to: 0)
-            Announcer.announce("End of queue")
-        }
+        player.synchronize()
+        guard let idx = currentIndex,
+              let next = PlaybackOrder.successor(after: idx, count: queue.count,
+                                                  repeatMode: repeatMode, automatic: automatic) else { return }
+        currentIndex = next
+        loadCurrent(autoplay: true)
+    }
+
+    private func announceCurrentTrack() {
+        guard let trackID = currentTrackID, let track = currentTrack else { return }
+        library.markPlayed(trackID: trackID)
+        Announcer.announce("Now playing \(track.title) by \(track.artist)")
     }
 
     private func loadCurrent(autoplay: Bool, at start: Double = 0) {
-        itemCancellables.removeAll()
         failureSkip?.cancel()
-        guard let trackID = currentTrackID, let track = library.track(trackID) else {
-            player.replaceCurrentItem(with: nil)
+        playbackRequested = autoplay
+        guard let index = currentIndex, let source = audioSource(at: index), let track = currentTrack else {
+            player.stop()
             currentTime = 0
             duration = 0
             updateNowPlayingInfo()
@@ -353,56 +397,8 @@ final class PlayerEngine: ObservableObject {
         }
         duration = track.duration
         currentTime = start
-        guard FileManager.default.fileExists(atPath: track.fileURL.path) else {
-            player.replaceCurrentItem(with: nil)
-            handleFailure(track, reason: "The file is missing or was moved: \(track.fileURL.path)", wantedToPlay: autoplay)
-            return
-        }
-        let item = AVPlayerItem(url: track.fileURL)
-        item.publisher(for: \.status)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak item] status in
-                MainActor.assumeIsolated {
-                    guard let self, let item else { return }
-                    switch status {
-                    case .readyToPlay:
-                        self.consecutiveFailures = 0
-                        let d = item.duration.seconds
-                        if d.isFinite && d > 0 { self.duration = d }
-                        self.updateNowPlayingInfo()
-                    case .failed:
-                        self.handleFailure(track, reason: item.error?.localizedDescription ?? "Unknown error.", wantedToPlay: true)
-                    default:
-                        break
-                    }
-                }
-            }
-            .store(in: &itemCancellables)
-        NotificationCenter.default.publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: item)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.advance(automatic: true) } }
-            .store(in: &itemCancellables)
-        NotificationCenter.default.publisher(for: AVPlayerItem.failedToPlayToEndTimeNotification, object: item)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] note in
-                MainActor.assumeIsolated {
-                    let err = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                    self?.handleFailure(track, reason: err?.localizedDescription ?? "Playback stopped unexpectedly.", wantedToPlay: true)
-                }
-            }
-            .store(in: &itemCancellables)
-
-        player.replaceCurrentItem(with: item)
-        if start > 0 {
-            player.seek(to: CMTime(seconds: start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-        }
-        if autoplay {
-            player.play()
-            library.markPlayed(trackID: trackID)
-            Announcer.announce("Now playing \(track.title) by \(track.artist)")
-        } else {
-            player.pause()
-        }
+        player.load(source, autoplay: autoplay, at: start)
+        if autoplay { announceCurrentTrack() }
         updateNowPlayingInfo()
         scheduleSave()
     }
@@ -423,10 +419,9 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
-    private func tick(_ time: CMTime) {
-        guard !isSeeking, player.currentItem != nil else { return }
-        let t = time.seconds
-        if t.isFinite { currentTime = t }
+    private func tick(_ time: Double) {
+        guard player.source != nil else { return }
+        if time.isFinite { currentTime = time }
         if isPlaying, Date().timeIntervalSince(lastPositionSave) > 10 {
             lastPositionSave = Date()
             saveNow()

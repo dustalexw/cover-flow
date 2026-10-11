@@ -26,6 +26,16 @@ release build with the Swift toolchain from Xcode, assembles **Cover Flow.app** 
 script, signs it for local use and launches it. Requires macOS 14 or later and Xcode (or the
 Command Line Tools). You can drag `Cover Flow.app` into /Applications.
 
+## Gapless playback (source builds)
+
+The current source plays queued tracks as one continuous audio stream, preparing audio ahead
+of each transition. Repeat One and Repeat All use the same gapless path. Tracks with different
+sample rates or channel counts are converted to a shared output format, and decoding uses a
+bounded buffer rather than loading entire songs into memory. Silence already present in a
+recording is preserved. The downloadable 1.0.4 release predates this change.
+
+Run the playback checks with `swift test`.
+
 ## Why this stack
 
 SwiftUI + AVFoundation, packaged with Swift Package Manager: native 3D transforms and springs
