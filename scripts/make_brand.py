@@ -48,8 +48,83 @@ def vgrad(w, h, top, bot):
     return g.resize((w, h))
 
 
-def mark(draw, cx, cy, s):
-    """The Cover Flow mark: an ivory record sleeve with two receding covers on each side."""
+CORAL = (232, 115, 90)
+TEAL = (63, 184, 175)
+PLUM = (122, 74, 140)
+
+
+def record(img, cx, cy, r):
+    """An ornate vinyl disc: fine grooves with an iridescent sheen, a brass rim, and a
+    jewel-toned centre label with a sunburst and a ring of beads. Drawn on layers so the
+    translucent parts blend properly."""
+    import math
+    W, H = img.size
+    disc = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(disc)
+    box = lambda rr: [cx - rr, cy - rr, cx + rr, cy + rr]
+
+    # vinyl body with a lifted shadow
+    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).ellipse([cx - r, cy - r + r * 0.05, cx + r, cy + r + r * 0.05], fill=(9, 17, 38, 120))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(max(1, r * 0.04))))
+    d.ellipse(box(r), fill=(14, 18, 32, 255))
+
+    # grooves: alternating fine rings, slightly warm so they read against the black
+    n = 22
+    for i in range(n):
+        rr = r * (0.96 - i * (0.50 / n))
+        a = 46 if i % 3 == 0 else 22
+        d.ellipse(box(rr), outline=(190, 200, 225, a), width=max(1, int(r * 0.006)))
+
+    # iridescent sheen: two opposite soft wedges in teal→plum→coral
+    sheen = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(sheen)
+    for base, cols in ((-62, (TEAL, PLUM, CORAL)), (118, (CORAL, PLUM, TEAL))):
+        for j, col in enumerate(cols):
+            sd.pieslice(box(r * 0.97), base + j * 9, base + j * 9 + 11, fill=col + (70,))
+    sheen = sheen.filter(ImageFilter.GaussianBlur(max(1, r * 0.035)))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).ellipse(box(r * 0.97), fill=255)
+    ImageDraw.Draw(mask).ellipse(box(r * 0.44), fill=0)
+    disc.alpha_composite(Image.composite(sheen, Image.new("RGBA", (W, H), (0, 0, 0, 0)), mask))
+    d = ImageDraw.Draw(disc)
+
+    # brass rim
+    d.ellipse(box(r), outline=BRASS + (255,), width=max(2, int(r * 0.03)))
+
+    # label: concentric jewel rings
+    L = r * 0.42
+    d.ellipse(box(L), fill=CORAL + (255,))
+    d.ellipse(box(L * 0.86), fill=BRASS + (255,))
+    d.ellipse(box(L * 0.74), fill=PLUM + (255,))
+    # sunburst of alternating rays on the plum field
+    rays = 16
+    for k in range(rays):
+        a0 = k * 360 / rays
+        col = TEAL if k % 2 == 0 else BRASS
+        d.pieslice(box(L * 0.70), a0, a0 + 360 / rays * 0.55, fill=col + (255,))
+    d.ellipse(box(L * 0.40), fill=NAVY_TOP + (255,))
+    d.ellipse(box(L * 0.34), outline=BRASS + (255,), width=max(1, int(r * 0.012)))
+    # bead ring between coral and brass
+    beads = 24
+    br = L * 0.93
+    bead = max(1.0, L * 0.035)
+    for k in range(beads):
+        a = math.radians(k * 360 / beads)
+        bx, by = cx + br * math.cos(a), cy + br * math.sin(a)
+        d.ellipse([bx - bead, by - bead, bx + bead, by + bead], fill=CREAM + (255,))
+    # spindle hole
+    hole = L * 0.11
+    d.ellipse(box(hole), fill=IVORY + (255,))
+    d.ellipse(box(hole), outline=BRASS + (255,), width=max(1, int(r * 0.008)))
+
+    img.alpha_composite(disc)
+
+
+def mark(img, cx, cy, s):
+    """The Cover Flow mark: an ivory record sleeve, its ornate record, and two receding
+    covers on each side."""
+    draw = ImageDraw.Draw(img)
     h = s / 2
     for side in (-1, 1):
         for k, col in ((2, SIDE_OUT), (1, SIDE_IN)):
@@ -60,10 +135,7 @@ def mark(draw, cx, cy, s):
             draw.polygon([(inner_x, cy - inner_h), (outer_x, cy - outer_h),
                           (outer_x, cy + outer_h), (inner_x, cy + inner_h)], fill=col)
     draw.rounded_rectangle([cx - h, cy - h, cx + h, cy + h], radius=s * 0.035, fill=IVORY)
-    r = s * 0.30
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=NAVY_TOP, width=max(2, int(s * 0.028)))
-    r2 = s * 0.075
-    draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], fill=NAVY_TOP)
+    record(img, cx, cy, s * 0.40)
 
 
 def icon_tile(size, ss=4):
@@ -73,8 +145,8 @@ def icon_tile(size, ss=4):
     mask = Image.new("L", (W, W), 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, W - 1, W - 1], radius=int(W * 0.225), fill=255)
     tile.paste(vgrad(W, W, NAVY_TOP, NAVY_BOT).convert("RGBA"), (0, 0), mask)
+    mark(tile, W / 2, W / 2 + W * 0.007, W * 0.437)
     d = ImageDraw.Draw(tile)
-    mark(d, W / 2, W / 2 + W * 0.007, W * 0.437)
     # hairline edge so the tile reads on a navy banner
     d.rounded_rectangle([0, 0, W - 1, W - 1], radius=int(W * 0.225), outline=(255, 255, 255, 34), width=ss * 2)
     return tile.resize((size, size), Image.LANCZOS)
@@ -90,7 +162,7 @@ def app_icon(path, S=1024, ss=4):
     ImageDraw.Draw(shadow).rounded_rectangle([m, m + 14 * ss, W - m, W - m + 14 * ss], radius=185 * ss, fill=(0, 0, 0, 110))
     img = Image.alpha_composite(img, shadow.filter(ImageFilter.GaussianBlur(18 * ss)))
     img.paste(vgrad(W, W, NAVY_TOP, NAVY_BOT).convert("RGBA"), (0, 0), mask)
-    mark(ImageDraw.Draw(img), W / 2, W / 2 + 6 * ss, 360 * ss)
+    mark(img, W / 2, W / 2 + 6 * ss, 360 * ss)
     img.resize((S, S), Image.LANCZOS).save(path)
 
 
