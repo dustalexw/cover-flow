@@ -64,6 +64,8 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var importProgress: ImportProgress?
     @Published var lastReport: ImportReport?
     @Published var notice: String?
+    @Published var artworkWriteReport: ArtworkWriteReport?
+    private var artworkReplacements = Set<UUID>()
     @Published private(set) var isGeneratingDemo = false
 
     let artwork: ArtworkStore
@@ -422,7 +424,7 @@ final class LibraryStore: ObservableObject {
     func chooseReplacementArtwork(for id: UUID) {
         let panel = NSOpenPanel()
         panel.title = "Choose Artwork"
-        panel.message = "Pick an image to use as this album’s cover. The largest version you have will look best in Album View."
+        panel.message = "Choose this album’s cover. It will also be embedded in the album’s audio files."
         panel.prompt = "Use Image"
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
@@ -433,18 +435,24 @@ final class LibraryStore: ObservableObject {
     }
 
     func replaceArtwork(_ id: UUID, with url: URL) {
+        guard let album = album(id), artworkReplacements.insert(id).inserted else { return }
+        let files = tracks(of: album).map(\.fileURL)
+        artworkWriteReport = nil
+        notice = "Updating artwork and embedding it in \(files.count) audio files…"
         Task {
+            defer { artworkReplacements.remove(id) }
             let store = artwork
-            let result: Result<SavedArtwork, Error> = await Task.detached(priority: .userInitiated) {
+            let result: Result<(SavedArtwork, EmbeddedArtwork), Error> = await Task.detached(priority: .userInitiated) {
                 do {
                     let data = try Data(contentsOf: url)
-                    return .success(try store.save(data: data, albumID: id))
+                    let embedded = try EmbeddedArtwork.prepare(data)
+                    return .success((try store.save(data: data, albumID: id), embedded))
                 } catch {
                     return .failure(error)
                 }
             }.value
             switch result {
-            case .success(let saved):
+            case .success(let (saved, embedded)):
                 guard let i = albumIndex[id] else { return }
                 albums[i].artworkFile = saved.file
                 albums[i].artworkPixelWidth = saved.pixelWidth
@@ -452,8 +460,11 @@ final class LibraryStore: ObservableObject {
                 albums[i].tintHex = saved.tintHex
                 albums[i].artworkVersion += 1
                 scheduleSave()
+                let report = await ArtworkTagWriter.shared.embed(embedded, in: files)
+                notice = report.summary
+                if !report.failures.isEmpty { artworkWriteReport = report }
                 if saved.pixelWidth < 600 {
-                    notice = "Artwork updated. It’s \(saved.pixelWidth)×\(saved.pixelHeight) pixels, so it will appear smaller in Album View to stay sharp."
+                    notice = report.summary + " The \(saved.pixelWidth)×\(saved.pixelHeight) cover will appear smaller in Album View to stay sharp."
                 }
             case .failure(let error):
                 notice = "Couldn’t use that image: \(error.localizedDescription)"

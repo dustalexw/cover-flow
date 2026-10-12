@@ -21,6 +21,7 @@ if [ $rc -ne 0 ]; then
   exit $rc
 fi
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
+bash scripts/build-tags.sh >> "$LOG" 2>&1 || { echo "Tag writer build failed. Details are in build.log."; exit 1; }
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
 SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 -debug-info-format "${DEBUG_INFO_FORMAT:-dwarf}" \
   --scratch-path "${SWIFT_SCRATCH_PATH:-$PWD/.build}" --disable-sandbox --cache-path "$PWD/.build/swift-cache")
@@ -44,6 +45,7 @@ cp .build/vendor/projectm-install-universal/lib/libprojectM-4.4.1.8.dylib "$APP/
 install_name_tool -id @rpath/libprojectM-4.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
 cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
+cp .build/vendor/taglib-2.3.2.tar.gz "$APP/Contents/Resources/ThirdPartySources/"
 cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
 
 # App icon
@@ -70,8 +72,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>app.coverflow.player</string>
   <key>CFBundleExecutable</key><string>CoverFlow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.2.0</string>
-  <key>CFBundleVersion</key><string>13</string>
+  <key>CFBundleShortVersionString</key><string>1.2.1</string>
+  <key>CFBundleVersion</key><string>14</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.music</string>

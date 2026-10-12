@@ -290,7 +290,7 @@ struct AlbumEditView: View {
                 }
             }
             .frame(minHeight: 160)
-            Text("Changes are saved to Cover Flow’s library only — your audio files are not modified.")
+            Text("Text edits are saved to Cover Flow’s library. Replacing artwork also embeds the cover in the album’s audio files.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {

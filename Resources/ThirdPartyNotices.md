@@ -32,3 +32,24 @@ projectM's bundled components include GLM (MIT or Happy Bunny), HLSL Parser
 SOIL2 (MIT No Attribution) / stb image utilities (public domain). Their notices accompany the engine
 source and the included license texts. The eight built-in `.milk` presets are
 original Cover Flow presets.
+
+# Artwork tags
+
+Cover Flow uses unmodified **TagLib 2.3.2**, copyright Scott Wheeler and the
+TagLib contributors, under the Mozilla Public License 1.1 option of its dual
+MPL/LGPL license. It is statically linked into both app architectures. Complete
+source, including the bundled utfcpp dependency (Boost Software License 1.0),
+is included at `Contents/Resources/ThirdPartySources/taglib-2.3.2.tar.gz`.
+License texts are in `Contents/Resources/Licenses`. Source and documentation:
+https://taglib.org/ and https://github.com/taglib/taglib/releases/tag/v2.3.2
+
+The source archive's SHA-256 is
+`3ca2d8afaa7f1cf7f6ed10e511ebc368bfacd6dcaa3dbfa690b89e502e8963dc`.
+`scripts/build-tags.sh` provides the reproducible universal static-library build:
+
+```
+cmake -S taglib-2.3.2 -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+  -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DBUILD_BINDINGS=OFF -DBUILD_EXAMPLES=OFF
+cmake --build build --parallel
+```

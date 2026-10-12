@@ -192,6 +192,7 @@ struct RootView: View {
 }
 
 struct StatusBanners: View {
+    @State private var showArtworkFailures = false
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @Environment(\.colorScheme) private var scheme
@@ -223,7 +224,22 @@ struct StatusBanners: View {
             }
             if let notice = library.notice {
                 Banner(icon: "info.circle", tone: .warning, onClose: { library.notice = nil }) {
-                    Text(notice).font(.system(size: 12.5, weight: .medium)).lineLimit(4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(notice).font(.system(size: 12.5, weight: .medium)).lineLimit(4)
+                        if let report = library.artworkWriteReport {
+                            Button("Show files that couldn’t be updated…") { showArtworkFailures = true }
+                                .popover(isPresented: $showArtworkFailures) {
+                                    ScrollView {
+                                        VStack(alignment: .leading, spacing: 12) {
+                                            Text(report.summary).font(.headline)
+                                            ForEach(Array(report.failures.enumerated()), id: \.offset) { _, failure in
+                                                Text(failure).textSelection(.enabled)
+                                            }
+                                        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                                    }.frame(width: 460, height: 320)
+                                }
+                        }
+                    }
                 }
             }
         }

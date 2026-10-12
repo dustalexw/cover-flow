@@ -62,14 +62,14 @@ final class ArtworkStore: @unchecked Sendable {
 
         let type = (CGImageSourceGetType(src) as String?).flatMap { UTType($0) }
         let ext = type?.preferredFilenameExtension ?? "img"
-        // Remove older versions for this album.
+        let name = "\(albumID.uuidString)-\(UUID().uuidString).\(ext)"
+        try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        // Only remove older versions after the new image is safely stored.
         if let existing = try? FileManager.default.contentsOfDirectory(atPath: directory.path) {
-            for f in existing where f.hasPrefix(albumID.uuidString) {
+            for f in existing where f.hasPrefix(albumID.uuidString) && f != name {
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent(f))
             }
         }
-        let name = "\(albumID.uuidString)-\(Int(Date().timeIntervalSince1970)).\(ext)"
-        try data.write(to: directory.appendingPathComponent(name), options: .atomic)
         let tint = Self.averageColor(source: src)?.hexString
         return SavedArtwork(file: name, pixelWidth: w, pixelHeight: h, tintHex: tint)
     }
