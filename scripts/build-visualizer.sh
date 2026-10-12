@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VENDOR="$PWD/.build/vendor"
 SOURCE="$VENDOR/libprojectM-4.1.8"
+BUILD="$VENDOR/projectm-build-universal"
+INSTALL="$VENDOR/projectm-install-universal"
 mkdir -p "$VENDOR"
 
 download() {
@@ -27,9 +29,10 @@ else
   CMAKE="$VENDOR/cmake-4.1.2-macos-universal/CMake.app/Contents/bin/cmake"
 fi
 
-"$CMAKE" -S "$SOURCE" -B "$VENDOR/projectm-build" \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$VENDOR/projectm-install" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
+"$CMAKE" -S "$SOURCE" -B "$BUILD" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
   -DENABLE_PLAYLIST=OFF -DENABLE_SYSTEM_PROJECTM_EVAL=OFF -DENABLE_INSTALL=ON
-"$CMAKE" --build "$VENDOR/projectm-build" --parallel "$(sysctl -n hw.activecpu)"
-"$CMAKE" --install "$VENDOR/projectm-build"
+"$CMAKE" --build "$BUILD" --parallel "$(sysctl -n hw.activecpu)"
+"$CMAKE" --install "$BUILD"
+bash scripts/verify-universal.sh "$INSTALL/lib/libprojectM-4.4.1.8.dylib"

@@ -269,14 +269,14 @@ def badge(path, label, value, fill, text):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="1.1.1")
+    ap.add_argument("--version", default="1.1.2")
     v = ap.parse_args().version
     os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
     app_icon(os.path.join(ROOT, "Resources/AppIcon-1024.png"))
     header(os.path.join(ROOT, "docs/readme-header.png"), v)
     badge(os.path.join(ROOT, "docs/badge-release.svg"), "Release", f"v{v}", "#f2c47d", "#20222c")
     badge(os.path.join(ROOT, "docs/badge-download.svg"), "Download", "macOS app", "#ece7dc", "#16264a")
-    badge(os.path.join(ROOT, "docs/badge-platform.svg"), "Platform", "macOS 14+ · Apple silicon", "#16264a", "#faf4e4")
+    badge(os.path.join(ROOT, "docs/badge-platform.svg"), "Platform", "macOS 14+ · Apple silicon + Intel", "#16264a", "#faf4e4")
     print("Wrote icon, header and badges for", v)
 
 

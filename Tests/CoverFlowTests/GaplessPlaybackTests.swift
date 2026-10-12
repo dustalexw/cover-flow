@@ -80,6 +80,9 @@ final class GaplessPlaybackTests: XCTestCase {
     }
 
     func testSeekDecodesOnlyRemainingFramesAndBoundsMemory() async throws {
+        // Resampling needs the same Core Audio access as the other decoder checks,
+        // including when the Intel test bundle runs under Rosetta.
+        try requireAudioComponents()
         let decoder = try PCMDecoder(url: fixture("long", rate: 44_100, channels: 1, seconds: 3), start: 1.25)
         var frames = 0
         var lastCount = 0

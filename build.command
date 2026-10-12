@@ -12,7 +12,7 @@ echo "=== Cover Flow build — $(date)" > "$LOG"
 sw_vers >> "$LOG" 2>&1
 xcrun swift --version >> "$LOG" 2>&1
 
-echo "Building Cover Flow (release)…"
+echo "Building Cover Flow (universal release)…"
 bash scripts/build-visualizer.sh >> "$LOG" 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
@@ -22,7 +22,8 @@ if [ $rc -ne 0 ]; then
 fi
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
-xcrun swift build -c release --disable-sandbox --cache-path "$PWD/.build/swift-cache" \
+SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 --disable-sandbox --cache-path "$PWD/.build/swift-cache")
+xcrun swift build "${SWIFT_BUILD_ARGS[@]}" \
   -Xswiftc -module-cache-path -Xswiftc "$CLANG_MODULE_CACHE_PATH" >> "$LOG" 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
@@ -33,12 +34,12 @@ if [ $rc -ne 0 ]; then
   exit $rc
 fi
 
-BIN_DIR=$(xcrun swift build -c release --show-bin-path)
+BIN_DIR=$(xcrun swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path) || exit 1
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/ThirdPartySources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/CoverFlow" "$APP/Contents/MacOS/CoverFlow"
 cp -R "$BIN_DIR/CoverFlow_CoverFlow.bundle" "$APP/Contents/Resources/"
-cp .build/vendor/projectm-install/lib/libprojectM-4.4.1.8.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
+cp .build/vendor/projectm-install-universal/lib/libprojectM-4.4.1.8.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
 install_name_tool -id @rpath/libprojectM-4.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
 cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
@@ -68,8 +69,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>app.coverflow.player</string>
   <key>CFBundleExecutable</key><string>CoverFlow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1.1</string>
-  <key>CFBundleVersion</key><string>11</string>
+  <key>CFBundleShortVersionString</key><string>1.1.2</string>
+  <key>CFBundleVersion</key><string>12</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
@@ -79,6 +80,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# Both the app and the dynamically loaded visualizer must support both CPUs.
+if ! bash scripts/verify-universal.sh "$APP/Contents/MacOS/CoverFlow" \
+  "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1; then
+  echo "FAILED architecture check" > "$STATUS"
+  echo "Universal build is missing an architecture. Details are in build.log."
+  exit 1
+fi
 
 codesign --force --sign - "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1
 codesign --force --sign - "$APP" >> "$LOG" 2>&1

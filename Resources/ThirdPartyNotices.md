@@ -14,7 +14,8 @@ Build on macOS using CMake and Xcode's C++ compiler:
 ```
 tar -xzf projectm-4.1.8.tar.gz
 cmake -S libprojectM-4.1.8 -B build -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DENABLE_PLAYLIST=OFF \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+  -DENABLE_PLAYLIST=OFF \
   -DENABLE_SYSTEM_PROJECTM_EVAL=OFF -DENABLE_INSTALL=ON
 cmake --build build --parallel
 ```
