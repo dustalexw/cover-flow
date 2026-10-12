@@ -130,18 +130,19 @@ struct AlbumDetailView: View {
                 Divider()
                 Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
             } label: {
-                HStack(alignment: .center, spacing: 3) {
-                    ForEach(0..<3) { _ in
-                        Circle().frame(width: 3, height: 3)
-                    }
-                }
-                .frame(width: 18, height: 14, alignment: .center)
-                .accessibilityHidden(true)
+                Text(" ").frame(width: 18, height: 14)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden)
             .frame(width: 30, height: 26)
-            .foregroundStyle(colors.foreground.color)
             .background(colors.foreground.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+            // AppKit's borderless Menu drops Shape-only labels. Draw the dots
+            // above the native menu instead, without intercepting its clicks.
+            .overlay {
+                HStack(spacing: 3) {
+                    ForEach(0..<3) { _ in Circle().fill(colors.foreground.color).frame(width: 3, height: 3) }
+                }
+                .allowsHitTesting(false).accessibilityHidden(true)
+            }
             .accessibilityLabel("More actions")
             Spacer()
             Button { state.appearanceAlbum = IDRef(id: album.id) } label: {

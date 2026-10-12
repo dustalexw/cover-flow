@@ -350,6 +350,10 @@ struct AlbumViewTopBar: View {
             .background(Capsule().fill(Palette.raised(scheme)))
             .overlay(Capsule().strokeBorder(Palette.hairline(scheme)))
 
+            Button { AppEnvironment.shared.lyricsWindow.show() } label: { Image(systemName: "text.quote") }
+                .buttonStyle(IconButtonStyle(size: 26))
+                .help("Open Lyrics (⌘4)").accessibilityLabel("Lyrics")
+
             Button { controller.focusMode.toggle() } label: {
                 Image(systemName: controller.focusMode ? "eye.slash" : "eye")
             }

@@ -182,6 +182,9 @@ struct NowPlayingBar: View {
 
                 HStack(spacing: 6) {
                     VolumeControl(showSlider: wide)
+                    Button { AppEnvironment.shared.lyricsWindow.show() } label: { Image(systemName: "text.quote") }
+                        .buttonStyle(IconButtonStyle(size: 28))
+                        .help("Open Lyrics (⌘4)").accessibilityLabel("Lyrics")
                     Button { state.showQueue.toggle() } label: { Image(systemName: "list.bullet") }
                         .buttonStyle(IconButtonStyle(size: 28, active: state.showQueue))
                         .help(state.showQueue ? "Hide queue (⌘U)" : "Show queue (⌘U)")
@@ -194,7 +197,7 @@ struct NowPlayingBar: View {
                     .help("Album View — a resizable player for the current cover (⇧⌘A)")
                     .accessibilityLabel(albumView.isOpen ? "Close Album View" : "Open Album View")
                 }
-                .frame(width: wide ? 300 : (medium ? 210 : 120), alignment: .trailing)
+                .frame(width: wide ? 334 : (medium ? 244 : 154), alignment: .trailing)
             }
             .padding(.horizontal, 18)
             .frame(width: geo.size.width, height: geo.size.height)

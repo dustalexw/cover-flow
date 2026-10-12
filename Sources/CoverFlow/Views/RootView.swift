@@ -173,6 +173,9 @@ struct RootView: View {
                 }
                 .accessibilityLabel("MilkDrop Visualizer").help("Open MilkDrop Visualizer (⌘3)")
 
+                Button { AppEnvironment.shared.lyricsWindow.show() } label: { Image(systemName: "text.quote") }
+                    .accessibilityLabel("Lyrics").help("Open Lyrics (⌘4)")
+
                 Button { state.showQueue.toggle() } label: { Image(systemName: "sidebar.right") }
                     .accessibilityLabel("Queue").help("Show or hide the queue (⌘U)")
 

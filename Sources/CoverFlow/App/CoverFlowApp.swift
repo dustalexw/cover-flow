@@ -11,7 +11,7 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") }
     }
     @Published var theme: AppTheme {
-        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); AppEnvironment.shared.albumView.applyTheme() }
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); AppEnvironment.shared.albumView.applyTheme(); AppEnvironment.shared.lyricsWindow.applyTheme() }
     }
     @Published var searchText = ""
     @Published var searchFocusRequest = 0
@@ -73,6 +73,7 @@ final class AppEnvironment {
     let lastfm: LastFmScrobbler
     let state: AppState
     let albumView: AlbumViewController
+    lazy var lyricsWindow = LyricsWindowController()
     lazy var visualizer = VisualizerController(player: player)
 
     private init() {
@@ -208,6 +209,8 @@ struct AppCommands: Commands {
                 .keyboardShortcut("2")
             Button("MilkDrop Visualizer") { AppEnvironment.shared.visualizer.show() }
                 .keyboardShortcut("3")
+            Button("Lyrics") { AppEnvironment.shared.lyricsWindow.show() }
+                .keyboardShortcut("4")
             Button("Search Music") { state.searchFocusRequest += 1 }
                 .keyboardShortcut("f")
             Menu("Sort By") {
