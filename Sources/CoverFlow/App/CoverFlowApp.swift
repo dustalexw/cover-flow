@@ -92,6 +92,8 @@ final class AppEnvironment {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    var openMainWindow: (@MainActor () -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -112,6 +114,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            // Auxiliary windows can remain visible after the collection window closes.
+            // Reopen the single SwiftUI scene rather than relying on AppKit's default.
+            openMainWindow?()
+            sender.activate(ignoringOtherApps: true)
+        }
+        return false
+    }
+}
+
+private struct MainWindowReopenHandler: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+    let delegate: AppDelegate
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            // Retain the scene action after its content disappears on window close.
+            let action = openWindow
+            delegate.openMainWindow = { action(id: "main") }
+        }
+    }
 }
 
 @main
@@ -126,6 +151,7 @@ struct CoverFlowApp: App {
                 .environmentObject(env.player)
                 .environmentObject(env.state)
                 .environmentObject(env.albumView)
+                .modifier(MainWindowReopenHandler(delegate: appDelegate))
         }
         .defaultSize(width: 1220, height: 820)
         .windowToolbarStyle(.unified(showsTitle: true))
