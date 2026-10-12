@@ -24,6 +24,26 @@ struct AlbumDetailPalette: Equatable {
         }
         static let black = RGB(r: 0, g: 0, b: 0)
         static let white = RGB(r: 1, g: 1, b: 1)
+
+        init(r: Double, g: Double, b: Double) { self.r = r; self.g = g; self.b = b }
+        init?(hex: String?) {
+            guard let hex, let color = NSColor(hex: hex)?.usingColorSpace(.sRGB) else { return nil }
+            self.init(r: color.redComponent, g: color.greenComponent, b: color.blueComponent)
+        }
+        var hex: String { NSColor(srgbRed: r, green: g, blue: b, alpha: 1).hexString }
+
+        func readable(on background: RGB, minimum: Double = 4.8) -> RGB {
+            guard contrast(with: background) < minimum else { return self }
+            let ink: RGB = RGB.white.contrast(with: background) > RGB.black.contrast(with: background) ? .white : .black
+            let target = min(minimum, ink.contrast(with: background))
+            var low = 0.0, high = 1.0
+            for _ in 0..<20 {
+                let mid = (low + high) / 2
+                if mixed(with: ink, amount: mid).contrast(with: background) >= target { high = mid }
+                else { low = mid }
+            }
+            return mixed(with: ink, amount: high)
+        }
     }
 
     let background: RGB
@@ -39,6 +59,20 @@ struct AlbumDetailPalette: Equatable {
         let muted = ink.mixed(with: background, amount: 0.28)
         secondary = muted.contrast(with: background) >= 4.5 ? muted : foreground
         accent = candidates.first { $0.saturation > 0.12 && $0.contrast(with: background) >= 4.5 } ?? foreground
+    }
+
+    private init(background: RGB, foreground: RGB, secondary: RGB, accent: RGB) {
+        self.background = background; self.foreground = foreground
+        self.secondary = secondary; self.accent = accent
+    }
+
+    func customized(_ appearance: AlbumAppearance) -> AlbumDetailPalette {
+        let background = RGB(hex: appearance.backgroundHex) ?? self.background
+        let foreground = (RGB(hex: appearance.textHex) ?? self.foreground).readable(on: background)
+        let accent = (RGB(hex: appearance.accentHex) ?? self.accent).readable(on: background)
+        return AlbumDetailPalette(background: background, foreground: foreground,
+                                  secondary: foreground.mixed(with: background, amount: 0.22).readable(on: background),
+                                  accent: accent)
     }
 
     static func fallback(_ album: Album) -> AlbumDetailPalette {

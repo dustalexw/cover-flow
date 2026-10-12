@@ -9,6 +9,11 @@ struct SavedArtwork {
     var tintHex: String?
 }
 
+struct AlbumPanelStyle: @unchecked Sendable {
+    let colors: AlbumDetailPalette
+    let scene: CGImage?
+}
+
 enum ArtworkError: LocalizedError {
     case notAnImage
     var errorDescription: String? { "That file isn’t an image Cover Flow can read." }
@@ -18,6 +23,7 @@ enum ArtworkError: LocalizedError {
 /// and full-resolution images for Album View.
 final class ArtworkStore: @unchecked Sendable {
     let directory: URL
+    let scenes: AlbumSceneStore
     private let cache = NSCache<NSString, NSImage>()
     private let fullCache = NSCache<NSString, NSImage>()
     private final class PaletteBox {
@@ -25,12 +31,19 @@ final class ArtworkStore: @unchecked Sendable {
         init(_ colors: AlbumDetailPalette) { self.colors = colors }
     }
     private let detailPaletteCache = NSCache<NSString, PaletteBox>()
+    private final class PanelStyleBox {
+        let style: AlbumPanelStyle
+        init(_ style: AlbumPanelStyle) { self.style = style }
+    }
+    private let panelStyleCache = NSCache<NSString, PanelStyleBox>()
 
     init(directory: URL) {
         self.directory = directory
+        scenes = AlbumSceneStore(artworkDirectory: directory)
         cache.totalCostLimit = 320 * 1024 * 1024
         fullCache.countLimit = 3
         detailPaletteCache.countLimit = 512
+        panelStyleCache.totalCostLimit = 32 * 1024 * 1024
     }
 
     func fileURL(_ file: String) -> URL { directory.appendingPathComponent(file) }
@@ -64,6 +77,7 @@ final class ArtworkStore: @unchecked Sendable {
     func remove(file: String?) {
         guard let file else { return }
         try? FileManager.default.removeItem(at: fileURL(file))
+        if let id = UUID(uuidString: String(file.prefix(36))) { Task { await scenes.remove(for: id) } }
     }
 
     // MARK: Thumbnails
@@ -132,6 +146,27 @@ final class ArtworkStore: @unchecked Sendable {
     }
 
     // MARK: Colour
+
+    @MainActor
+    func albumPanelStyle(_ album: Album, appearance: AlbumAppearance? = nil) async -> AlbumPanelStyle {
+        let settings = appearance ?? album.panelAppearance
+        let metadata = album.hasArtwork ? "" : "\(album.title)|\(album.artist)|\(album.tintHex ?? "")"
+        let key = "\(album.artworkKey)|\(metadata)|\(settings.key)" as NSString
+        if let hit = panelStyleCache.object(forKey: key) { return hit.style }
+        let automatic = await albumDetailPalette(album)
+        let colors = automatic.customized(settings)
+        var scene: CGImage?
+        if settings.sceneEnabled, settings.strength > 0,
+           let source = await scenes.scene(for: album, variation: settings.sceneVariation) {
+            scene = await Task.detached(priority: .userInitiated) {
+                AlbumSceneRenderer.render(source, colors: colors, strength: settings.strength)
+            }.value
+        }
+        let style = AlbumPanelStyle(colors: colors, scene: scene)
+        panelStyleCache.setObject(PanelStyleBox(style), forKey: key,
+                                  cost: (scene?.width ?? 0) * (scene?.height ?? 0) * 4 + 128)
+        return style
+    }
 
     /// Prepare the palette and cover before presenting album tracks. The cache is
     /// versioned with the artwork so replacing a cover naturally gets fresh colors.

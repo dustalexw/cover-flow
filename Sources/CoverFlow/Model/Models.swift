@@ -44,6 +44,8 @@ struct Album: Identifiable, Codable, Hashable {
     var isDemo: Bool
     var missingMetadata: Bool
     var userEdited: Bool
+    /// Optional so libraries saved before album customization still decode unchanged.
+    var appearance: AlbumAppearance? = nil
 
     var hasArtwork: Bool { artworkFile != nil }
     var artworkAspect: CGFloat {
@@ -51,6 +53,21 @@ struct Album: Identifiable, Codable, Hashable {
         return CGFloat(w) / CGFloat(h)
     }
     var artworkKey: String { "\(id.uuidString)-\(artworkVersion)" }
+    var panelAppearance: AlbumAppearance { appearance ?? AlbumAppearance() }
+}
+
+struct AlbumAppearance: Codable, Hashable {
+    var backgroundHex: String?
+    var textHex: String?
+    var accentHex: String?
+    var sceneEnabled = true
+    var sceneStrength = 0.55
+    var sceneVariation = 0
+
+    var strength: Double { sceneStrength.isFinite ? min(1, max(0, sceneStrength)) : 0.55 }
+    var key: String {
+        "\(backgroundHex ?? "auto")|\(textHex ?? "auto")|\(accentHex ?? "auto")|\(sceneEnabled)|\(strength)|\(sceneVariation)"
+    }
 }
 
 enum SortOrder: String, CaseIterable, Identifiable {
@@ -96,7 +113,10 @@ struct IDRef: Identifiable, Hashable {
 enum AppPaths {
     static var root: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("CoverFlow", isDirectory: true)
+        // Test bundles can exercise the real app without changing the user's library.
+        let override = Bundle.main.object(forInfoDictionaryKey: "CoverFlowDataDirectory") as? String
+        let dir = override.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? base.appendingPathComponent("CoverFlow", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

@@ -3,7 +3,7 @@ import AppKit
 
 struct AlbumDetailView: View {
     let albumID: UUID
-    let colors: AlbumDetailPalette
+    let style: AlbumPanelStyle
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
@@ -12,7 +12,7 @@ struct AlbumDetailView: View {
     var body: some View {
         Group {
             if let album = library.album(albumID) {
-                content(album, colors: colors)
+                content(album, colors: style.colors)
             } else {
                 VStack(spacing: 12) {
                     Text("This album is no longer in your collection.").foregroundStyle(.secondary)
@@ -21,10 +21,13 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
-        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.confirmRemoval == nil,
+        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil,
                                      onDismiss: { dismiss() }, onTogglePlayback: { player.togglePlayPause() }))
         .sheet(item: $state.editAlbum) { ref in
             AlbumEditView(albumID: ref.id).environmentObject(library)
+        }
+        .sheet(item: $state.appearanceAlbum) { ref in
+            AlbumAppearanceView(albumID: ref.id).environmentObject(library)
         }
         .modifier(RemoveAlbumConfirmation(active: true))
     }
@@ -106,7 +109,7 @@ struct AlbumDetailView: View {
         }
         .padding(30)
         .frame(width: 1080, height: height, alignment: .topLeading)
-        .background(colors.background.color.ignoresSafeArea())
+        .background(AlbumSceneBackground(style: style).ignoresSafeArea())
         .environment(\.colorScheme, colors.foreground.luminance < 0.5 ? .light : .dark)
     }
 
@@ -121,6 +124,7 @@ struct AlbumDetailView: View {
                 Button("Add to Queue") { player.addToQueue(album.trackIDs) }
                 Divider()
                 Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
+                Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
                 Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
                 Divider()
@@ -132,7 +136,9 @@ struct AlbumDetailView: View {
             .background(colors.foreground.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
             .accessibilityLabel("More actions")
             Spacer()
-            Button("Edit Info") { state.editAlbum = IDRef(id: album.id) }
+            Button { state.appearanceAlbum = IDRef(id: album.id) } label: {
+                Label("Colors & Scene", systemImage: "paintpalette")
+            }
                 .buttonStyle(.plain).font(.custom("Helvetica Neue", size: 11))
                 .foregroundStyle(colors.secondary.color)
         }

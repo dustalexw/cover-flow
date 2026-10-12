@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var selectedAlbumRemoval: [UUID]?
     @Published var detailAlbum: IDRef?
     @Published var editAlbum: IDRef?
+    @Published var appearanceAlbum: IDRef?
     @Published var showQueue: Bool {
         didSet { UserDefaults.standard.set(showQueue, forKey: "showQueue") }
     }

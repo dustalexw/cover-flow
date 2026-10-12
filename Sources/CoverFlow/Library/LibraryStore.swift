@@ -383,6 +383,12 @@ final class LibraryStore: ObservableObject {
 
     // MARK: Editing
 
+    func updateAppearance(_ id: UUID, appearance: AlbumAppearance) {
+        guard let i = albumIndex[id] else { return }
+        albums[i].appearance = appearance == AlbumAppearance() ? nil : appearance
+        scheduleSave()
+    }
+
     struct TrackEdit: Identifiable, Hashable {
         let id: UUID
         var title: String

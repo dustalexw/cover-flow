@@ -9,16 +9,17 @@ struct RootView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var dropTargeted = false
     @State private var preparedDetail: AlbumDetailPresentation?
+    @State private var preparingAlbum: UUID?
 
     private struct AlbumDetailPresentation: Identifiable {
         let id: UUID
-        let colors: AlbumDetailPalette
+        let style: AlbumPanelStyle
     }
 
     private var detailArtworkKey: String? {
         guard let album = library.album(state.detailAlbum?.id) else { return nil }
         // Include metadata for the placeholder palette when there is no artwork.
-        return album.hasArtwork ? album.artworkKey : "\(album.artworkKey):\(album.title):\(album.artist):\(album.tintHex ?? "")"
+        return "\(album.artworkKey):\(album.title):\(album.artist):\(album.tintHex ?? ""):\(album.panelAppearance.key)"
     }
 
     var body: some View {
@@ -60,6 +61,16 @@ struct RootView: View {
             NowPlayingBar()
         }
         .background(TintBackground(tintHex: (browsed ?? player.currentAlbum)?.tintHex))
+        .overlay {
+            if preparingAlbum != nil && preparedDetail == nil {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Preparing album…").font(.system(size: 12))
+                }
+                .padding(14).background(.regularMaterial, in: Capsule())
+                .allowsHitTesting(false)
+            }
+        }
         .frame(minWidth: 720, minHeight: 540)
         .navigationTitle("Cover Flow")
         .navigationSubtitle(subtitle(visible: albums.count))
@@ -69,23 +80,29 @@ struct RootView: View {
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
         }
         .task(id: detailArtworkKey) {
-            guard let album = library.album(state.detailAlbum?.id) else { preparedDetail = nil; return }
-            let colors = await library.artwork.albumDetailPalette(album)
+            guard let album = library.album(state.detailAlbum?.id) else { preparedDetail = nil; preparingAlbum = nil; return }
+            preparingAlbum = album.id
+            let style = await library.artwork.albumPanelStyle(album)
             guard !Task.isCancelled, state.detailAlbum?.id == album.id else { return }
             // Never present a temporary palette: the sheet's first frame has its final colors.
-            preparedDetail = AlbumDetailPresentation(id: album.id, colors: colors)
+            preparedDetail = AlbumDetailPresentation(id: album.id, style: style)
+            preparingAlbum = nil
         }
         .sheet(item: Binding(get: { preparedDetail }, set: { value in
             preparedDetail = value
             if value == nil { state.detailAlbum = nil }
         })) { ref in
-            AlbumDetailView(albumID: ref.id, colors: ref.colors)
+            AlbumDetailView(albumID: ref.id, style: ref.style)
                 .environmentObject(library).environmentObject(player).environmentObject(state)
         }
         .sheet(item: Binding(get: { state.detailAlbum == nil ? state.editAlbum : nil },
                              set: { state.editAlbum = $0 })) { ref in
             AlbumEditView(albumID: ref.id)
                 .environmentObject(library)
+        }
+        .sheet(item: Binding(get: { state.detailAlbum == nil ? state.appearanceAlbum : nil },
+                             set: { state.appearanceAlbum = $0 })) { ref in
+            AlbumAppearanceView(albumID: ref.id).environmentObject(library)
         }
         .modifier(RemoveAlbumConfirmation(active: state.detailAlbum == nil))
         .dropDestination(for: URL.self) { urls, _ in

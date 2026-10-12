@@ -22,7 +22,8 @@ if [ $rc -ne 0 ]; then
 fi
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
-SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 --disable-sandbox --cache-path "$PWD/.build/swift-cache")
+SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 -debug-info-format "${DEBUG_INFO_FORMAT:-dwarf}" \
+  --scratch-path "${SWIFT_SCRATCH_PATH:-$PWD/.build}" --disable-sandbox --cache-path "$PWD/.build/swift-cache")
 xcrun swift build "${SWIFT_BUILD_ARGS[@]}" \
   -Xswiftc -module-cache-path -Xswiftc "$CLANG_MODULE_CACHE_PATH" >> "$LOG" 2>&1
 rc=$?
@@ -69,8 +70,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>app.coverflow.player</string>
   <key>CFBundleExecutable</key><string>CoverFlow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1.2</string>
-  <key>CFBundleVersion</key><string>12</string>
+  <key>CFBundleShortVersionString</key><string>1.2.0</string>
+  <key>CFBundleVersion</key><string>13</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
