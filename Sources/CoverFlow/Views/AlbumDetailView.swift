@@ -129,7 +129,15 @@ struct AlbumDetailView: View {
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
                 Divider()
                 Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
-            } label: { Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)) }
+            } label: {
+                HStack(alignment: .center, spacing: 3) {
+                    ForEach(0..<3) { _ in
+                        Circle().frame(width: 3, height: 3)
+                    }
+                }
+                .frame(width: 18, height: 14, alignment: .center)
+                .accessibilityHidden(true)
+            }
             .menuStyle(.borderlessButton).menuIndicator(.hidden)
             .frame(width: 30, height: 26)
             .foregroundStyle(colors.foreground.color)
