@@ -50,9 +50,9 @@ final class AlbumAppearanceTests: XCTestCase {
             cover.bytes[i + 2] = UInt8((x * 13 + y * 5) % 256)
         } }
         let image = try XCTUnwrap(cover.image)
-        let first = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 17, analyzeText: false))
-        let second = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 17, analyzeText: false))
-        let variation = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 99, analyzeText: false))
+        let first = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 17, analyzeText: false, size: CGSize(width: 480, height: 300)))
+        let second = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 17, analyzeText: false, size: CGSize(width: 480, height: 300)))
+        let variation = try XCTUnwrap(AlbumSceneGenerator.generate(from: image, seed: 99, analyzeText: false, size: CGSize(width: 480, height: 300)))
         let pixels = try XCTUnwrap(ScenePixels(image: first, width: 480, height: 300))
         XCTAssertEqual(pixels.bytes, ScenePixels(image: second, width: 480, height: 300)?.bytes)
         XCTAssertNotEqual(pixels.bytes, ScenePixels(image: variation, width: 480, height: 300)?.bytes)
@@ -63,6 +63,74 @@ final class AlbumAppearanceTests: XCTestCase {
             XCTAssertEqual(Array(pixels.bytes[output..<(output + 4)]), Array(cover.bytes[input..<(input + 4)]))
         } }
         XCTAssertTrue(stride(from: 3, to: pixels.bytes.count, by: 4).allSatisfy { pixels.bytes[$0] == 255 })
+    }
+
+    func testMinimumErrorSeamFollowsTextureInsteadOfAveragingTheOverlap() {
+        let costs: [Double] = [90, 0, 90, 90, 90,
+                               90, 90, 0, 90, 90,
+                               90, 90, 90, 0, 90,
+                               90, 90, 0, 90, 90]
+        XCTAssertEqual(SceneQuilting.minimumCut(costs: costs, length: 4, depth: 5), [1, 2, 3, 2])
+        XCTAssertEqual(SceneQuilting.minimumCut(costs: [4, 0, 8], length: 1, depth: 3), [1])
+    }
+
+    func testRetinaSceneRetainsFineArtworkDetailAndHandlesNarrowCovers() throws {
+        for dimensions in [(512, 512), (32, 256), (256, 32)] {
+            var cover = ScenePixels(width: dimensions.0, height: dimensions.1)
+            for y in 0..<cover.height { for x in 0..<cover.width {
+                let i = (y * cover.width + x) * 4
+                cover.bytes[i] = x.isMultiple(of: 2) ? 220 : 20
+                cover.bytes[i + 1] = y.isMultiple(of: 2) ? 200 : 40
+                cover.bytes[i + 2] = 110
+            } }
+            let result = try XCTUnwrap(AlbumSceneGenerator.generate(from: try XCTUnwrap(cover.image), seed: 11, analyzeText: false))
+            XCTAssertEqual(result.width, 2160)
+            XCTAssertEqual(result.height, 1320)
+            let pixels = try XCTUnwrap(ScenePixels(image: result, width: result.width, height: result.height))
+            let anchorX = min(result.width - cover.width - 12, Int(Double(result.width) * 0.77) - cover.width / 2)
+            let anchorY = (result.height - cover.height) / 2
+            for y in 0..<cover.height { for x in 0..<cover.width {
+                let oi = ((anchorY + y) * result.width + anchorX + x) * 4
+                let si = (y * cover.width + x) * 4
+                XCTAssertEqual(Array(pixels.bytes[oi..<(oi + 4)]), Array(cover.bytes[si..<(si + 4)]))
+            } }
+        }
+    }
+
+    func testSmoothCoverColorsDoNotTurnIntoPatchBlocks() throws {
+        var cover = ScenePixels(width: 96, height: 96)
+        for y in 0..<96 { for x in 0..<96 {
+            let i = (y * 96 + x) * 4
+            cover.bytes[i] = UInt8(30 + x)
+            cover.bytes[i + 1] = UInt8(50 + y)
+            cover.bytes[i + 2] = 90
+        } }
+        let image = try XCTUnwrap(AlbumSceneGenerator.generate(from: try XCTUnwrap(cover.image), seed: 19,
+            analyzeText: false, size: CGSize(width: 480, height: 300)))
+        let pixels = try XCTUnwrap(ScenePixels(image: image, width: 480, height: 300))
+        // The text side extends the cover's left-edge colors continuously;
+        // sampling brighter areas of the cover must not create colored tiles.
+        for y in stride(from: 110, to: 190, by: 5) {
+            let reds = stride(from: 10, to: 250, by: 5).map { Int(pixels.bytes[(y * 480 + $0) * 4]) }
+            XCTAssertLessThanOrEqual(try XCTUnwrap(reds.max()) - XCTUnwrap(reds.min()), 4)
+        }
+    }
+
+    func testProminentShapeIsNotRepeatedInTheExtendedTexture() throws {
+        var cover = ScenePixels(width: 256, height: 256)
+        for y in 0..<256 { for x in 0..<256 {
+            let bright = (x - 128) * (x - 128) + (y - 128) * (y - 128) < 35 * 35
+            let i = (y * 256 + x) * 4
+            for c in 0..<3 { cover.bytes[i + c] = bright ? 240 : 20 }
+        } }
+        let image = try XCTUnwrap(AlbumSceneGenerator.generate(from: try XCTUnwrap(cover.image), seed: 17,
+            analyzeText: false, size: CGSize(width: 800, height: 500)))
+        let pixels = try XCTUnwrap(ScenePixels(image: image, width: 800, height: 500))
+        // Even without Vision, quiet texture sampling must not clone the disk
+        // into the track area far to the left of the preserved cover.
+        for y in stride(from: 0, to: 500, by: 3) { for x in stride(from: 0, to: 400, by: 3) {
+            XCTAssertLessThanOrEqual(pixels.bytes[(y * 800 + x) * 4], 35)
+        } }
     }
 
     func testEveryScenePixelPreservesTextContrastAtFullStrength() throws {
@@ -85,6 +153,21 @@ final class AlbumAppearanceTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testHeaderProtectionFadesWithoutAVisibleHorizontalBand() throws {
+        var source = ScenePixels(width: 100, height: 300)
+        for i in stride(from: 0, to: source.bytes.count, by: 4) {
+            source.bytes[i] = 80; source.bytes[i + 1] = 100; source.bytes[i + 2] = 120
+        }
+        let colors = AlbumDetailPalette(background: .black)
+        let rendered = try XCTUnwrap(AlbumSceneRenderer.render(try XCTUnwrap(source.image), colors: colors, strength: 1))
+        let pixels = try XCTUnwrap(ScenePixels(image: rendered, width: 100, height: 300))
+        for y in 1..<300 { for c in 0..<3 {
+            let current = Int(pixels.bytes[(y * 100 + 90) * 4 + c])
+            let previous = Int(pixels.bytes[((y - 1) * 100 + 90) * 4 + c])
+            XCTAssertLessThanOrEqual(abs(current - previous), 1)
+        } }
     }
 
     func testSceneLetteringCleanupDoesNotChangeTheOriginalCover() throws {
@@ -133,8 +216,16 @@ final class AlbumAppearanceTests: XCTestCase {
             return try XCTUnwrap(NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage())).representation(using: .png, properties: [:]))
         }
         record.artworkFile = try store.save(data: imageData(red: 0.8, blue: 0.1), albumID: record.id).file
+        let oldDirectory = directory.appendingPathComponent("Scenes")
+        try FileManager.default.createDirectory(at: oldDirectory, withIntermediateDirectories: true)
+        let oldScene = oldDirectory.appendingPathComponent("\(record.artworkKey)-scene-v3-0.png")
+        try imageData(red: 0.1, blue: 0.8).write(to: oldScene)
         let firstScene = await store.scenes.scene(for: record, variation: 0)
         let original = try XCTUnwrap(firstScene)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldScene.path))
+        XCTAssertEqual(original.width, 2160)
+        XCTAssertEqual(original.height, 1320)
+        XCTAssertTrue(AlbumSceneStore.key(for: record, variation: 0).contains("-scene-v4-"))
         let restarted = AlbumSceneStore(artworkDirectory: directory)
         let diskScene = await restarted.scene(for: record, variation: 0)
         let disk = try XCTUnwrap(diskScene)
