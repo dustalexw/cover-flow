@@ -81,6 +81,14 @@ track names. Contrast protection keeps custom text and accents readable. Choose
 scene strength, regenerate a variation, turn the scene off, or **Reset to Cover**.
 The settings apply only to that album’s track panel. New artwork refreshes its scene.
 
+On Apple silicon, **Refine with Stable Diffusion** repaints an album’s scene with the
+bundled Stable Diffusion 1.5 model (Apple’s 6-bit Core ML version, run on the Neural
+Engine). It keeps the scene’s colors and layout, restores the cover, and adds back
+fine detail. The first refinement of an album takes about 10–30 seconds and is then
+saved; the model unloads after 90 idle seconds. Refinement is off by default and
+runs entirely on your Mac. If the model’s safety checker flags a result, the
+quilted scene is used instead.
+
 The app and MilkDrop remain universal for Apple silicon and Intel. The Dock icon
 restores a closed collection window, including with Album View or MilkDrop open.
 
@@ -90,8 +98,10 @@ Double-click **build.command** in Finder (or run `./build.command` in Terminal).
 universal release build with the Swift toolchain from Xcode, assembles **Cover Flow.app** next to the
 script, signs it for local use and launches it. Requires macOS 14 or later and Xcode (or the
 Command Line Tools). You can drag `Cover Flow.app` into /Applications.
-The first build downloads verified projectM 4.1.8 and TagLib 2.3.2 source and, if needed, a local
-CMake tool. Later builds reuse them. No Homebrew installation is required.
+The first build downloads verified projectM 4.1.8 and TagLib 2.3.2 source, the Stable Diffusion
+model (about 1.6 GB, checksum-verified) and, if needed, a local CMake tool. Later builds reuse them.
+No Homebrew installation is required. Run `COVERFLOW_SKIP_SD=1 ./build.command` to build without
+the model; scene refinement is then hidden.
 Use `./build.command --no-launch` to assemble the app without launching it.
 The app, TagLib, and projectM are built for `arm64` and `x86_64`; the build verifies
 that both architectures are present before signing the package.

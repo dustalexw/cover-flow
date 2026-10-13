@@ -71,7 +71,9 @@ struct AlbumAppearanceView: View {
                     }
                     HStack(spacing: 6) {
                         if preparing { ProgressView().controlSize(.small) }
-                        Text(preparing ? "Preparing preview…" : "Preview of this album’s track panel")
+                        Text(preparing ? (draft.sceneEnabled && draft.refinesScene && AlbumSceneRefiner.isAvailable
+                                          ? "Refining scene with Stable Diffusion…" : "Preparing preview…")
+                                       : "Preview of this album’s track panel")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Text("The scene stays still. It uses the cover’s shapes, textures, and colors, with a quieter area behind titles and tracks.")
@@ -111,6 +113,15 @@ struct AlbumAppearanceView: View {
                                 .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
                             Button("Regenerate Scene") { draft.sceneVariation &+= 1 }
                                 .disabled(!draft.sceneEnabled || album?.hasArtwork != true || preparing)
+                            if AlbumSceneRefiner.isAvailable {
+                                Toggle("Refine with Stable Diffusion", isOn: Binding(
+                                    get: { draft.refinesScene },
+                                    set: { draft.sceneRefinement = $0 }))
+                                    .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
+                                Text("Repaints the scene on this Mac. The first refinement of an album takes 10–30 seconds and is then saved.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             if album?.hasArtwork != true {
                                 Text("Add album artwork to generate a scene.").font(.caption).foregroundStyle(.secondary)
                             } else if !preparing && draft.sceneEnabled && draft.strength > 0 && preview?.scene == nil {

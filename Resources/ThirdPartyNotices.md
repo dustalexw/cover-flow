@@ -53,3 +53,19 @@ cmake -S taglib-2.3.2 -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DBUILD_BINDINGS=OFF -DBUILD_EXAMPLES=OFF
 cmake --build build --parallel
 ```
+
+# Scene refinement (Stable Diffusion)
+
+Optional scene refinement uses Apple's **ml-stable-diffusion 1.1.1** Swift
+package, copyright Apple Inc., under the MIT License
+(`Licenses/ml-stable-diffusion-MIT.txt`).
+https://github.com/apple/ml-stable-diffusion/releases/tag/1.1.1
+
+The bundled model in `Contents/Resources/StableDiffusion` is Apple's unmodified
+6-bit Core ML conversion of **Stable Diffusion v1.5**
+(`apple/coreml-stable-diffusion-v1-5-palettized`, `split_einsum_v2`), originally
+released by Runway and Stability AI under the **CreativeML OpenRAIL-M** license,
+which includes use-based restrictions that apply to anyone using the model:
+https://huggingface.co/apple/coreml-stable-diffusion-v1-5-palettized
+The model's built-in safety checker is enabled; flagged results are discarded
+and the quilted scene is used instead.

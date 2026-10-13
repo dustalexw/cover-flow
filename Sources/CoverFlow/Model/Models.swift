@@ -63,10 +63,14 @@ struct AlbumAppearance: Codable, Hashable {
     var sceneEnabled = true
     var sceneStrength = 0.55
     var sceneVariation = 0
+    /// Optional so albums saved before this setting existed still decode. Off by default:
+    /// the first refinement of an album takes several seconds of Neural Engine time.
+    var sceneRefinement: Bool?
 
     var strength: Double { sceneStrength.isFinite ? min(1, max(0, sceneStrength)) : 0.55 }
+    var refinesScene: Bool { sceneRefinement ?? false }
     var key: String {
-        "\(backgroundHex ?? "auto")|\(textHex ?? "auto")|\(accentHex ?? "auto")|\(sceneEnabled)|\(strength)|\(sceneVariation)"
+        "\(backgroundHex ?? "auto")|\(textHex ?? "auto")|\(accentHex ?? "auto")|\(sceneEnabled)|\(strength)|\(sceneVariation)|\(refinesScene)"
     }
 }
 
