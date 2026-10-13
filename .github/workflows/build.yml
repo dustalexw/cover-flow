@@ -49,6 +49,7 @@ jobs:
         run: |
           # Surface compiler errors and failing tests as annotations, which stay
           # readable through the API even where raw logs are not.
+          set +eo pipefail   # grep finding nothing must not end this step
           for log in build.log test.log; do
             [ -f "$log" ] || continue
             summary=$(grep -E "error:|: error|failed|Executed [0-9]+ tests|Fatal error|Test Case .* (failed|crashed)" "$log" | head -60 | cut -c1-400)
