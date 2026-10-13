@@ -96,11 +96,12 @@ The settings apply only to that album’s track panel. New artwork refreshes its
 
 On Apple silicon, **Refine with Stable Diffusion** repaints an album’s scene with the
 bundled Stable Diffusion 1.5 model (Apple’s 6-bit Core ML version, run on the Neural
-Engine). It keeps the scene’s colors and layout, restores the cover, and adds back
-fine detail. The first refinement of an album takes about 10–30 seconds and is then
-saved; the model unloads after 90 idle seconds. Refinement is off by default and
-runs entirely on your Mac. If the model’s safety checker flags a result, the
-quilted scene is used instead.
+Engine). **Ornate** (the default) echoes the cover outward and repaints its surroundings
+as decorative imagery in the cover’s own colors; **Subtle** keeps the generated scene’s
+look and smooths it. The first refinement of an album takes about 10–40 seconds and is
+then saved; the model unloads after 90 idle seconds. Refinement is off by default and
+runs entirely on your Mac. If it can’t run, or the model’s safety checker flags a
+result, the editor says why and the regular scene is used instead.
 
 The app and MilkDrop remain universal for Apple silicon and Intel. The Dock icon
 restores a closed collection window, including with Album View or MilkDrop open.

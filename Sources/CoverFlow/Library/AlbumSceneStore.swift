@@ -11,31 +11,41 @@ actor AlbumSceneStore {
     private var images: [String: CGImage] = [:]
     /// Least recently used first.
     private var recent: [String] = []
-    private var pending: [String: Task<CGImage?, Never>] = [:]
-    /// Refinements that failed or were flagged this session, so they aren't retried on every open.
-    private var failedRefinements: Set<String> = []
+    /// In-flight work. Quilted generation reports `.failed` only when the cover can't be read.
+    private var pending: [String: Task<SceneRefinementOutcome, Never>] = [:]
+    /// Why a refinement failed or was flagged this session, so it isn't retried on every
+    /// open and the Colors & Scene sheet can say what happened.
+    private var failedRefinements: [String: String] = [:]
 
     init(artworkDirectory: URL) {
         self.artworkDirectory = artworkDirectory
         directory = artworkDirectory.appendingPathComponent("Scenes", isDirectory: true)
     }
 
-    static let refinedSuffix = "-sd1"
+    /// Marks refined scene files; quilted scene names never contain it.
+    static let refinedMarker = "-sd2-"
 
-    static func key(for album: Album, variation: Int, refined: Bool = false) -> String {
-        "\(album.artworkKey)-scene-v5-\(variation)" + (refined ? refinedSuffix : "")
+    static func key(for album: Album, variation: Int, refinement: SceneRefinementStyle? = nil) -> String {
+        "\(album.artworkKey)-scene-v5-\(variation)" + (refinement.map { refinedMarker + $0.rawValue } ?? "")
     }
 
-    /// The quilted scene, or with `refined` its Stable Diffusion refinement when the
+    /// Why the requested refinement isn't showing, or nil when it succeeded or wasn't requested.
+    func refinementFailure(for album: Album, variation: Int, refinement: SceneRefinementStyle?) -> String? {
+        guard let refinement, album.artworkFile != nil else { return nil }
+        guard AlbumSceneRefiner.isAvailable else { return AlbumSceneRefiner.unavailableReason }
+        return failedRefinements[Self.key(for: album, variation: variation, refinement: refinement)]
+    }
+
+    /// The quilted scene, or with `refinement` its Stable Diffusion refinement when the
     /// model is available. A failed refinement falls back to the quilted scene.
-    func scene(for album: Album, variation: Int, refined requested: Bool = false) async -> CGImage? {
+    func scene(for album: Album, variation: Int, refinement requested: SceneRefinementStyle? = nil) async -> CGImage? {
         guard let file = album.artworkFile else { return nil }
-        let refined = requested && AlbumSceneRefiner.isAvailable
-        let key = Self.key(for: album, variation: variation, refined: refined)
+        let refinement = AlbumSceneRefiner.isAvailable ? requested : nil
+        let key = Self.key(for: album, variation: variation, refinement: refinement)
         if let image = images[key] { remember(image, key: key); return image }
         if let task = pending[key] {
-            if let image = await task.value { return image }
-            return refined ? await scene(for: album, variation: variation) : nil
+            if case .refined(let image) = await task.value { return image }
+            return refinement != nil ? await scene(for: album, variation: variation) : nil
         }
         let destination = directory.appendingPathComponent(key + ".png")
         if let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
@@ -44,35 +54,42 @@ actor AlbumSceneStore {
             return image
         }
         let sourceURL = artworkDirectory.appendingPathComponent(file)
-        let work: Task<CGImage?, Never>
-        if refined {
-            if failedRefinements.contains(key) { return await scene(for: album, variation: variation) }
+        let work: Task<SceneRefinementOutcome, Never>
+        if let refinement {
+            if failedRefinements[key] != nil { return await scene(for: album, variation: variation) }
             // Refinement starts from the quilted scene of the same variation.
             guard let base = await scene(for: album, variation: variation) else { return nil }
             // Another caller may have started this refinement while we waited.
             if let task = pending[key] {
-                if let image = await task.value { return image }
+                if case .refined(let image) = await task.value { return image }
                 return await scene(for: album, variation: variation)
             }
-            work = Task.detached(priority: .userInitiated) { () -> CGImage? in
-                guard let cover = Self.thumbnail(sourceURL) else { return nil }
+            work = Task.detached(priority: .userInitiated) { () -> SceneRefinementOutcome in
+                guard let cover = Self.thumbnail(sourceURL) else { return .failed("The cover couldn’t be read.") }
                 let rect = AlbumSceneGenerator.coverRect(imageWidth: cover.width, imageHeight: cover.height,
                                                          size: CGSize(width: base.width, height: base.height))
-                return await AlbumSceneRefiner.shared.refine(base, cover: rect, seed: key.stableHash)
+                return await AlbumSceneRefiner.shared.refine(base, cover: rect, seed: key.stableHash, style: refinement)
             }
         } else {
-            work = Task.detached(priority: .userInitiated) { () -> CGImage? in
-                guard let image = Self.thumbnail(sourceURL) else { return nil }
-                return AlbumSceneGenerator.generate(from: image, seed: key.stableHash)
+            work = Task.detached(priority: .userInitiated) { () -> SceneRefinementOutcome in
+                guard let image = Self.thumbnail(sourceURL),
+                      let scene = AlbumSceneGenerator.generate(from: image, seed: key.stableHash) else {
+                    return .failed("The cover couldn’t be used for a scene.")
+                }
+                return .refined(scene)
             }
         }
         pending[key] = work
-        let image = await work.value
+        let outcome = await work.value
         pending[key] = nil
         guard !work.isCancelled else { return nil }
-        guard let image else {
-            guard refined else { return nil }
-            failedRefinements.insert(key)
+        let image: CGImage
+        switch outcome {
+        case .refined(let result):
+            image = result
+        case .failed(let reason):
+            guard refinement != nil else { return nil }
+            failedRefinements[key] = reason
             return await scene(for: album, variation: variation)
         }
         remember(image, key: key)
@@ -89,7 +106,7 @@ actor AlbumSceneStore {
         // switching refinement off and on again doesn't discard them.
         let siblings = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for old in siblings where old.lastPathComponent.hasPrefix(album.id.uuidString + "-") && old != destination
-            && old.deletingPathExtension().lastPathComponent.hasSuffix(Self.refinedSuffix) == refined {
+            && old.lastPathComponent.contains(Self.refinedMarker) == (refinement != nil) {
             try? FileManager.default.removeItem(at: old)
         }
         return image
@@ -108,7 +125,7 @@ actor AlbumSceneStore {
         let prefix = albumID.uuidString + "-"
         images = images.filter { !$0.key.hasPrefix(prefix) }
         recent.removeAll { $0.hasPrefix(prefix) }
-        failedRefinements = failedRefinements.filter { !$0.hasPrefix(prefix) }
+        failedRefinements = failedRefinements.filter { !$0.key.hasPrefix(prefix) }
         for key in pending.keys.filter({ $0.hasPrefix(prefix) }) { pending.removeValue(forKey: key)?.cancel() }
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.lastPathComponent.hasPrefix(prefix) { try? FileManager.default.removeItem(at: file) }
@@ -486,7 +503,10 @@ enum SceneQuilting {
 /// The scene remains visible, but each final pixel must retain readable contrast
 /// against every panel ink color. This also protects custom text/accent choices.
 enum AlbumSceneRenderer {
-    static func render(_ image: CGImage, colors: AlbumDetailPalette, strength: Double) -> CGImage? {
+    /// `emphasis` above 1 lets more of the scene show (used for ornate refinements);
+    /// the per-pixel contrast check below still keeps every ink color readable.
+    static func render(_ image: CGImage, colors: AlbumDetailPalette, strength: Double,
+                       emphasis: Double = 1) -> CGImage? {
         guard var raster = ScenePixels(image: image, width: image.width, height: image.height) else { return nil }
         let inks = [colors.foreground.luminance, colors.secondary.luminance, colors.accent.luminance]
         func safe(_ color: AlbumDetailPalette.RGB) -> Bool {
@@ -507,7 +527,7 @@ enum AlbumSceneRenderer {
                                                         g: Double(pixels[index + 1]) / 255,
                                                         b: Double(pixels[index + 2]) / 255)
                     let side = ((Double(x) / Double(width) - 0.52) / 0.3).clamped(0, 1)
-                    let amount = clampedStrength * (0.18 + 0.44 * side * side * (3 - 2 * side)) * header
+                    let amount = min(1, clampedStrength * emphasis * (0.18 + 0.44 * side * side * (3 - 2 * side)) * header)
                     func mixed(_ alpha: Double) -> AlbumDetailPalette.RGB {
                         let value = background.mixed(with: source, amount: alpha)
                         // Check the quantized color that will actually be written to the image.

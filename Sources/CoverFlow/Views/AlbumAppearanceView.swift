@@ -118,9 +118,31 @@ struct AlbumAppearanceView: View {
                                     get: { draft.refinesScene },
                                     set: { draft.sceneRefinement = $0 }))
                                     .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
-                                Text("Repaints the scene on this Mac. The first refinement of an album takes 10–30 seconds and is then saved.")
+                                Picker("Style", selection: Binding(
+                                    get: { draft.style },
+                                    set: { draft.refinementStyle = $0 })) {
+                                    ForEach(SceneRefinementStyle.allCases) { Text($0.label).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
+                                .disabled(!draft.sceneEnabled || !draft.refinesScene || album?.hasArtwork != true)
+                                Text(draft.style == .ornate
+                                     ? "Ornate repaints the surroundings as decorative imagery that continues the cover."
+                                     : "Subtle keeps the generated scene’s look and smooths it.")
                                     .font(.caption).foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
+                                Text("Runs on this Mac. The first refinement of an album takes about 10–40 seconds and is then saved.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                if draft.sceneEnabled && draft.refinesScene && !preparing && preview?.scene != nil {
+                                    if let note = preview?.refinementNote {
+                                        Label("Couldn’t refine: \(note) Showing the regular scene.", systemImage: "exclamationmark.triangle")
+                                            .font(.caption).foregroundStyle(.orange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    } else {
+                                        Label("Refined with Stable Diffusion.", systemImage: "checkmark.circle")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                             if album?.hasArtwork != true {
                                 Text("Add album artwork to generate a scene.").font(.caption).foregroundStyle(.secondary)

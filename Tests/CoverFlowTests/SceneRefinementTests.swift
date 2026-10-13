@@ -80,7 +80,70 @@ final class SceneRefinementTests: XCTestCase {
                           trackIDs: [], artworkFile: nil, artworkPixelWidth: nil, artworkPixelHeight: nil, artworkVersion: 0,
                           tintHex: nil, dateAdded: Date(), lastPlayed: nil, isDemo: false, missingMetadata: false, userEdited: false)
         XCTAssertNotEqual(AlbumSceneStore.key(for: album, variation: 0),
-                          AlbumSceneStore.key(for: album, variation: 0, refined: true))
-        XCTAssertTrue(AlbumSceneStore.key(for: album, variation: 0, refined: true).hasSuffix(AlbumSceneStore.refinedSuffix))
+                          AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate))
+        XCTAssertNotEqual(AlbumSceneStore.key(for: album, variation: 0, refinement: .subtle),
+                          AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate))
+        XCTAssertTrue(AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate).contains(AlbumSceneStore.refinedMarker))
+        XCTAssertFalse(AlbumSceneStore.key(for: album, variation: 0).contains(AlbumSceneStore.refinedMarker))
+        // Ornate is the default style, and changing style changes the panel key.
+        XCTAssertEqual(refined.style, .ornate)
+        var subtle = refined
+        subtle.refinementStyle = .subtle
+        XCTAssertNotEqual(refined.key, subtle.key)
+        XCTAssertNil(decoded.requestedRefinement)
+        XCTAssertEqual(subtle.requestedRefinement, .subtle)
+    }
+
+    func testOrnateSettingsRepaintMoreAndNameTheCoverColors() {
+        let ornate = SceneRefinementSettings.settings(for: .ornate, colors: ["deep teal", "gold"])
+        let subtle = SceneRefinementSettings.settings(for: .subtle, colors: [])
+        XCTAssertGreaterThan(ornate.strength, subtle.strength)
+        XCTAssertLessThan(ornate.detail, subtle.detail)
+        XCTAssertGreaterThan(ornate.coverEcho, 0)
+        XCTAssertTrue(ornate.prompt.contains("deep teal, gold"))
+        XCTAssertTrue(ornate.prompt.contains("ornate"))
+        XCTAssertTrue(ornate.negativePrompt.contains("text"))
+        XCTAssertFalse(subtle.prompt.contains("palette"))
+    }
+
+    func testColorWordsNameTheCoversDominantColors() {
+        var scene = ScenePixels(width: 100, height: 100)
+        let cover = CGRect(x: 20, y: 20, width: 60, height: 60)
+        for y in 0..<100 { for x in 0..<100 {
+            let i = (y * 100 + x) * 4
+            // Cover: blue above y = 65 (a grid-cell boundary), gold below; outside the cover: red (ignored).
+            let (r, g, b): (UInt8, UInt8, UInt8) = !cover.contains(CGPoint(x: x, y: y)) ? (220, 20, 20)
+                : y < 65 ? (30, 70, 200) : (230, 180, 40)
+            scene.bytes[i] = r; scene.bytes[i + 1] = g; scene.bytes[i + 2] = b
+        } }
+        XCTAssertEqual(SceneColorWords.describe(scene, cover: cover), ["blue", "gold"])
+        XCTAssertEqual(SceneColorWords.name(r: 0.02, g: 0.02, b: 0.02).0, "black")
+        XCTAssertEqual(SceneColorWords.name(r: 0.1, g: 0.25, b: 0.25).0, "deep teal")
+        XCTAssertEqual(SceneColorWords.describe(scene, cover: .zero), [])
+    }
+
+    func testCoverEchoMirrorsTheCoverOutwardWithoutChangingIt() throws {
+        var scene = ScenePixels(width: 60, height: 20)
+        let cover = CGRect(x: 30, y: 5, width: 10, height: 10)
+        for y in 0..<20 { for x in 0..<60 {
+            let i = (y * 60 + x) * 4
+            let inCover = cover.contains(CGPoint(x: x, y: y))
+            // Cover: a horizontal ramp so reflections are easy to check; outside: black.
+            scene.bytes[i] = inCover ? UInt8(100 + (x - 30) * 10) : 0
+        } }
+        let echoed = SceneRefinementCompositor.echoCover(scene: scene, cover: cover, amount: 1)
+        func red(_ x: Int, _ y: Int) -> Int { Int(echoed.bytes[(y * 60 + x) * 4]) }
+        // The cover is unchanged.
+        for x in 30..<40 { XCTAssertEqual(red(x, 10), 100 + (x - 30) * 10) }
+        // Just left of the cover mirrors its left edge, with no seam: x=29 reflects x=30,
+        // x=28 reflects x=31 (the echo fades very slightly with distance).
+        XCTAssertEqual(Double(red(29, 10)), 100, accuracy: 3)
+        XCTAssertEqual(Double(red(28, 10)), 110, accuracy: 4)
+        // Just right mirrors the right edge: x=40 reflects x=39.
+        XCTAssertEqual(Double(red(40, 10)), 190, accuracy: 4)
+        // One cover width out it reflects back again: x=20 takes x=39, faded to about 89%.
+        XCTAssertEqual(Double(red(20, 10)), 169, accuracy: 4)
+        // Zero amount leaves the scene alone.
+        XCTAssertEqual(SceneRefinementCompositor.echoCover(scene: scene, cover: cover, amount: 0).bytes, scene.bytes)
     }
 }
