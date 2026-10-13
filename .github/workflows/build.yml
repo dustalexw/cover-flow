@@ -1,0 +1,78 @@
+name: Build
+
+# Builds the universal app and runs the tests on macOS. Pushing a v* tag also
+# attaches the zipped app to a draft GitHub release for that tag.
+on:
+  push:
+    branches: [main, "release-*"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    # Explicit bash enables pipefail, so a failing `swift test | tee` fails the step.
+    shell: bash
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcrun swift --version
+
+      - name: Cache downloaded dependencies and model
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build/vendor/*.tar.gz
+            .build/vendor/stable-diffusion-model
+          key: vendor-${{ hashFiles('scripts/build-visualizer.sh', 'scripts/build-tags.sh', 'scripts/fetch-sd-model.sh') }}
+
+      - name: Build app
+        run: |
+          bash build.command --no-launch || { echo "::group::build.log"; cat build.log; echo "::endgroup::"; exit 1; }
+
+      - name: Run tests
+        run: xcrun swift test 2>&1 | tee test.log
+
+      - name: Package app
+        id: package
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "Cover Flow.app/Contents/Info.plist")
+          ZIP="Cover-Flow-$VERSION-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent "Cover Flow.app" "$ZIP"
+          ls -lh "$ZIP"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            build.log
+            test.log
+          if-no-files-found: ignore
+
+      - name: Attach to draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "$TAG" != "v${{ steps.package.outputs.version }}" ]; then
+            echo "Tag $TAG does not match app version ${{ steps.package.outputs.version }}" >&2
+            exit 1
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --verify-tag --title "Cover Flow ${{ steps.package.outputs.version }}" --notes "Draft"
+          gh release upload "$TAG" "${{ steps.package.outputs.zip }}" --clobber
