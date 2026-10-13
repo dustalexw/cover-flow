@@ -12,21 +12,31 @@ actor AlbumSceneStore {
     /// Least recently used first.
     private var recent: [String] = []
     private var pending: [String: Task<CGImage?, Never>] = [:]
+    /// Refinements that failed or were flagged this session, so they aren't retried on every open.
+    private var failedRefinements: Set<String> = []
 
     init(artworkDirectory: URL) {
         self.artworkDirectory = artworkDirectory
         directory = artworkDirectory.appendingPathComponent("Scenes", isDirectory: true)
     }
 
-    static func key(for album: Album, variation: Int) -> String {
-        "\(album.artworkKey)-scene-v5-\(variation)"
+    static let refinedSuffix = "-sd1"
+
+    static func key(for album: Album, variation: Int, refined: Bool = false) -> String {
+        "\(album.artworkKey)-scene-v5-\(variation)" + (refined ? refinedSuffix : "")
     }
 
-    func scene(for album: Album, variation: Int) async -> CGImage? {
+    /// The quilted scene, or with `refined` its Stable Diffusion refinement when the
+    /// model is available. A failed refinement falls back to the quilted scene.
+    func scene(for album: Album, variation: Int, refined requested: Bool = false) async -> CGImage? {
         guard let file = album.artworkFile else { return nil }
-        let key = Self.key(for: album, variation: variation)
+        let refined = requested && AlbumSceneRefiner.isAvailable
+        let key = Self.key(for: album, variation: variation, refined: refined)
         if let image = images[key] { remember(image, key: key); return image }
-        if let task = pending[key] { return await task.value }
+        if let task = pending[key] {
+            if let image = await task.value { return image }
+            return refined ? await scene(for: album, variation: variation) : nil
+        }
         let destination = directory.appendingPathComponent(key + ".png")
         if let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
            let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
@@ -34,20 +44,37 @@ actor AlbumSceneStore {
             return image
         }
         let sourceURL = artworkDirectory.appendingPathComponent(file)
-        let work = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
-                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 1024
-                  ] as CFDictionary) else { return nil }
-            return AlbumSceneGenerator.generate(from: image, seed: key.stableHash)
+        let work: Task<CGImage?, Never>
+        if refined {
+            if failedRefinements.contains(key) { return await scene(for: album, variation: variation) }
+            // Refinement starts from the quilted scene of the same variation.
+            guard let base = await scene(for: album, variation: variation) else { return nil }
+            // Another caller may have started this refinement while we waited.
+            if let task = pending[key] {
+                if let image = await task.value { return image }
+                return await scene(for: album, variation: variation)
+            }
+            work = Task.detached(priority: .userInitiated) { () -> CGImage? in
+                guard let cover = Self.thumbnail(sourceURL) else { return nil }
+                let rect = AlbumSceneGenerator.coverRect(imageWidth: cover.width, imageHeight: cover.height,
+                                                         size: CGSize(width: base.width, height: base.height))
+                return await AlbumSceneRefiner.shared.refine(base, cover: rect, seed: key.stableHash)
+            }
+        } else {
+            work = Task.detached(priority: .userInitiated) { () -> CGImage? in
+                guard let image = Self.thumbnail(sourceURL) else { return nil }
+                return AlbumSceneGenerator.generate(from: image, seed: key.stableHash)
+            }
         }
         pending[key] = work
         let image = await work.value
         pending[key] = nil
         guard !work.isCancelled else { return nil }
-        guard let image else { return nil }
+        guard let image else {
+            guard refined else { return nil }
+            failedRefinements.insert(key)
+            return await scene(for: album, variation: variation)
+        }
         remember(image, key: key)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = NSMutableData()
@@ -57,18 +84,31 @@ actor AlbumSceneStore {
                 try? (data as Data).write(to: destination, options: .atomic)
             }
         }
-        // Keep one disk scene per album rather than accumulating every regeneration.
+        // Keep one quilted and one refined disk scene per album rather than
+        // accumulating every regeneration. Refined scenes are slow to make, so
+        // switching refinement off and on again doesn't discard them.
         let siblings = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        for old in siblings where old.lastPathComponent.hasPrefix(album.id.uuidString + "-") && old != destination {
+        for old in siblings where old.lastPathComponent.hasPrefix(album.id.uuidString + "-") && old != destination
+            && old.deletingPathExtension().lastPathComponent.hasSuffix(Self.refinedSuffix) == refined {
             try? FileManager.default.removeItem(at: old)
         }
         return image
+    }
+
+    private static func thumbnail(_ url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1024
+        ] as CFDictionary)
     }
 
     func remove(for albumID: UUID) {
         let prefix = albumID.uuidString + "-"
         images = images.filter { !$0.key.hasPrefix(prefix) }
         recent.removeAll { $0.hasPrefix(prefix) }
+        failedRefinements = failedRefinements.filter { !$0.hasPrefix(prefix) }
         for key in pending.keys.filter({ $0.hasPrefix(prefix) }) { pending.removeValue(forKey: key)?.cancel() }
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.lastPathComponent.hasPrefix(prefix) { try? FileManager.default.removeItem(at: file) }
@@ -89,21 +129,30 @@ actor AlbumSceneStore {
 enum AlbumSceneGenerator {
     static let canvasSize = CGSize(width: 2160, height: 1320)
 
+    /// Where the preserved cover sits in a scene of `size` generated from an image
+    /// of these dimensions, in pixels from the top-left.
+    static func coverRect(imageWidth: Int, imageHeight: Int, size: CGSize = canvasSize) -> CGRect {
+        let width = Int(size.width), height = Int(size.height)
+        let sourceLimit = min(768, Double(width) * 0.36, Double(height) * 0.6)
+        let scale = min(1, sourceLimit / Double(max(imageWidth, imageHeight)))
+        let sw = max(32, Int(Double(imageWidth) * scale))
+        let sh = max(32, Int(Double(imageHeight) * scale))
+        let anchorX = min(width - sw - 12, Int(Double(width) * 0.77) - sw / 2)
+        return CGRect(x: anchorX, y: (height - sh) / 2, width: sw, height: sh)
+    }
+
     static func generate(from image: CGImage, seed: UInt64, analyzeText: Bool = true,
                          size: CGSize = canvasSize) -> CGImage? {
         guard size.width.isFinite, size.height.isFinite,
               size.width >= 128, size.height >= 128,
               size.width <= 2160, size.height <= 1320 else { return nil }
         let width = Int(size.width), height = Int(size.height)
-        let sourceLimit = min(768, Double(width) * 0.36, Double(height) * 0.6)
-        let scale = min(1, sourceLimit / Double(max(image.width, image.height)))
-        let sw = max(32, Int(Double(image.width) * scale))
-        let sh = max(32, Int(Double(image.height) * scale))
+        let layout = coverRect(imageWidth: image.width, imageHeight: image.height, size: size)
+        let sw = Int(layout.width), sh = Int(layout.height)
         guard var source = ScenePixels(image: image, width: sw, height: sh) else { return nil }
         let patch = min(128, max(16, min(sw, sh) / 3)), overlap = max(4, patch / 3)
         let step = patch - overlap
-        let anchorX = min(width - sw - 12, Int(Double(width) * 0.77) - sw / 2)
-        let anchorY = (height - sh) / 2
+        let anchorX = Int(layout.minX), anchorY = Int(layout.minY)
         var known = [Bool](repeating: false, count: width * height)
         var locked = known
         let textBoxes: [CGRect]

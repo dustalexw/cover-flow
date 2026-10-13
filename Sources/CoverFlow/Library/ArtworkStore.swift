@@ -157,7 +157,8 @@ final class ArtworkStore: @unchecked Sendable {
         let colors = automatic.customized(settings)
         var scene: CGImage?
         if settings.sceneEnabled, settings.strength > 0,
-           let source = await scenes.scene(for: album, variation: settings.sceneVariation) {
+           let source = await scenes.scene(for: album, variation: settings.sceneVariation,
+                                          refined: settings.refinesScene) {
             scene = await Task.detached(priority: .userInitiated) {
                 AlbumSceneRenderer.render(source, colors: colors, strength: settings.strength)
             }.value

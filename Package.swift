@@ -8,6 +8,10 @@ let taglib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let package = Package(
     name: "CoverFlow",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        // Core ML Stable Diffusion, used to refine generated album scenes.
+        .package(url: "https://github.com/apple/ml-stable-diffusion.git", exact: "1.1.1")
+    ],
     targets: [
         .target(name: "CProjectM", path: "Sources/CProjectM", linkerSettings: [.linkedFramework("OpenGL")]),
         .target(name: "CArtworkTags", path: "Sources/CArtworkTags",
@@ -15,7 +19,8 @@ let package = Package(
                 linkerSettings: [.unsafeFlags(["-L", taglib + "/lib"]), .linkedLibrary("tag"), .linkedLibrary("z"), .linkedFramework("CoreFoundation")]),
         .executableTarget(
             name: "CoverFlow",
-            dependencies: ["CProjectM", "CArtworkTags"],
+            dependencies: ["CProjectM", "CArtworkTags",
+                           .product(name: "StableDiffusion", package: "ml-stable-diffusion")],
             path: "Sources/CoverFlow",
             resources: [.copy("Visualizer/Presets")]
         ),

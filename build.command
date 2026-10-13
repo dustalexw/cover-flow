@@ -20,6 +20,16 @@ if [ $rc -ne 0 ]; then
   echo "Visualizer build failed. Details are in build.log."
   exit $rc
 fi
+# Stable Diffusion scene refinement model. Set COVERFLOW_SKIP_SD=1 to build
+# without it; the app then keeps using quilted scenes only.
+if [ "${COVERFLOW_SKIP_SD:-0}" != "1" ]; then
+  echo "Preparing Stable Diffusion model (first build downloads about 1.6 GB)…"
+  bash scripts/fetch-sd-model.sh >> "$LOG" 2>&1 || {
+    echo "FAILED stable diffusion" > "$STATUS"
+    echo "Stable Diffusion model download failed. Details are in build.log, or build with COVERFLOW_SKIP_SD=1."
+    exit 1
+  }
+fi
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
 bash scripts/build-tags.sh >> "$LOG" 2>&1 || { echo "Tag writer build failed. Details are in build.log."; exit 1; }
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
@@ -47,6 +57,10 @@ cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
 cp .build/vendor/taglib-2.3.2.tar.gz "$APP/Contents/Resources/ThirdPartySources/"
 cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
+if [ "${COVERFLOW_SKIP_SD:-0}" != "1" ]; then
+  ditto .build/vendor/stable-diffusion-model "$APP/Contents/Resources/StableDiffusion"
+  rm -f "$APP/Contents/Resources/StableDiffusion/.complete"
+fi
 
 # App icon
 if [ -f Resources/AppIcon-1024.png ]; then
