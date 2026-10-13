@@ -200,13 +200,11 @@ enum AlbumSceneGenerator {
             output.copyPixel(target, from: source, index: y * sw + x)
             known[target] = true; locked[target] = true
         } }
-        /// `flip` bit 0 mirrors horizontally, bit 1 vertically. Mirrored copies
-        /// quadruple the exemplar pool, so the same patch repeats less often.
-        struct Patch { let x: Int; let y: Int; let flip: Int; let variation: Double }
+        // Patches are never mirrored: a mirrored edge sliver of a subject matches the
+        // cover's quiet border and then carries that subject away from the cover.
+        struct Patch { let x: Int; let y: Int; let variation: Double }
         func sourceIndex(_ candidate: Patch, _ x: Int, _ y: Int) -> Int {
-            let fx = candidate.flip & 1 == 0 ? x : patch - 1 - x
-            let fy = candidate.flip & 2 == 0 ? y : patch - 1 - y
-            return (candidate.y + fy) * sw + candidate.x + fx
+            (candidate.y + y) * sw + candidate.x + x
         }
         var candidates: [Patch] = []
         for sy in stride(from: 0, through: sh - patch, by: max(6, patch / 4)) {
@@ -224,9 +222,7 @@ enum AlbumSceneGenerator {
                         }
                     }
                 }
-                for flip in 0..<4 {
-                    candidates.append(Patch(x: sx, y: sy, flip: flip, variation: gradient / Double(patch * patch)))
-                }
+                candidates.append(Patch(x: sx, y: sy, variation: gradient / Double(patch * patch)))
             }
         }
         if candidates.isEmpty {
@@ -243,8 +239,7 @@ enum AlbumSceneGenerator {
         candidates.sort {
             if $0.variation != $1.variation { return $0.variation < $1.variation }
             if $0.y != $1.y { return $0.y < $1.y }
-            if $0.x != $1.x { return $0.x < $1.x }
-            return $0.flip < $1.flip
+            return $0.x < $1.x
         }
         candidates = Array(candidates.prefix(max(1, Int(Double(candidates.count) * 0.65))))
         var uses = [Int](repeating: 0, count: candidates.count)

@@ -225,7 +225,7 @@ final class AlbumAppearanceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: oldScene.path))
         XCTAssertEqual(original.width, 2160)
         XCTAssertEqual(original.height, 1320)
-        XCTAssertTrue(AlbumSceneStore.key(for: record, variation: 0).contains("-scene-v4-"))
+        XCTAssertTrue(AlbumSceneStore.key(for: record, variation: 0).contains("-scene-v5-"))
         let restarted = AlbumSceneStore(artworkDirectory: directory)
         let diskScene = await restarted.scene(for: record, variation: 0)
         let disk = try XCTUnwrap(diskScene)
