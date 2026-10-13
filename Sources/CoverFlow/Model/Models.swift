@@ -66,12 +66,27 @@ struct AlbumAppearance: Codable, Hashable {
     /// Optional so albums saved before this setting existed still decode. Off by default:
     /// the first refinement of an album takes several seconds of Neural Engine time.
     var sceneRefinement: Bool?
+    /// Optional for the same reason; nil means the default, `.ornate`.
+    var refinementStyle: SceneRefinementStyle?
 
     var strength: Double { sceneStrength.isFinite ? min(1, max(0, sceneStrength)) : 0.55 }
     var refinesScene: Bool { sceneRefinement ?? false }
+    var style: SceneRefinementStyle { refinementStyle ?? .ornate }
+    /// The refinement to request, or nil for the quilted scene.
+    var requestedRefinement: SceneRefinementStyle? { refinesScene ? style : nil }
     var key: String {
-        "\(backgroundHex ?? "auto")|\(textHex ?? "auto")|\(accentHex ?? "auto")|\(sceneEnabled)|\(strength)|\(sceneVariation)|\(refinesScene)"
+        "\(backgroundHex ?? "auto")|\(textHex ?? "auto")|\(accentHex ?? "auto")|\(sceneEnabled)|\(strength)|\(sceneVariation)|\(requestedRefinement?.rawValue ?? "none")"
     }
+}
+
+/// How strongly Stable Diffusion reinterprets a scene.
+enum SceneRefinementStyle: String, Codable, CaseIterable, Identifiable {
+    /// Keeps the quilted scene's look and mostly smooths it.
+    case subtle
+    /// Repaints the surroundings as decorative imagery continuing the cover.
+    case ornate
+    var id: String { rawValue }
+    var label: String { self == .subtle ? "Subtle" : "Ornate" }
 }
 
 enum SortOrder: String, CaseIterable, Identifiable {

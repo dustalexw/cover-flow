@@ -12,6 +12,8 @@ struct SavedArtwork {
 struct AlbumPanelStyle: @unchecked Sendable {
     let colors: AlbumDetailPalette
     let scene: CGImage?
+    /// Why a requested Stable Diffusion refinement isn't showing; nil when it is (or wasn't requested).
+    var refinementNote: String? = nil
 }
 
 enum ArtworkError: LocalizedError {
@@ -156,14 +158,19 @@ final class ArtworkStore: @unchecked Sendable {
         let automatic = await albumDetailPalette(album)
         let colors = automatic.customized(settings)
         var scene: CGImage?
+        var note: String?
         if settings.sceneEnabled, settings.strength > 0,
            let source = await scenes.scene(for: album, variation: settings.sceneVariation,
-                                          refined: settings.refinesScene) {
+                                          refinement: settings.requestedRefinement) {
+            note = await scenes.refinementFailure(for: album, variation: settings.sceneVariation,
+                                                  refinement: settings.requestedRefinement)
+            // A successful ornate refinement is shown more strongly so its detail reads.
+            let emphasis = settings.requestedRefinement == .ornate && note == nil ? 1.4 : 1
             scene = await Task.detached(priority: .userInitiated) {
-                AlbumSceneRenderer.render(source, colors: colors, strength: settings.strength)
+                AlbumSceneRenderer.render(source, colors: colors, strength: settings.strength, emphasis: emphasis)
             }.value
         }
-        let style = AlbumPanelStyle(colors: colors, scene: scene)
+        let style = AlbumPanelStyle(colors: colors, scene: scene, refinementNote: note)
         panelStyleCache.setObject(PanelStyleBox(style), forKey: key,
                                   cost: (scene?.width ?? 0) * (scene?.height ?? 0) * 4 + 128)
         return style
