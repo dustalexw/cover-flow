@@ -73,11 +73,7 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 540)
-        .navigationTitle("Cover Flow")
-        .navigationSubtitle(subtitle(visible: albums.count))
-        .toolbar { toolbar }
-        // Let the tinted backdrop run up under the toolbar instead of a grey title strip.
-        .toolbarBackground(.hidden, for: .windowToolbar)
+        .modifier(WindowChrome(subtitle: subtitle(visible: albums.count)) { toolbar })
         .inspector(isPresented: $state.showQueue) {
             QueueView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
@@ -391,5 +387,21 @@ struct RemoveAlbumConfirmation: ViewModifier {
             Text(isDemo ? "The generated demo audio for this album will be deleted."
                         : "Your audio files stay where they are on disk; only Cover Flow’s entry is removed.")
         }
+    }
+}
+
+/// Title, subtitle and toolbar for the collection window. Kept out of `RootView.body`
+/// so its modifier chain stays small enough for the type checker.
+private struct WindowChrome<Items: ToolbarContent>: ViewModifier {
+    let subtitle: String
+    @ToolbarContentBuilder let items: () -> Items
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle("Cover Flow")
+            .navigationSubtitle(subtitle)
+            .toolbar { items() }
+            // Let the tinted backdrop run up under the toolbar instead of a grey title strip.
+            .toolbarBackground(.hidden, for: .windowToolbar)
     }
 }
