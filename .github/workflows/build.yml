@@ -44,6 +44,19 @@ jobs:
       - name: Run tests
         run: xcrun swift test 2>&1 | tee test.log
 
+      - name: Report test failures
+        if: failure()
+        run: |
+          # Surface compiler errors and failing tests as annotations, which stay
+          # readable through the API even where raw logs are not.
+          for log in build.log test.log; do
+            [ -f "$log" ] || continue
+            summary=$(grep -E "error:|: error|failed|Executed [0-9]+ tests|Fatal error|Test Case .* (failed|crashed)" "$log" | head -60 | cut -c1-400)
+            [ -n "$summary" ] || summary=$(tail -40 "$log" | cut -c1-400)
+            escaped=$(printf '%s' "$summary" | python3 -c 'import sys; print(sys.stdin.read().replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"), end="")')
+            echo "::error title=$log::$escaped"
+          done
+
       - name: Package app
         id: package
         run: |

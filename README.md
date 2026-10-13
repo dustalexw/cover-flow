@@ -17,13 +17,26 @@ credits, and links to releases, source code, and issue reporting.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.3.0-macOS.zip** from the
-[1.3.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.3.0), unzip it, and move
+Download **Cover-Flow-1.4.0-macOS.zip** from the
+[1.4.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.4.0), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
 
-## What’s new in 1.3.0
+## What’s new in 1.4.0
+
+**Smoother album scenes.** Cover colors now spread into soft gradients instead of
+long horizontal and vertical streaks, titles are removed more cleanly, mirrored
+texture samples reduce visible repeats, and the area behind track names is calmer.
+Scenes also generate and recolor faster. Existing scenes refresh automatically.
+
+**Refine with Stable Diffusion** (Apple silicon). Each album’s **Colors & Scene**
+editor can repaint its scene with the bundled Stable Diffusion 1.5 model, running
+on this Mac’s Neural Engine. The first refinement of an album takes about 10–30
+seconds and is then saved. It is off by default. The app download is larger
+(about 1.5 GB) because it includes the model.
+
+## Previous update: 1.3.0
 
 **Lyrics** is a resizable window that follows the current track. Open it from the
 lyric button in the collection or Album View, or press **⌘4**. Timed LRC lyrics
