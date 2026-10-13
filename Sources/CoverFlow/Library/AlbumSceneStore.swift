@@ -9,6 +9,8 @@ actor AlbumSceneStore {
     private let artworkDirectory: URL
     private let directory: URL
     private var images: [String: CGImage] = [:]
+    /// Least recently used first.
+    private var recent: [String] = []
     private var pending: [String: Task<CGImage?, Never>] = [:]
 
     init(artworkDirectory: URL) {
@@ -17,13 +19,13 @@ actor AlbumSceneStore {
     }
 
     static func key(for album: Album, variation: Int) -> String {
-        "\(album.artworkKey)-scene-v4-\(variation)"
+        "\(album.artworkKey)-scene-v5-\(variation)"
     }
 
     func scene(for album: Album, variation: Int) async -> CGImage? {
         guard let file = album.artworkFile else { return nil }
         let key = Self.key(for: album, variation: variation)
-        if let image = images[key] { return image }
+        if let image = images[key] { remember(image, key: key); return image }
         if let task = pending[key] { return await task.value }
         let destination = directory.appendingPathComponent(key + ".png")
         if let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
@@ -66,14 +68,18 @@ actor AlbumSceneStore {
     func remove(for albumID: UUID) {
         let prefix = albumID.uuidString + "-"
         images = images.filter { !$0.key.hasPrefix(prefix) }
+        recent.removeAll { $0.hasPrefix(prefix) }
         for key in pending.keys.filter({ $0.hasPrefix(prefix) }) { pending.removeValue(forKey: key)?.cancel() }
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.lastPathComponent.hasPrefix(prefix) { try? FileManager.default.removeItem(at: file) }
     }
 
     private func remember(_ image: CGImage, key: String) {
-        if images.count >= 4 { images.removeAll(keepingCapacity: true) }
         images[key] = image
+        recent.removeAll { $0 == key }
+        recent.append(key)
+        // Evict only the oldest scene instead of dropping the whole cache.
+        while recent.count > 4 { images[recent.removeFirst()] = nil }
     }
 }
 
@@ -104,7 +110,8 @@ enum AlbumSceneGenerator {
         let subjectBoxes: [CGRect]
         if analyzeText {
             let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
+            // Only the boxes are used, never the words, so the fast recognizer is enough.
+            request.recognitionLevel = .fast
             request.usesLanguageCorrection = false
             let faces = VNDetectFaceRectanglesRequest()
             let saliency = VNGenerateAttentionBasedSaliencyImageRequest()
@@ -121,6 +128,7 @@ enum AlbumSceneGenerator {
                               width: box.width * Double(sw), height: box.height * Double(sh)).insetBy(dx: -8, dy: -8)
             }
         } else { textBoxes = []; subjectBoxes = [] }
+        if Task.isCancelled { return nil }
         source.clearLettering(in: textBoxes)
         // Separate broad cover colors from fine texture. Extending the smooth
         // edge colors prevents every pasted patch from becoming a different block.
@@ -128,19 +136,29 @@ enum AlbumSceneGenerator {
               let small = ScenePixels(image: sourceImage, width: min(48, sw), height: min(48, sh)),
               let smallImage = small.image,
               let low = ScenePixels(image: smallImage, width: sw, height: sh) else { return nil }
-        var field = ScenePixels(width: width, height: height)
-        for y in 0..<height { for x in 0..<width {
-            let sx = (x - anchorX).clamped(0, sw - 1)
-            let sy = (y - anchorY).clamped(0, sh - 1)
-            field.copyPixel(y * width + x, from: low, index: sy * sw + sx)
-        } }
+        let field = SceneField.extend(low, width: width, height: height, anchorX: anchorX, anchorY: anchorY)
+        if Task.isCancelled { return nil }
+        // Texture is strongest beside the cover and calmer far behind the track list.
+        func textureAmount(_ x: Int, _ y: Int) -> Double {
+            let dx = max(anchorX - x, x - (anchorX + sw - 1), 0)
+            let dy = max(anchorY - y, y - (anchorY + sh - 1), 0)
+            let t = (Double(dx * dx + dy * dy).squareRoot() / (Double(width) * 0.6)).clamped(0, 1)
+            return 0.75 * (1 - 0.45 * t * t * (3 - 2 * t))
+        }
         var output = field
         for y in 0..<sh { for x in 0..<sw {
             let target = (anchorY + y) * width + anchorX + x
             output.copyPixel(target, from: source, index: y * sw + x)
             known[target] = true; locked[target] = true
         } }
-        struct Patch { let x: Int; let y: Int; let variation: Double }
+        /// `flip` bit 0 mirrors horizontally, bit 1 vertically. Mirrored copies
+        /// quadruple the exemplar pool, so the same patch repeats less often.
+        struct Patch { let x: Int; let y: Int; let flip: Int; let variation: Double }
+        func sourceIndex(_ candidate: Patch, _ x: Int, _ y: Int) -> Int {
+            let fx = candidate.flip & 1 == 0 ? x : patch - 1 - x
+            let fy = candidate.flip & 2 == 0 ? y : patch - 1 - y
+            return (candidate.y + fy) * sw + candidate.x + fx
+        }
         var candidates: [Patch] = []
         for sy in stride(from: 0, through: sh - patch, by: max(6, patch / 4)) {
             for sx in stride(from: 0, through: sw - patch, by: max(6, patch / 4)) {
@@ -157,7 +175,9 @@ enum AlbumSceneGenerator {
                         }
                     }
                 }
-                candidates.append(Patch(x: sx, y: sy, variation: gradient / Double(patch * patch)))
+                for flip in 0..<4 {
+                    candidates.append(Patch(x: sx, y: sy, flip: flip, variation: gradient / Double(patch * patch)))
+                }
             }
         }
         if candidates.isEmpty {
@@ -174,7 +194,8 @@ enum AlbumSceneGenerator {
         candidates.sort {
             if $0.variation != $1.variation { return $0.variation < $1.variation }
             if $0.y != $1.y { return $0.y < $1.y }
-            return $0.x < $1.x
+            if $0.x != $1.x { return $0.x < $1.x }
+            return $0.flip < $1.flip
         }
         candidates = Array(candidates.prefix(max(1, Int(Double(candidates.count) * 0.65))))
         var uses = [Int](repeating: 0, count: candidates.count)
@@ -186,9 +207,12 @@ enum AlbumSceneGenerator {
         // Visit patches touching the preserved cover first, then grow outwards.
         // A simple raster scan would seed disconnected rows with unrelated textures.
         var placements: [(x: Int, y: Int, distance: Int)] = []
+        var seen = Set<Int>()
         for px in stride(from: width - patch, through: -step, by: -step) {
             for py in stride(from: 0, to: height, by: step) {
                 let tx = max(0, px), ty = min(py, height - patch)
+                // Clamping at the left and bottom edges can repeat a position.
+                guard seen.insert(ty * width + tx).inserted else { continue }
                 let dx = max(anchorX - (tx + patch), tx - (anchorX + sw), 0)
                 let dy = max(anchorY - (ty + patch), ty - (anchorY + sh), 0)
                 placements.append((tx, ty, dx + dy))
@@ -204,7 +228,7 @@ enum AlbumSceneGenerator {
             let tx = placement.x, ty = placement.y
             if tx >= anchorX && ty >= anchorY && tx + patch <= anchorX + sw && ty + patch <= anchorY + sh { continue }
             var bestIndex = next(candidates.count), bestError = Double.infinity
-            for _ in 0..<80 {
+            for _ in 0..<120 {
                 let candidateIndex = next(candidates.count)
                 let candidate = candidates[candidateIndex]
                 var error = 0.0, samples = 0
@@ -212,10 +236,12 @@ enum AlbumSceneGenerator {
                     for x in stride(from: 0, to: patch, by: max(4, patch / 12)) {
                         let index = (ty + y) * width + tx + x
                         guard known[index] else { continue }
+                        let amount = textureAmount(tx + x, ty + y)
+                        let base = sourceIndex(candidate, x, y) * 4
                         for c in 0..<3 {
-                            let si = ((candidate.y + y) * sw + candidate.x + x) * 4 + c
+                            let si = base + c
                             let existing = Double(output.bytes[index * 4 + c]) - Double(field.bytes[index * 4 + c])
-                            let texture = Double(source.bytes[si]) - Double(low.bytes[si])
+                            let texture = (Double(source.bytes[si]) - Double(low.bytes[si])) * amount
                             let d = existing - texture
                             error += d * d
                         }
@@ -231,11 +257,12 @@ enum AlbumSceneGenerator {
             var proposed = ScenePixels(width: patch, height: patch)
             for y in 0..<patch { for x in 0..<patch {
                 let oi = ((ty + y) * width + tx + x) * 4
-                let si = ((best.y + y) * sw + best.x + x) * 4
+                let si = sourceIndex(best, x, y) * 4
                 let pi = (y * patch + x) * 4
+                let amount = textureAmount(tx + x, ty + y)
                 for c in 0..<3 {
                     let texture = Double(source.bytes[si + c]) - Double(low.bytes[si + c])
-                    proposed.bytes[pi + c] = UInt8((Double(field.bytes[oi + c]) + texture * 0.75).rounded().clamped(0, 255))
+                    proposed.bytes[pi + c] = UInt8((Double(field.bytes[oi + c]) + texture * amount).rounded().clamped(0, 255))
                 }
             } }
             let weights = SceneQuilting.weights(output: output, source: proposed, known: known,
@@ -255,6 +282,87 @@ enum AlbumSceneGenerator {
             } }
         }
         return output.image
+    }
+}
+
+/// Extends the cover's broad colors past its edges. Copying the nearest edge pixel
+/// alone stretches every edge variation into a long horizontal or vertical streak,
+/// so the extension is blurred more the farther it is from the cover (a mip pyramid
+/// sampled trilinearly). Next to the cover the field is unchanged; far away it becomes
+/// a soft two-dimensional gradient.
+enum SceneField {
+    /// The widest blur is 2^maxLevel pixels.
+    static let maxLevel = 6
+
+    static func extend(_ low: ScenePixels, width: Int, height: Int, anchorX: Int, anchorY: Int) -> ScenePixels {
+        let sw = low.width, sh = low.height
+        var base = [Float](repeating: 0, count: width * height * 3)
+        for y in 0..<height {
+            let sy = (y - anchorY).clamped(0, sh - 1)
+            for x in 0..<width {
+                let si = (sy * sw + (x - anchorX).clamped(0, sw - 1)) * 4, oi = (y * width + x) * 3
+                base[oi] = Float(low.bytes[si])
+                base[oi + 1] = Float(low.bytes[si + 1])
+                base[oi + 2] = Float(low.bytes[si + 2])
+            }
+        }
+        var pyramid: [(width: Int, height: Int, data: [Float])] = [(width, height, base)]
+        while pyramid.count <= maxLevel {
+            let previous = pyramid[pyramid.count - 1]
+            let pw = previous.width, ph = previous.height
+            guard pw > 1 || ph > 1 else { break }
+            let w = max(1, (pw + 1) / 2), h = max(1, (ph + 1) / 2)
+            var data = [Float](repeating: 0, count: w * h * 3)
+            for y in 0..<h {
+                let y0 = min(ph - 1, y * 2), y1 = min(ph - 1, y * 2 + 1)
+                for x in 0..<w {
+                    let x0 = min(pw - 1, x * 2), x1 = min(pw - 1, x * 2 + 1)
+                    for c in 0..<3 {
+                        data[(y * w + x) * 3 + c] = (previous.data[(y0 * pw + x0) * 3 + c] + previous.data[(y0 * pw + x1) * 3 + c]
+                            + previous.data[(y1 * pw + x0) * 3 + c] + previous.data[(y1 * pw + x1) * 3 + c]) * 0.25
+                    }
+                }
+            }
+            pyramid.append((w, h, data))
+        }
+        let levels = pyramid
+        func sample(_ k: Int, _ x: Int, _ y: Int) -> SIMD3<Float> {
+            let level = levels[k]
+            let u = ((Double(x) + 0.5) * Double(level.width) / Double(width) - 0.5).clamped(0, Double(level.width - 1))
+            let v = ((Double(y) + 0.5) * Double(level.height) / Double(height) - 0.5).clamped(0, Double(level.height - 1))
+            let x0 = Int(u), y0 = Int(v)
+            let x1 = min(level.width - 1, x0 + 1), y1 = min(level.height - 1, y0 + 1)
+            let fx = Float(u - Double(x0)), fy = Float(v - Double(y0))
+            func at(_ px: Int, _ py: Int) -> SIMD3<Float> {
+                let i = (py * level.width + px) * 3
+                return SIMD3(level.data[i], level.data[i + 1], level.data[i + 2])
+            }
+            let top = at(x0, y0) * (1 - fx) + at(x1, y0) * fx
+            let bottom = at(x0, y1) * (1 - fx) + at(x1, y1) * fx
+            return top * (1 - fy) + bottom * fy
+        }
+        let topLevel = Double(levels.count - 1)
+        var field = ScenePixels(width: width, height: height)
+        field.bytes.withUnsafeMutableBufferPointer { buffer in
+            guard let out = buffer.baseAddress else { return }
+            DispatchQueue.concurrentPerform(iterations: height) { y in
+                for x in 0..<width {
+                    let dx = max(anchorX - x, x - (anchorX + sw - 1), 0)
+                    let dy = max(anchorY - y, y - (anchorY + sh - 1), 0)
+                    let distance = Double(dx * dx + dy * dy).squareRoot()
+                    let level = log2(max(1, distance * 0.35)).clamped(0, topLevel)
+                    let k = Int(level), t = Float(level - Double(k))
+                    var color = sample(k, x, y)
+                    if t > 0, k + 1 < levels.count { color = color * (1 - t) + sample(k + 1, x, y) * t }
+                    let oi = (y * width + x) * 4
+                    out[oi] = UInt8(color.x.rounded().clamped(0, 255))
+                    out[oi + 1] = UInt8(color.y.rounded().clamped(0, 255))
+                    out[oi + 2] = UInt8(color.z.rounded().clamped(0, 255))
+                    out[oi + 3] = 255
+                }
+            }
+        }
+        return field
     }
 }
 
@@ -341,36 +449,44 @@ enum AlbumSceneRenderer {
             let luminance = color.luminance
             return inks.allSatisfy { (max($0, luminance) + 0.05) / (min($0, luminance) + 0.05) >= 4.5 }
         }
-        for y in 0..<raster.height { for x in 0..<raster.width {
-            let index = (y * raster.width + x) * 4
-            let source = AlbumDetailPalette.RGB(r: Double(raster.bytes[index]) / 255,
-                                                g: Double(raster.bytes[index + 1]) / 255,
-                                                b: Double(raster.bytes[index + 2]) / 255)
-            let side = ((Double(x) / Double(raster.width) - 0.52) / 0.3).clamped(0, 1)
-            let headerFade = ((Double(y) / Double(raster.height) - 0.12) / 0.2).clamped(0, 1)
-            let header = 0.65 + 0.35 * headerFade * headerFade * (3 - 2 * headerFade)
-            let amount = strength.clamped(0, 1) * (0.18 + 0.44 * side * side * (3 - 2 * side)) * header
-            func mixed(_ alpha: Double) -> AlbumDetailPalette.RGB {
-                let value = colors.background.mixed(with: source, amount: alpha)
-                // Check the quantized color that will actually be written to the image.
-                return .init(r: (value.r * 255).rounded() / 255,
-                             g: (value.g * 255).rounded() / 255,
-                             b: (value.b * 255).rounded() / 255)
-            }
-            var result = mixed(amount)
-            if !safe(result) {
-                var low = 0.0, high = amount
-                for _ in 0..<10 {
-                    let mid = (low + high) / 2
-                    if safe(mixed(mid)) { low = mid } else { high = mid }
+        let width = raster.width, height = raster.height
+        let background = colors.background, clampedStrength = strength.clamped(0, 1)
+        raster.bytes.withUnsafeMutableBufferPointer { buffer in
+            guard let pixels = buffer.baseAddress else { return }
+            // Every pixel is independent, so rows render on all cores.
+            DispatchQueue.concurrentPerform(iterations: height) { y in
+                let headerFade = ((Double(y) / Double(height) - 0.12) / 0.2).clamped(0, 1)
+                let header = 0.65 + 0.35 * headerFade * headerFade * (3 - 2 * headerFade)
+                for x in 0..<width {
+                    let index = (y * width + x) * 4
+                    let source = AlbumDetailPalette.RGB(r: Double(pixels[index]) / 255,
+                                                        g: Double(pixels[index + 1]) / 255,
+                                                        b: Double(pixels[index + 2]) / 255)
+                    let side = ((Double(x) / Double(width) - 0.52) / 0.3).clamped(0, 1)
+                    let amount = clampedStrength * (0.18 + 0.44 * side * side * (3 - 2 * side)) * header
+                    func mixed(_ alpha: Double) -> AlbumDetailPalette.RGB {
+                        let value = background.mixed(with: source, amount: alpha)
+                        // Check the quantized color that will actually be written to the image.
+                        return .init(r: (value.r * 255).rounded() / 255,
+                                     g: (value.g * 255).rounded() / 255,
+                                     b: (value.b * 255).rounded() / 255)
+                    }
+                    var result = mixed(amount)
+                    if !safe(result) {
+                        var low = 0.0, high = amount
+                        for _ in 0..<10 {
+                            let mid = (low + high) / 2
+                            if safe(mixed(mid)) { low = mid } else { high = mid }
+                        }
+                        result = mixed(low)
+                    }
+                    pixels[index] = UInt8((result.r * 255).rounded().clamped(0, 255))
+                    pixels[index + 1] = UInt8((result.g * 255).rounded().clamped(0, 255))
+                    pixels[index + 2] = UInt8((result.b * 255).rounded().clamped(0, 255))
+                    pixels[index + 3] = 255
                 }
-                result = mixed(low)
             }
-            raster.bytes[index] = UInt8((result.r * 255).rounded().clamped(0, 255))
-            raster.bytes[index + 1] = UInt8((result.g * 255).rounded().clamped(0, 255))
-            raster.bytes[index + 2] = UInt8((result.b * 255).rounded().clamped(0, 255))
-            raster.bytes[index + 3] = 255
-        } }
+        }
         return raster.image
     }
 }
@@ -409,14 +525,28 @@ struct ScenePixels {
             let y0 = max(0, Int(rect.minY)), y1 = min(height - 1, Int(ceil(rect.maxY)))
             guard x0 <= x1, y0 <= y1 else { continue }
             let above = max(0, y0 - 2), below = min(height - 1, y1 + 2)
+            let left = max(0, x0 - 2), right = min(width - 1, x1 + 2)
+            // Fill from all four sides, trusting the nearer pair more: wide titles fill
+            // mostly from above and below, tall lettering mostly from the sides. A
+            // direction whose border falls outside the image is skipped.
+            var verticalWeight = y0 >= 2 && y1 + 2 < height ? 1 / Double(y1 - y0 + 2) : 0
+            let horizontalWeight = x0 >= 2 && x1 + 2 < width ? 1 / Double(x1 - x0 + 2) : 0
+            if verticalWeight + horizontalWeight == 0 { verticalWeight = 1 }
+            let total = verticalWeight + horizontalWeight
             let original = bytes
             for y in y0...y1 {
-                let fraction = Double(y - y0 + 1) / Double(y1 - y0 + 2)
+                let fy = Double(y - y0 + 1) / Double(y1 - y0 + 2)
                 for x in x0...x1 {
+                    let fx = Double(x - x0 + 1) / Double(x1 - x0 + 2)
                     for channel in 0..<3 {
                         let top = Double(original[(above * width + x) * 4 + channel])
                         let bottom = Double(original[(below * width + x) * 4 + channel])
-                        bytes[(y * width + x) * 4 + channel] = UInt8((top * (1 - fraction) + bottom * fraction).rounded())
+                        let leading = Double(original[(y * width + left) * 4 + channel])
+                        let trailing = Double(original[(y * width + right) * 4 + channel])
+                        let vertical = top * (1 - fy) + bottom * fy
+                        let horizontal = leading * (1 - fx) + trailing * fx
+                        let value = (vertical * verticalWeight + horizontal * horizontalWeight) / total
+                        bytes[(y * width + x) * 4 + channel] = UInt8(value.rounded().clamped(0, 255))
                     }
                 }
             }
