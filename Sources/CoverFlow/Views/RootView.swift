@@ -35,7 +35,8 @@ struct RootView: View {
                     } else if state.browseMode == .coverFlow {
                         CoverFlowView(albums: albums)
                     } else {
-                        GridView(albums: albums)
+                        // The toolbar is see-through, so keep scrolled albums from sliding under it.
+                        GridView(albums: albums).clipped()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -75,6 +76,8 @@ struct RootView: View {
         .navigationTitle("Cover Flow")
         .navigationSubtitle(subtitle(visible: albums.count))
         .toolbar { toolbar }
+        // Let the tinted backdrop run up under the toolbar instead of a grey title strip.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .inspector(isPresented: $state.showQueue) {
             QueueView()
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
