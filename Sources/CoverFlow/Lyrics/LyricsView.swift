@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct LyricsView: View {
+    var playbackActions: AnyView? = nil
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @StateObject private var lyrics = LyricsStore(directory: AppPaths.root.appendingPathComponent("Lyrics", isDirectory: true))
@@ -58,7 +59,18 @@ struct LyricsView: View {
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    TransportControls(size: 26, showModes: false)
+                    if playbackActions == nil {
+                        TransportControls(size: 26, showModes: false)
+                    } else {
+                        Text("Space: pause / resume").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                if let playbackActions {
+                    HStack(spacing: 12) {
+                        playbackActions
+                        Spacer(minLength: 0)
+                        TransportControls(size: 26, showModes: false)
+                    }
                 }
                 SeekBar(compact: true)
             }.padding(16)

@@ -1,5 +1,13 @@
 # MilkDrop visualizer
 
+The optional karaoke processor uses the MIT-licensed Mel-Band RoFormer inference
+implementation from ZFTurbo/Music-Source-Separation-Training at revision
+5a3e16d1f7e6ac489bddbeb25069595527e170ce. Its source and license are included in
+Resources/Karaoke. The minimal Slaney filter bank is adapted from librosa 0.11
+under the ISC license, included there. Runtime package versions and their license
+metadata are included in KaraokeRuntime. User-supplied Becruily model weights
+and configurations are read locally and are not bundled or uploaded.
+
 Cover Flow uses the unmodified **projectM 4.1.8** engine, copyright the projectM
 Team, under the GNU LGPL 2.1 or later. Source and documentation:
 https://github.com/projectM-visualizer/projectm/releases/tag/v4.1.8

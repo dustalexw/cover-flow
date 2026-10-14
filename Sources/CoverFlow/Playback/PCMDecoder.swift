@@ -15,25 +15,31 @@ actor PCMDecoder {
     }
 
     private let file: PCMFileReader
+    private let targetFormat: AVAudioFormat
     private let converter: AVAudioConverter?
     private let input: AVAudioPCMBuffer
     private let totalOutputFrames: AVAudioFramePosition
     private var emittedFrames: AVAudioFramePosition = 0
     let duration: Double
 
-    init(url: URL, start: Double = 0) throws {
+    init(url: URL, start: Double = 0, sampleRate: Double = PCMDecoder.sampleRate) throws {
+        guard sampleRate.isFinite, sampleRate > 0,
+              let target = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        targetFormat = target
         file = try PCMFileReader(url: url)
         guard file.length > 0 else { throw CocoaError(.fileReadCorruptFile) }
         let format = file.format
         duration = Double(file.length) / format.sampleRate
         let startFrame = min(file.length, max(0, AVAudioFramePosition(start * format.sampleRate)))
         if startFrame > 0 { try file.seek(to: startFrame) }
-        totalOutputFrames = AVAudioFramePosition((Double(file.length - startFrame) * Self.sampleRate / format.sampleRate).rounded())
+        totalOutputFrames = AVAudioFramePosition((Double(file.length - startFrame) * sampleRate / format.sampleRate).rounded())
         input = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_192)!
-        if format == Self.outputFormat {
+        if format == target {
             converter = nil
         } else {
-            guard let conversion = AVAudioConverter(from: format, to: Self.outputFormat) else {
+            guard let conversion = AVAudioConverter(from: format, to: target) else {
                 throw CocoaError(.fileReadCorruptFile)
             }
             // Normal priming removes resampler latency from the output. Disabling
@@ -48,7 +54,7 @@ actor PCMDecoder {
         let remaining = totalOutputFrames - emittedFrames
         guard remaining > 0 else { return nil }
         let count = AVAudioFrameCount(min(AVAudioFramePosition(Self.chunkFrames), remaining))
-        let output = AVAudioPCMBuffer(pcmFormat: Self.outputFormat, frameCapacity: count)!
+        let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: count)!
         if let converter {
             var conversionError: NSError?
             var readError: Error?

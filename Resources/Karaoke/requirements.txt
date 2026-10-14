@@ -1,0 +1,8 @@
+torch==2.13.0
+numpy==2.3.5
+soundfile==0.13.1
+PyYAML==6.0.3
+einops==0.8.1
+beartype==0.22.9
+rotary-embedding-torch==0.9.1
+packaging==26.3
