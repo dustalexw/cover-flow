@@ -66,12 +66,12 @@ struct AlbumAppearance: Codable, Hashable {
     /// Optional so albums saved before this setting existed still decode. Off by default:
     /// the first refinement of an album takes several seconds of Neural Engine time.
     var sceneRefinement: Bool?
-    /// Optional for the same reason; nil means the default, `.ornate`.
+    /// Optional for the same reason; nil means the default, `.extend`.
     var refinementStyle: SceneRefinementStyle?
 
     var strength: Double { sceneStrength.isFinite ? min(1, max(0, sceneStrength)) : 0.55 }
     var refinesScene: Bool { sceneRefinement ?? false }
-    var style: SceneRefinementStyle { refinementStyle ?? .ornate }
+    var style: SceneRefinementStyle { refinementStyle ?? .extend }
     /// The refinement to request, or nil for the quilted scene.
     var requestedRefinement: SceneRefinementStyle? { refinesScene ? style : nil }
     var key: String {
@@ -79,14 +79,38 @@ struct AlbumAppearance: Codable, Hashable {
     }
 }
 
-/// How strongly Stable Diffusion reinterprets a scene.
+/// How Stable Diffusion reinterprets a scene.
 enum SceneRefinementStyle: String, Codable, CaseIterable, Identifiable {
+    /// Continues the cover's own imagery past its edges, in the same style.
+    case extend
     /// Keeps the quilted scene's look and mostly smooths it.
     case subtle
     /// Repaints the surroundings as decorative imagery continuing the cover.
     case ornate
     var id: String { rawValue }
-    var label: String { self == .subtle ? "Subtle" : "Ornate" }
+    var label: String {
+        switch self {
+        case .extend: return "Extend"
+        case .subtle: return "Subtle"
+        case .ornate: return "Ornate"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .extend: return "Continues the cover past its edges in the same style, as if the artwork were larger."
+        case .subtle: return "Keeps the generated scene’s look and smooths it."
+        case .ornate: return "Repaints the surroundings as decorative imagery that echoes the cover."
+        }
+    }
+    /// How much more strongly a successful refinement is shown behind the panel,
+    /// so its detail reads; text contrast is still protected per pixel.
+    var emphasis: Double {
+        switch self {
+        case .extend: return 1.3
+        case .subtle: return 1
+        case .ornate: return 1.4
+        }
+    }
 }
 
 enum SortOrder: String, CaseIterable, Identifiable {

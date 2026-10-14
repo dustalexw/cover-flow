@@ -69,101 +69,16 @@ struct AlbumAppearanceView: View {
                                                style: preview ?? AlbumPanelStyle(colors: automaticColors.customized(settings), scene: nil))
                             .environmentObject(library)
                     }
-                    HStack(spacing: 6) {
-                        if preparing { ProgressView().controlSize(.small) }
-                        Text(preparing ? (draft.sceneEnabled && draft.refinesScene && AlbumSceneRefiner.isAvailable
-                                          ? "Refining scene with Stable Diffusion…" : "Preparing preview…")
-                                       : "Preview of this album’s track panel")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    previewStatus
                     Text("The scene stays still. It uses the cover’s shapes, textures, and colors, with a quieter area behind titles and tracks.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(width: 520)
 
-                VStack(alignment: .leading, spacing: 18) {
-                    GroupBox("Colors") {
-                        VStack(alignment: .leading, spacing: 13) {
-                            if colorsReady, let automatic {
-                                colorRow("Background", input: $backgroundInput, fallback: automatic.background)
-                                colorRow("Text", input: $textInput, fallback: automatic.foreground)
-                                colorRow("Accent", input: $accentInput, fallback: automatic.accent)
-                            } else {
-                                ProgressView("Reading cover colors…").controlSize(.small)
-                            }
-                            Text(validColors ? "Text and accent colors are adjusted when needed to keep them readable."
-                                             : "Use a six-digit hex color, such as #183A4B.")
-                                .font(.caption).foregroundStyle(validColors ? Color.secondary : Color.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(8)
-                    }
-                    GroupBox("Cover Scene") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Toggle("Show generated scene", isOn: $draft.sceneEnabled)
-                                .disabled(album?.hasArtwork != true)
-                            HStack {
-                                Text("Scene strength")
-                                Spacer()
-                                Text("\(Int(draft.strength * 100))%").monospacedDigit().foregroundStyle(.secondary)
-                            }
-                            .font(.system(size: 12))
-                            Slider(value: $draft.sceneStrength, in: 0...1)
-                                .accessibilityLabel("Scene strength")
-                                .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
-                            Button("Regenerate Scene") { draft.sceneVariation &+= 1 }
-                                .disabled(!draft.sceneEnabled || album?.hasArtwork != true || preparing)
-                            if AlbumSceneRefiner.isAvailable {
-                                Toggle("Refine with Stable Diffusion", isOn: Binding(
-                                    get: { draft.refinesScene },
-                                    set: { draft.sceneRefinement = $0 }))
-                                    .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
-                                Picker("Style", selection: Binding(
-                                    get: { draft.style },
-                                    set: { draft.refinementStyle = $0 })) {
-                                    ForEach(SceneRefinementStyle.allCases) { Text($0.label).tag($0) }
-                                }
-                                .pickerStyle(.segmented)
-                                .disabled(!draft.sceneEnabled || !draft.refinesScene || album?.hasArtwork != true)
-                                Text(draft.style == .ornate
-                                     ? "Ornate repaints the surroundings as decorative imagery that continues the cover."
-                                     : "Subtle keeps the generated scene’s look and smooths it.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text("Runs on this Mac. The first refinement of an album takes about 10–40 seconds and is then saved.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                if draft.sceneEnabled && draft.refinesScene && !preparing && preview?.scene != nil {
-                                    if let note = preview?.refinementNote {
-                                        Label("Couldn’t refine: \(note) Showing the regular scene.", systemImage: "exclamationmark.triangle")
-                                            .font(.caption).foregroundStyle(.orange)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    } else {
-                                        Label("Refined with Stable Diffusion.", systemImage: "checkmark.circle")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            if album?.hasArtwork != true {
-                                Text("Add album artwork to generate a scene.").font(.caption).foregroundStyle(.secondary)
-                            } else if !preparing && draft.sceneEnabled && draft.strength > 0 && preview?.scene == nil {
-                                Text("The cover could not be used for a scene. Replace the artwork and try again.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(8)
-                    }
-                    Button("Reset to Cover") {
-                        draft = AlbumAppearance()
-                        backgroundInput = automaticColors.background.hex
-                        textInput = automaticColors.foreground.hex
-                        accentInput = automaticColors.accent.hex
-                    }
-                        .help("Restore automatic cover colors and the original generated scene")
-                }
-                .frame(maxWidth: .infinity)
+                settingsColumn
+                    .frame(maxWidth: .infinity)
             }
-            Spacer(minLength: 0)
+            .frame(maxHeight: .infinity, alignment: .top)
             HStack {
                 Text("Saved for this album’s track panel only.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -209,6 +124,108 @@ struct AlbumAppearanceView: View {
             preview = style; preparing = false
         }
         .onDisappear { NSColorPanel.shared.close() }
+    }
+
+    private var settingsColumn: some View {
+        // The settings scroll inside the fixed-size sheet, so a tall column
+        // (for example after a refinement status appears) can never push the
+        // Cancel and Save buttons out of view.
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
+                GroupBox("Colors") {
+                    VStack(alignment: .leading, spacing: 13) {
+                        if colorsReady, let automatic {
+                            colorRow("Background", input: $backgroundInput, fallback: automatic.background)
+                            colorRow("Text", input: $textInput, fallback: automatic.foreground)
+                            colorRow("Accent", input: $accentInput, fallback: automatic.accent)
+                        } else {
+                            ProgressView("Reading cover colors…").controlSize(.small)
+                        }
+                        Text(validColors ? "Text and accent colors are adjusted when needed to keep them readable."
+                                         : "Use a six-digit hex color, such as #183A4B.")
+                            .font(.caption).foregroundStyle(validColors ? Color.secondary : Color.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(8)
+                }
+                GroupBox("Cover Scene") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Show generated scene", isOn: $draft.sceneEnabled)
+                            .disabled(album?.hasArtwork != true)
+                        HStack {
+                            Text("Scene strength")
+                            Spacer()
+                            Text("\(Int(draft.strength * 100))%").monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        .font(.system(size: 12))
+                        Slider(value: $draft.sceneStrength, in: 0...1)
+                            .accessibilityLabel("Scene strength")
+                            .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
+                        Button("Regenerate Scene") { draft.sceneVariation &+= 1 }
+                            .disabled(!draft.sceneEnabled || album?.hasArtwork != true || preparing)
+                        if AlbumSceneRefiner.isAvailable {
+                            Picker("Stable Diffusion", selection: Binding<SceneRefinementStyle?>(
+                                get: { draft.requestedRefinement },
+                                set: { style in
+                                    draft.sceneRefinement = style != nil
+                                    if let style { draft.refinementStyle = style }
+                                })) {
+                                Text("Off").tag(SceneRefinementStyle?.none)
+                                Divider()
+                                ForEach(SceneRefinementStyle.allCases) { Text($0.label).tag(Optional($0)) }
+                            }
+                            .pickerStyle(.menu)
+                            .font(.system(size: 12))
+                            .disabled(!draft.sceneEnabled || album?.hasArtwork != true)
+                            Text(draft.refinesScene
+                                 ? "\(draft.style.summary) Runs on this Mac; the first time takes about 10–40 seconds, then it’s saved."
+                                 : "Repaints the scene on this Mac. Extend continues the cover’s own imagery.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if album?.hasArtwork != true {
+                            Text("Add album artwork to generate a scene.").font(.caption).foregroundStyle(.secondary)
+                        } else if !preparing && draft.sceneEnabled && draft.strength > 0 && preview?.scene == nil {
+                            Text("The cover could not be used for a scene. Replace the artwork and try again.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(8)
+                }
+                Button("Reset to Cover") {
+                    draft = AlbumAppearance()
+                    backgroundInput = automaticColors.background.hex
+                    textInput = automaticColors.foreground.hex
+                    accentInput = automaticColors.accent.hex
+                }
+                    .help("Restore automatic cover colors and the original generated scene")
+            }
+            .padding(.trailing, 4)
+        }
+    }
+
+    /// One line under the preview: progress while preparing, then whether a requested
+    /// Stable Diffusion refinement is showing or why it isn't.
+    @ViewBuilder private var previewStatus: some View {
+        let refining = draft.sceneEnabled && draft.refinesScene && AlbumSceneRefiner.isAvailable
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if preparing {
+                ProgressView().controlSize(.small)
+                Text(refining ? "Refining scene with Stable Diffusion…" : "Preparing preview…")
+                    .foregroundStyle(.secondary)
+            } else if refining && preview?.scene != nil, let note = preview?.refinementNote {
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                Text("Couldn’t refine: \(note) Showing the regular scene.")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if refining && preview?.scene != nil {
+                Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
+                Text("Refined with Stable Diffusion (\(draft.style.label)).").foregroundStyle(.secondary)
+            } else {
+                Text("Preview of this album’s track panel").foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
     }
 
     private func colorRow(_ label: String, input: Binding<String>,
