@@ -1,8 +1,8 @@
-<p align="center"><img src="docs/readme-header.png" alt="Cover Flow 1.3.0 — Only on macOS; browse your music by its covers" width="100%"></p>
+<p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.3.0"><img src="docs/badge-release.svg" alt="Release v1.3.0"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.3.0/Cover-Flow-1.3.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.5.0"><img src="docs/badge-release.svg" alt="Release v1.5.0"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.5.0/Cover-Flow-1.5.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -15,15 +15,58 @@ almost full-screen cover.
 Choose **Cover Flow → About Cover Flow…** for the app version, feature overview,
 credits, and links to releases, source code, and issue reporting.
 
+## Karaoke (1.5.0)
+
+Open **View → Karaoke** (⌘5) for lyrics, preparation and export.
+The standard playback bar also has a paired **Karaoke** (crossed-out microphone)
+and **Vocals Only** (microphone) control beside Lyrics. Click either to prepare
+automatically and switch to that source when ready. A progress bar and percentage
+appear below the icons; click progress for details and cancellation. Click the
+selected icon again for **No Karaoke** (original audio). Changing modes during
+preparation uses the latest choice; changing tracks prevents a delayed switch.
+Prepared tracks switch immediately using their saved audio. Right-click the icons
+to open the full Karaoke window.
+Play or select a track, then click **Prepare** on the bottom playback row. The Becruily Deux checkpoint
+and configuration are discovered in `Downloads/Otras` or `Downloads`; **Change model…**
+lets you choose them elsewhere. Processing stays on your Mac and keeps the original
+audio unchanged. Progress and cancellation are available while the music continues playing.
+
+Once ready, choose **Karaoke** to hear the instrumental, **Vocals** to practice with
+the separated voice, or **Original** to return to the recording. Switching retains
+the playback position. The existing LRC lyric view follows the same clock; import
+an LRC or place a matching sidecar beside the original track. Source separation
+does not generate lyric text. Moving to a different track returns to original audio.
+
+With the Karaoke window active, **Space** pauses or resumes playback, **1** selects
+Original, **2** selects Karaoke, **3** selects Vocals, and **P** prepares the current
+track. The mode and preparation buttons show their keys on the bottom playback row.
+Shortcuts leave text editing and file dialogs alone. Karaoke and Vocals become
+available after preparation finishes.
+
+Prepared audio is saved under `~/Library/Application Support/CoverFlow/Karaoke`
+and reused when the source and model are unchanged. **Export instrumental…** saves
+a WAV copy. This release includes an Apple-silicon processing runtime and uses
+CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
+
 ## Download the macOS app
 
-Download **Cover-Flow-1.4.1-macOS.zip** from the
-[1.4.1 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.4.1), unzip it, and move
+Download **Cover-Flow-1.5.0-macOS.zip** from the
+[1.5.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.5.0), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
-with macOS 14 or later. The app is
+with macOS 14 or later. Karaoke processing requires Apple silicon and your own
+Becruily Deux checkpoint and configuration. The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
 
-## What’s new in 1.4.1
+## What’s new in 1.5.0
+
+**Karaoke and Vocals Only.** New icons beside Lyrics automatically prepare the
+current track with your local Becruily Deux model, show progress, and switch when
+ready. Click an active icon again to return to original audio. Prepared tracks
+are cached, and the full Karaoke window provides synced LRC lyrics, source
+switching, cancellation and instrumental export. Space pauses/resumes there;
+1/2/3 selects Original/Karaoke/Vocals, and P prepares the track.
+
+## 1.4.1
 
 **Seamless window top.** The album backdrop now flows up behind the title and
 toolbar instead of stopping at a grey title strip. In Grid view, albums scroll

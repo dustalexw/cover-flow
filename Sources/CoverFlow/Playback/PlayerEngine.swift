@@ -27,6 +27,8 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var shuffle = false
     @Published private(set) var repeatMode: RepeatMode = .off
     @Published var errorMessage: String?
+    @Published private(set) var karaokePlayback: KaraokePlayback = .original
+    private var karaokeOverride: (trackID: UUID, url: URL)?
     @Published var volume: Float = 0.8 {
         didSet { player.volume = volume; scheduleSave() }
     }
@@ -66,6 +68,9 @@ final class PlayerEngine: ObservableObject {
                 self.scrobbler.newPlayback(track: self.library.track(source.trackID), duration: duration, position: self.player.currentTime)
             }
             self.currentIndex = source.index
+            if self.karaokeOverride?.trackID != source.trackID {
+                self.karaokeOverride = nil; self.karaokePlayback = .original
+            }
             self.duration = duration
             self.currentTime = self.player.currentTime
             self.consecutiveFailures = 0
@@ -201,6 +206,22 @@ final class PlayerEngine: ObservableObject {
     }
 
     func skip(by seconds: Double) { seek(to: currentTime + seconds) }
+
+    func setKaraokePlayback(_ mode: KaraokePlayback, audio: KaraokeAudio? = nil) {
+        player.synchronize()
+        guard let id = currentTrackID else { return }
+        if mode != .original {
+            guard let audio, audio.trackID == id else { return }
+            do { try audio.validate() } catch { errorMessage = error.localizedDescription; return }
+            karaokeOverride = (id, audio.url(for: mode)!)
+        } else { karaokeOverride = nil }
+        karaokePlayback = mode
+        guard let index = currentIndex, let source = audioSource(at: index) else { return }
+        let time = currentTime, playing = isPlaying
+        player.load(source, autoplay: playing, at: time)
+        updateNowPlayingInfo()
+        scheduleSave()
+    }
 
     func toggleMute() {
         isMuted.toggle()
@@ -338,6 +359,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     func stop() {
+        karaokeOverride = nil; karaokePlayback = .original
         player.pause()
         playbackRequested = false
         failureSkip?.cancel()
@@ -375,7 +397,8 @@ final class PlayerEngine: ObservableObject {
 
     private func audioSource(at index: Int) -> AudioSource? {
         guard let id = queue[safe: index], let track = library.track(id) else { return nil }
-        return AudioSource(index: index, trackID: id, url: track.fileURL)
+        let url = karaokeOverride?.trackID == id ? karaokeOverride!.url : track.fileURL
+        return AudioSource(index: index, trackID: id, url: url)
     }
 
     private func refreshUpcoming() {
@@ -399,6 +422,7 @@ final class PlayerEngine: ObservableObject {
     }
 
     private func loadCurrent(autoplay: Bool, at start: Double = 0) {
+        if karaokeOverride?.trackID != currentTrackID { karaokeOverride = nil; karaokePlayback = .original }
         failureSkip?.cancel()
         playbackRequested = autoplay
         guard let index = currentIndex, let source = audioSource(at: index), let track = currentTrack else {

@@ -7,3 +7,5 @@ build.status
 Test Import/
 Import Sample/
 .DS_Store
+__pycache__/
+*.pyc

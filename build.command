@@ -31,6 +31,14 @@ if [ "${COVERFLOW_SKIP_SD:-0}" != "1" ]; then
   }
 fi
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
+if [ "${COVERFLOW_SKIP_KARAOKE:-0}" != "1" ]; then
+  echo "Preparing the offline karaoke processor…"
+  bash scripts/build-karaoke-runtime.sh >> "$LOG" 2>&1 || {
+    echo "FAILED karaoke runtime" > "$STATUS"
+    echo "Karaoke runtime preparation failed. Details are in build.log."
+    exit 1
+  }
+fi
 bash scripts/build-tags.sh >> "$LOG" 2>&1 || { echo "Tag writer build failed. Details are in build.log."; exit 1; }
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
 SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 -debug-info-format "${DEBUG_INFO_FORMAT:-dwarf}" \
@@ -57,6 +65,11 @@ cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
 cp .build/vendor/taglib-2.3.2.tar.gz "$APP/Contents/Resources/ThirdPartySources/"
 cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
+if [ "${COVERFLOW_SKIP_KARAOKE:-0}" != "1" ]; then
+  ditto Resources/Karaoke "$APP/Contents/Resources/Karaoke"
+  ditto .build/vendor/karaoke-runtime "$APP/Contents/Resources/KaraokeRuntime"
+  rm -f "$APP/Contents/Resources/KaraokeRuntime/.complete"
+fi
 if [ "${COVERFLOW_SKIP_SD:-0}" != "1" ]; then
   ditto .build/vendor/stable-diffusion-model "$APP/Contents/Resources/StableDiffusion"
   rm -f "$APP/Contents/Resources/StableDiffusion/.complete"
@@ -86,12 +99,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>app.coverflow.player</string>
   <key>CFBundleExecutable</key><string>CoverFlow</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.4.1</string>
-  <key>CFBundleVersion</key><string>19</string>
+  <key>CFBundleShortVersionString</key><string>1.5.0</string>
+  <key>CFBundleVersion</key><string>22</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSDownloadsFolderUsageDescription</key><string>Cover Flow reads your local karaoke model in Downloads to prepare instrumental tracks.</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
   <key>NSHumanReadableCopyright</key><string>Demo music and covers are generated on this Mac.</string>
 </dict>
@@ -107,7 +121,7 @@ if ! bash scripts/verify-universal.sh "$APP/Contents/MacOS/CoverFlow" \
 fi
 
 codesign --force --sign - "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1
-codesign --force --sign - "$APP" >> "$LOG" 2>&1
+codesign --force --deep --sign - "$APP" >> "$LOG" 2>&1
 codesign --verify --deep --strict "$APP" >> "$LOG" 2>&1 || exit 1
 
 echo "OK" > "$STATUS"

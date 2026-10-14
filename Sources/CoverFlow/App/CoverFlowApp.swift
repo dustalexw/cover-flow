@@ -11,7 +11,7 @@ final class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") }
     }
     @Published var theme: AppTheme {
-        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); AppEnvironment.shared.albumView.applyTheme(); AppEnvironment.shared.lyricsWindow.applyTheme() }
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme"); AppEnvironment.shared.albumView.applyTheme(); AppEnvironment.shared.lyricsWindow.applyTheme(); AppEnvironment.shared.karaokeWindow.applyTheme() }
     }
     @Published var searchText = ""
     @Published var searchFocusRequest = 0
@@ -74,6 +74,8 @@ final class AppEnvironment {
     let state: AppState
     let albumView: AlbumViewController
     lazy var lyricsWindow = LyricsWindowController()
+    let karaoke = KaraokeStore(directory: AppPaths.root.appendingPathComponent("Karaoke", isDirectory: true))
+    lazy var karaokeWindow = KaraokeWindowController()
     lazy var visualizer = VisualizerController(player: player)
 
     private init() {
@@ -110,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             let env = AppEnvironment.shared
             env.player.saveNow()
+            env.karaoke.cancel()
             env.library.saveNow()
             env.albumView.persistOpenState()
         }
@@ -153,6 +156,7 @@ struct CoverFlowApp: App {
                 .environmentObject(env.player)
                 .environmentObject(env.state)
                 .environmentObject(env.albumView)
+                .environmentObject(env.karaoke)
                 .modifier(MainWindowReopenHandler(delegate: appDelegate))
         }
         .defaultSize(width: 1220, height: 820)
@@ -211,6 +215,8 @@ struct AppCommands: Commands {
                 .keyboardShortcut("3")
             Button("Lyrics") { AppEnvironment.shared.lyricsWindow.show() }
                 .keyboardShortcut("4")
+            Button("Karaoke") { AppEnvironment.shared.karaokeWindow.show() }
+                .keyboardShortcut("5")
             Button("Search Music") { state.searchFocusRequest += 1 }
                 .keyboardShortcut("f")
             Menu("Sort By") {

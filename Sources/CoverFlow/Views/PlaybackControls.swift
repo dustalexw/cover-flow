@@ -128,8 +128,8 @@ struct NowPlayingBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            let wide = geo.size.width > 980
-            let medium = geo.size.width > 760
+            let wide = geo.size.width > 1040
+            let medium = geo.size.width > 860
             HStack(spacing: 16) {
                 // Now playing
                 HStack(spacing: 12) {
@@ -185,6 +185,7 @@ struct NowPlayingBar: View {
                     Button { AppEnvironment.shared.lyricsWindow.show() } label: { Image(systemName: "text.quote") }
                         .buttonStyle(IconButtonStyle(size: 28))
                         .help("Open Lyrics (⌘4)").accessibilityLabel("Lyrics")
+                    KaraokePlaybackButtons()
                     Button { state.showQueue.toggle() } label: { Image(systemName: "list.bullet") }
                         .buttonStyle(IconButtonStyle(size: 28, active: state.showQueue))
                         .help(state.showQueue ? "Hide queue (⌘U)" : "Show queue (⌘U)")
@@ -197,7 +198,7 @@ struct NowPlayingBar: View {
                     .help("Album View — a resizable player for the current cover (⇧⌘A)")
                     .accessibilityLabel(albumView.isOpen ? "Close Album View" : "Open Album View")
                 }
-                .frame(width: wide ? 334 : (medium ? 244 : 154), alignment: .trailing)
+                .frame(width: wide ? 426 : (medium ? 336 : 246), alignment: .trailing)
             }
             .padding(.horizontal, 18)
             .frame(width: geo.size.width, height: geo.size.height)
