@@ -17,13 +17,24 @@ credits, and links to releases, source code, and issue reporting.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.4.0-macOS.zip** from the
-[1.4.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.4.0), unzip it, and move
+Download **Cover-Flow-1.4.1-macOS.zip** from the
+[1.4.1 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.4.1), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
 
-## What’s new in 1.4.0
+## What’s new in 1.4.1
+
+**Seamless window top.** The album backdrop now flows up behind the title and
+toolbar instead of stopping at a grey title strip. In Grid view, albums scroll
+cleanly under the toolbar edge.
+
+**Ornate Stable Diffusion scenes.** Colors & Scene has a new **Subtle / Ornate**
+style; Ornate (the default) paints decorative scenes from the cover's own colors and
+imagery, continuing the cover outward. If refinement can't run, Colors & Scene now
+says why instead of quietly falling back.
+
+## 1.4.0
 
 **Smoother album scenes.** Cover colors now spread into soft gradients instead of
 long horizontal and vertical streaks, titles are removed more cleanly, mirrored
