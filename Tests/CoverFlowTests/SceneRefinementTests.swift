@@ -81,12 +81,13 @@ final class SceneRefinementTests: XCTestCase {
                           tintHex: nil, dateAdded: Date(), lastPlayed: nil, isDemo: false, missingMetadata: false, userEdited: false)
         XCTAssertNotEqual(AlbumSceneStore.key(for: album, variation: 0),
                           AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate))
-        XCTAssertNotEqual(AlbumSceneStore.key(for: album, variation: 0, refinement: .subtle),
-                          AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate))
+        XCTAssertEqual(Set(SceneRefinementStyle.allCases.map { AlbumSceneStore.key(for: album, variation: 0, refinement: $0) }).count,
+                       SceneRefinementStyle.allCases.count)
         XCTAssertTrue(AlbumSceneStore.key(for: album, variation: 0, refinement: .ornate).contains(AlbumSceneStore.refinedMarker))
         XCTAssertFalse(AlbumSceneStore.key(for: album, variation: 0).contains(AlbumSceneStore.refinedMarker))
-        // Ornate is the default style, and changing style changes the panel key.
-        XCTAssertEqual(refined.style, .ornate)
+        // Extend is the default style, and changing style changes the panel key.
+        XCTAssertEqual(refined.style, .extend)
+        XCTAssertEqual(refined.requestedRefinement, .extend)
         var subtle = refined
         subtle.refinementStyle = .subtle
         XCTAssertNotEqual(refined.key, subtle.key)
@@ -104,6 +105,27 @@ final class SceneRefinementTests: XCTestCase {
         XCTAssertTrue(ornate.prompt.contains("ornate"))
         XCTAssertTrue(ornate.negativePrompt.contains("text"))
         XCTAssertFalse(subtle.prompt.contains("palette"))
+    }
+
+    func testExtendContinuesTheCoverWithoutOrnament() {
+        let extend = SceneRefinementSettings.settings(for: .extend, colors: ["blue", "gold"])
+        let subtle = SceneRefinementSettings.settings(for: .subtle, colors: [])
+        let ornate = SceneRefinementSettings.settings(for: .ornate, colors: [])
+        // Repaints more than Subtle (so mirror symmetry dissolves) but less than Ornate.
+        XCTAssertGreaterThan(extend.strength, subtle.strength)
+        XCTAssertLessThan(extend.strength, ornate.strength)
+        // Starts from the cover itself, adds none of the quilted texture back.
+        XCTAssertGreaterThan(extend.coverEcho, ornate.coverEcho)
+        XCTAssertEqual(extend.detail, 0)
+        XCTAssertTrue(extend.prompt.contains("blue, gold"))
+        XCTAssertFalse(extend.prompt.contains("ornate"))
+        XCTAssertFalse(extend.prompt.contains("filigree"))
+        for unwanted in ["filigree", "ornament", "mirrored", "symmetrical", "text"] {
+            XCTAssertTrue(extend.negativePrompt.contains(unwanted), unwanted)
+        }
+        XCTAssertEqual(SceneRefinementStyle.allCases.first, .extend)
+        XCTAssertEqual(SceneRefinementStyle.subtle.emphasis, 1)
+        XCTAssertGreaterThan(SceneRefinementStyle.extend.emphasis, 1)
     }
 
     func testColorWordsNameTheCoversDominantColors() {

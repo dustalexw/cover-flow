@@ -28,6 +28,15 @@ struct SceneRefinementSettings: Equatable {
     static func settings(for style: SceneRefinementStyle, colors: [String]) -> SceneRefinementSettings {
         let palette = colors.isEmpty ? "" : ", color palette of \(colors.joined(separator: ", "))"
         switch style {
+        case .extend:
+            // Start from the cover mirrored outward, then let the model turn the
+            // reflections into a plausible continuation. Moderate strength and guidance
+            // keep the cover's own subject matter and style rather than inventing new
+            // decoration; the negative prompt rules out ornament and visible symmetry.
+            return SceneRefinementSettings(
+                prompt: "seamless extension of the album cover artwork beyond its edges, the same scene continuing naturally, same style, same lighting, same textures\(palette), coherent, no text",
+                negativePrompt: baseNegative + ", ornament, filigree, decorative pattern, flourishes, mirrored, symmetrical, kaleidoscope, collage, duplicate, repeated objects, oversaturated",
+                strength: 0.6, stepCount: 28, guidanceScale: 6.5, detail: 0, feather: 48, coverEcho: 0.9)
         case .subtle:
             return SceneRefinementSettings(
                 prompt: "soft abstract background extending album cover art, painterly texture, cohesive colors\(palette), no text",
@@ -46,8 +55,8 @@ struct SceneRefinementSettings: Equatable {
 ///
 /// Apple's Core ML models are fixed at 512 × 512, so the scene is covered with
 /// square tiles along its long side (two overlapping tiles for the 2160 × 1320
-/// canvas). For the ornate style, the starting image first echoes the cover
-/// outward (mirrored across its edges), so every tile sees the cover's own
+/// canvas). For the extend and ornate styles, the starting image first echoes the
+/// cover outward (mirrored across its edges), so every tile sees the cover's own
 /// imagery and the model continues it; the prompt names the cover's colors.
 /// The tiles are blended back together, a little of the quilted scene's fine
 /// detail is added back, and the cover itself is restored with a soft edge.

@@ -164,8 +164,8 @@ final class ArtworkStore: @unchecked Sendable {
                                           refinement: settings.requestedRefinement) {
             note = await scenes.refinementFailure(for: album, variation: settings.sceneVariation,
                                                   refinement: settings.requestedRefinement)
-            // A successful ornate refinement is shown more strongly so its detail reads.
-            let emphasis = settings.requestedRefinement == .ornate && note == nil ? 1.4 : 1
+            // A successful refinement may be shown more strongly so its detail reads.
+            let emphasis = note == nil ? settings.requestedRefinement?.emphasis ?? 1 : 1
             scene = await Task.detached(priority: .userInitiated) {
                 AlbumSceneRenderer.render(source, colors: colors, strength: settings.strength, emphasis: emphasis)
             }.value
