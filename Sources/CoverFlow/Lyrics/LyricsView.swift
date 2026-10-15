@@ -85,7 +85,7 @@ struct LyricsView: View {
         HStack(spacing: 12) {
             ArtworkView(album: player.currentAlbum, pointSize: 54, cornerRadius: 4).frame(width: 54, height: 54)
             VStack(alignment: .leading, spacing: 4) {
-                Text(player.currentTrack?.title ?? "Lyrics").font(.system(size: 18, weight: .semibold)).lineLimit(2)
+                ScrollingTrackTitle(player.currentTrack?.title ?? "Lyrics").font(.system(size: 18, weight: .semibold))
                 Text(player.currentTrack?.artist ?? "Cover Flow").font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 if let loaded = lyrics.loaded {
                     Text(loaded.imported ? "Imported LRC" : loaded.source.lastPathComponent)

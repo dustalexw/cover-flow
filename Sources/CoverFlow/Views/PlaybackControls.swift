@@ -144,9 +144,8 @@ struct NowPlayingBar: View {
                     .accessibilityLabel("Open Album View")
                     VStack(alignment: .leading, spacing: 2) {
                         if let track = player.currentTrack {
-                            Text(track.title)
+                            ScrollingTrackTitle(track.title)
                                 .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
                             Button {
                                 state.reveal(player.currentAlbumID)
                             } label: {

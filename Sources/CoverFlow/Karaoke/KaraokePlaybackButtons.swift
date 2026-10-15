@@ -75,7 +75,7 @@ struct KaraokePlaybackButtons: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Karaoke", systemImage: "music.mic").font(.headline)
             if karaoke.isProcessing {
-                Text("Preparing \(karaoke.processingTitle ?? "track")").lineLimit(2)
+                ScrollingTrackTitle("Preparing \(karaoke.processingTitle ?? "track")")
                 Text(karaoke.stage).font(.caption).foregroundStyle(.secondary)
                 ProgressView(value: karaoke.progress)
                 Text(karaoke.requestedPlayback == nil ? "Original audio continues playing."

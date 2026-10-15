@@ -22,7 +22,7 @@ struct KaraokeView: View {
                 if karaoke.isProcessing {
                     HStack {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("Preparing \(karaoke.processingTitle ?? "track")").font(.system(size: 13, weight: .medium)).lineLimit(1)
+                            ScrollingTrackTitle("Preparing \(karaoke.processingTitle ?? "track")").font(.system(size: 13, weight: .medium))
                             Text(karaoke.stage).font(.system(size: 12)).foregroundStyle(.secondary)
                             ProgressView(value: karaoke.progress)
                         }

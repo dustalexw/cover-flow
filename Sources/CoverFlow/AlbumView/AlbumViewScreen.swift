@@ -293,9 +293,8 @@ struct AlbumViewControls: View {
                     .foregroundStyle(.tertiary)
                     .padding(.bottom, 1)
             }
-            Text(track?.title ?? "Nothing playing")
+            ScrollingTrackTitle(track?.title ?? "Nothing playing", alignment: align == .center ? .center : .leading)
                 .font(Typography.albumTitle(compact ? 15 : (immersive ? 20 : 18)))
-                .lineLimit(1)
             Text(track.map { "\($0.artist) — \(album?.title ?? $0.albumTitle)" } ?? "Album View shows the cover of whatever is playing")
                 .font(.system(size: compact ? 11 : 12.5))
                 .foregroundStyle(.secondary)

@@ -15,6 +15,12 @@ almost full-screen cover.
 Choose **Cover Flow → About Cover Flow…** for the app version, feature overview,
 credits, and links to releases, source code, and issue reporting.
 
+Long track titles wrap in album track lists and the queue. Albums with titles too
+wide for a two-column list use one wider column. Compact playback, Album View,
+Lyrics and karaoke preparation headers scroll overflowing titles, pausing at both
+ends; hovering shows the full title immediately. Titles that fit stay still, and
+Reduce Motion disables automatic scrolling.
+
 ## Karaoke (1.5.0)
 
 Open **View → Karaoke** (⌘5) for lyrics, preparation and export.

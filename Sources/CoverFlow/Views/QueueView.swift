@@ -108,13 +108,14 @@ struct QueueRow: View {
                 Text(track.title)
                     .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? Palette.accent(scheme) : Color.primary)
-                    .lineLimit(1)
+                    .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
+                    .help(track.title)
                 Text(track.artist)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if hover {
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
@@ -127,10 +128,12 @@ struct QueueRow: View {
                     .buttonStyle(.borderless)
                     .help("Remove from queue")
                     .accessibilityLabel("Remove \(track.title) from queue")
+                    .frame(width: 42, alignment: .trailing)
             } else {
                 Text(formatTime(track.duration))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(width: 42, alignment: .trailing)
             }
         }
         .onHover { hover = $0 }

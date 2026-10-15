@@ -154,7 +154,7 @@ struct AlbumDetailView: View {
     }
 
     private func trackColumns(_ tracks: [Track]) -> [[Track]] {
-        guard tracks.count > 9 else { return [tracks] }
+        guard tracks.count > 9, !tracks.contains(where: { TrackTitleLayout.needsWideColumn($0.title) }) else { return [tracks] }
         let midpoint = (tracks.count + 1) / 2
         // Prefer a disc boundary near the middle, without creating an unbalanced list.
         let boundaries = (1..<tracks.count).filter {
@@ -206,7 +206,8 @@ struct TrackRow: View {
                     Text(track.title)
                         .font(.custom("Helvetica Neue", size: 13).weight(isCurrent ? .medium : .regular))
                         .foregroundStyle(isCurrent ? colors.accent.color : colors.foreground.color)
-                        .lineLimit(1).help(track.title)
+                        .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
+                        .help(track.title)
                     if track.artist != album.artist && !album.artist.isEmpty {
                         Text(track.artist).font(.custom("Helvetica Neue", size: 11))
                             .foregroundStyle(colors.secondary.color).lineLimit(1)

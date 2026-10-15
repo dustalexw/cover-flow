@@ -262,7 +262,7 @@ private struct AlbumAppearancePreview: View {
                         HStack(spacing: 8) {
                             Text(track.trackNumber.map(String.init) ?? "–").frame(width: 14)
                                 .foregroundStyle(style.colors.secondary.color)
-                            Text(track.title).lineLimit(1).foregroundStyle(style.colors.foreground.color)
+                            Text(track.title).lineLimit(2).help(track.title).foregroundStyle(style.colors.foreground.color)
                             Spacer(minLength: 0)
                             Text(formatTime(track.duration)).foregroundStyle(style.colors.secondary.color)
                         }
