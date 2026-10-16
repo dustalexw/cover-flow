@@ -12,13 +12,24 @@ struct KaraokeView: View {
                 HStack {
                     Label("Karaoke", systemImage: "mic.fill").font(.system(size: 24, weight: .semibold))
                     Spacer()
-                    Button(karaoke.model == nil ? "Choose model…" : "Change model…") { karaoke.chooseModel() }
+                    Button("Add model…") { karaoke.chooseModel() }
                         .disabled(karaoke.isProcessing)
                 }
-                Text(karaoke.model == nil ? "Choose your Becruily Deux model to separate vocals from the music."
-                     : "Becruily Deux · \(karaoke.model!.checkpoint.lastPathComponent)")
+                if !karaoke.models.isEmpty {
+                    Picker("Model", selection: Binding(get: { karaoke.model?.id ?? "" }, set: { karaoke.selectModel(id: $0) })) {
+                        ForEach(karaoke.models) { model in
+                            Text(model.title).tag(model.id).help(model.checkpoint.path)
+                        }
+                    }
+                    .pickerStyle(.menu).disabled(karaoke.isProcessing)
+                    .accessibilityLabel("Karaoke model")
+                }
+                Text(karaoke.model?.kind.title ?? "Add a UVR MDX ONNX or Mel-Band RoFormer model to prepare karaoke.")
                     .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                     .help(karaoke.model?.checkpoint.path ?? "")
+                if karaoke.isProcessing {
+                    Text("Finish or cancel preparation to switch models.").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 if karaoke.isProcessing {
                     HStack {
                         VStack(alignment: .leading, spacing: 5) {

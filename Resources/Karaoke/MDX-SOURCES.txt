@@ -1,0 +1,6 @@
+UVR MDX parameter metadata: https://github.com/TRvlvr/application_data
+Revision: 3826b05b570dbd4fbedbc807758803b35348ba1b
+File: mdx_model_data/model_data.json (two-stem vocal/instrumental records only)
+MDX spectral layout and overlap reference: https://github.com/Anjok07/ultimatevocalremovergui
+Revision: a5f88453bfb2b38b05a965bcf67727243e0cbf19
+Model files remain user-supplied; no weights are redistributed in the app.

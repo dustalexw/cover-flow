@@ -1,4 +1,4 @@
-"""Offline Becruily Deux inference. All progress on stdout is JSON-lines."""
+"""Offline Mel-Band RoFormer and UVR MDX inference. Progress is JSON-lines."""
 import argparse
 import hashlib
 import json
@@ -27,9 +27,9 @@ def read_config(path):
     with open(path, encoding='utf-8-sig') as file:
         config = yaml.load(file, Loader=ConfigLoader)
     if not isinstance(config, dict) or config.get('training', {}).get('instruments') != ['Vocals', 'Instrumental']:
-        raise ValueError('Choose the matching two-stem Becruily Deux configuration (Vocals, Instrumental).')
+        raise ValueError('Choose a matching two-stem Mel-Band RoFormer configuration (Vocals, Instrumental).')
     if config.get('audio', {}).get('sample_rate') != 44100 or config.get('model', {}).get('num_stems') != 2 or not config['model'].get('stereo'):
-        raise ValueError('The selected configuration is not the stereo 44.1 kHz Becruily Deux model.')
+        raise ValueError('The selected configuration must describe a stereo 44.1 kHz, two-stem Mel-Band RoFormer model.')
     return config
 
 
@@ -96,7 +96,7 @@ def separate(checkpoint, config_path, input_path, output_dir, requested_device='
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     config = read_config(config_path)
-    emit('Loading Becruily Deux', 0)
+    emit('Loading Mel-Band RoFormer', 0)
     torch.set_num_threads(min(4, os.cpu_count() or 1))
     model = MelBandRoformer(**{**config['model'], 'match_input_audio_length': True})
     state = torch.load(checkpoint, map_location='cpu', weights_only=True)
@@ -149,10 +149,18 @@ def main():
     parser = argparse.ArgumentParser()
     for flag in ('checkpoint', 'config', 'input', 'output'):
         parser.add_argument('--' + flag, required=True)
+    parser.add_argument('--backend', choices=('auto', 'mel-band-roformer', 'mdx'), default='auto')
     parser.add_argument('--device', choices=('auto', 'cpu', 'mps'), default='auto')
     args = parser.parse_args()
     try:
-        separate(args.checkpoint, args.config, args.input, args.output, args.device)
+        backend = ('mdx' if Path(args.checkpoint).suffix.lower() == '.onnx' else 'mel-band-roformer') if args.backend == 'auto' else args.backend
+        if backend == 'mdx':
+            if args.device not in ('auto', 'cpu'): raise ValueError('UVR MDX ONNX processing uses CPU in this build.')
+            from mdx import separate_mdx
+            result = separate_mdx(args.checkpoint, args.config, args.input, args.output, emit)
+            emit('Ready', 1, model_sha256=file_hash(args.checkpoint), **result)
+        else:
+            separate(args.checkpoint, args.config, args.input, args.output, args.device)
     except KeyboardInterrupt:
         emit('Cancelled', 0); return 130
     except Exception as error:

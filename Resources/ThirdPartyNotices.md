@@ -5,8 +5,15 @@ implementation from ZFTurbo/Music-Source-Separation-Training at revision
 5a3e16d1f7e6ac489bddbeb25069595527e170ce. Its source and license are included in
 Resources/Karaoke. The minimal Slaney filter bank is adapted from librosa 0.11
 under the ISC license, included there. Runtime package versions and their license
-metadata are included in KaraokeRuntime. User-supplied Becruily model weights
+metadata are included in KaraokeRuntime. User-supplied separation model weights
 and configurations are read locally and are not bundled or uploaded.
+
+UVR MDX ONNX inference uses Microsoft ONNX Runtime 1.31.0 under the MIT license.
+Its LICENSE and ThirdPartyNotices.txt are included in
+`KaraokeRuntime/site-packages/onnxruntime`. The included UVR vocal/instrumental
+parameter metadata and spectral-layout references are attributed, with revisions,
+in `Karaoke/MDX-SOURCES.txt`. The MDX processing implementation is part of Cover
+Flow; no UVR model weights are included.
 
 Cover Flow uses the unmodified **projectM 4.1.8** engine, copyright the projectM
 Team, under the GNU LGPL 2.1 or later. Source and documentation:

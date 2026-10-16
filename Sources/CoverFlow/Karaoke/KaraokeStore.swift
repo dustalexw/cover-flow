@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class KaraokeStore: ObservableObject {
     @Published private(set) var model: KaraokeModel?
+    @Published private(set) var models: [KaraokeModel] = []
     @Published private(set) var audio: KaraokeAudio?
     @Published private(set) var processingTrackID: UUID?
     @Published private(set) var processingTitle: String?
@@ -13,6 +14,7 @@ final class KaraokeStore: ObservableObject {
     @Published private(set) var requestedPlayback: KaraokePlayback?
     @Published var errorMessage: String?
     private let directory: URL
+    private let defaults: UserDefaults
     private let runtimeOverride: KaraokeRuntime?
     private var track: Track?
     private var worker: Task<Void, Never>?
@@ -22,14 +24,44 @@ final class KaraokeStore: ObservableObject {
     var isProcessing: Bool { processingTrackID != nil }
 
     init(directory: URL, model: KaraokeModel? = nil, defaults: UserDefaults = .standard, runtime: KaraokeRuntime? = nil) {
-        self.directory = directory
+        self.directory = directory; self.defaults = defaults
         self.runtimeOverride = runtime
-        if let model { self.model = model }
-        else if let checkpoint = defaults.string(forKey: "karaoke.checkpoint"),
-                let config = defaults.string(forKey: "karaoke.configuration"),
-                let saved = try? KaraokeModel(checkpoint: URL(fileURLWithPath: checkpoint), configuration: URL(fileURLWithPath: config)) {
-            self.model = saved
-        } else { self.model = KaraokeModel.discover() }
+        if let model { self.models = [model]; self.model = model; return }
+        let saved = defaults.data(forKey: "karaoke.models").flatMap { try? JSONDecoder().decode([KaraokeModel].self, from: $0) } ?? []
+        var available = saved.compactMap { try? KaraokeModel(checkpoint: $0.checkpoint, configuration: $0.configuration).persisted(in: directory) }
+        var legacy: KaraokeModel?
+        if let checkpoint = defaults.string(forKey: "karaoke.checkpoint"), let config = defaults.string(forKey: "karaoke.configuration") {
+            legacy = try? KaraokeModel(checkpoint: URL(fileURLWithPath: checkpoint), configuration: URL(fileURLWithPath: config))
+        }
+        for discovered in [legacy].compactMap({ $0 }) + KaraokeModel.discoverAll() {
+            if let candidate = try? discovered.persisted(in: directory), !available.contains(where: { $0.id == candidate.id }) { available.append(candidate) }
+        }
+        self.models = available
+        let selected = defaults.string(forKey: "karaoke.selectedModelID") ?? legacy?.id
+        self.model = available.first(where: { $0.id == selected }) ?? available.first
+    }
+
+    func selectModel(id: String) {
+        guard !isProcessing, let selected = models.first(where: { $0.id == id }), selected != model else { return }
+        model = selected; clearPlaybackRequest(); errorMessage = nil; stage = ""; progress = 0
+        refresh(for: track); persistModels()
+    }
+
+    func addModel(_ selected: KaraokeModel) {
+        guard !isProcessing else { return }
+        do {
+            let saved = try selected.persisted(in: directory)
+            if !models.contains(where: { $0.id == saved.id }) { models.append(saved) }
+            selectModel(id: saved.id)
+            persistModels()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func persistModels() {
+        if let data = try? JSONEncoder().encode(models) { defaults.set(data, forKey: "karaoke.models") }
+        defaults.set(model?.id, forKey: "karaoke.selectedModelID")
+        defaults.set(model?.checkpoint.path, forKey: "karaoke.checkpoint")
+        defaults.set(model?.configuration.path, forKey: "karaoke.configuration")
     }
 
     func refresh(for track: Track?) {
@@ -77,25 +109,26 @@ final class KaraokeStore: ObservableObject {
     func chooseModel() {
         guard !isProcessing else { return }
         let panel = NSOpenPanel()
-        panel.title = "Choose Becruily Deux model"
-        panel.message = "Choose becruily_deux.ckpt. Its matching configuration can be selected next if needed."
-        panel.allowedContentTypes = [UTType(filenameExtension: "ckpt") ?? .data]
+        panel.title = "Add karaoke model"
+        panel.message = "Choose a UVR MDX ONNX model or a Mel-Band RoFormer checkpoint such as Becruily Deux."
+        panel.allowedContentTypes = ["ckpt", "onnx"].map { UTType(filenameExtension: $0) ?? .data }
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let checkpoint = panel.url else { return }
-        var configuration = checkpoint.deletingLastPathComponent().appendingPathComponent("config_deux_becruily.yaml")
-        if !FileManager.default.fileExists(atPath: configuration.path) {
+        var configuration = KaraokeModel.configuration(for: checkpoint)
+        if configuration == nil {
+            let isMDX = checkpoint.pathExtension.lowercased() == "onnx"
             let configPanel = NSOpenPanel()
-            configPanel.title = "Choose model configuration"
-            configPanel.message = "Choose the YAML configuration that came with this checkpoint."
-            configPanel.allowedContentTypes = [UTType(filenameExtension: "yaml") ?? .text, UTType(filenameExtension: "yml") ?? .text]
+            configPanel.title = isMDX ? "Choose UVR MDX parameters" : "Choose model configuration"
+            configPanel.message = isMDX ? "This model is not in the built-in catalog. Choose its matching UVR JSON parameter file."
+                : "Choose the YAML configuration that came with this Mel-Band RoFormer checkpoint."
+            configPanel.allowedContentTypes = (isMDX ? ["json"] : ["yaml", "yml"]).map { UTType(filenameExtension: $0) ?? .data }
             guard configPanel.runModal() == .OK, let selected = configPanel.url else { return }
             configuration = selected
         }
         do {
-            model = try KaraokeModel(checkpoint: checkpoint, configuration: configuration)
-            UserDefaults.standard.set(checkpoint.path, forKey: "karaoke.checkpoint")
-            UserDefaults.standard.set(configuration.path, forKey: "karaoke.configuration")
-            errorMessage = nil; refresh(for: track)
+            guard let configuration else { return }
+            let selected = try KaraokeModel(checkpoint: checkpoint, configuration: configuration)
+            errorMessage = nil; addModel(selected)
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -104,7 +137,7 @@ final class KaraokeStore: ObservableObject {
         errorMessage = nil
         refresh(for: track)
         if audio != nil { stage = "Ready — saved karaoke audio"; return }
-        guard let model else { errorMessage = "Choose the Becruily Deux model and its configuration first."; return }
+        guard let model else { errorMessage = "Add and select a karaoke model first."; return }
         let token = UUID(); generation = token
         processingTrackID = track.id; processingTitle = track.title
         stage = "Preparing audio…"; progress = 0
@@ -150,9 +183,9 @@ final class KaraokeStore: ObservableObject {
                     }.value
                 } onCancel: { processor.cancel() }
                 guard let self, self.generation == token else { return }
-                if self.track?.id == track.id { self.audio = result }
+                if self.track?.id == track.id, self.model == model { self.audio = result }
                 self.stage = "Ready — karaoke audio saved"; self.progress = 1
-                if self.track?.id == track.id, let request = self.playbackRequest,
+                if self.track?.id == track.id, self.model == model, let request = self.playbackRequest,
                    request.trackID == track.id, let mode = self.requestedPlayback {
                     self.clearPlaybackRequest()
                     request.apply(mode, result)

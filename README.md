@@ -21,7 +21,7 @@ Lyrics and karaoke preparation headers scroll overflowing titles, pausing at bot
 ends; hovering shows the full title immediately. Titles that fit stay still, and
 Reduce Motion disables automatic scrolling.
 
-## Karaoke (1.5.0)
+## Karaoke
 
 Open **View → Karaoke** (⌘5) for lyrics, preparation and export.
 The standard playback bar also has a paired **Karaoke** (crossed-out microphone)
@@ -32,10 +32,33 @@ selected icon again for **No Karaoke** (original audio). Changing modes during
 preparation uses the latest choice; changing tracks prevents a delayed switch.
 Prepared tracks switch immediately using their saved audio. Right-click the icons
 to open the full Karaoke window.
-Play or select a track, then click **Prepare** on the bottom playback row. The Becruily Deux checkpoint
-and configuration are discovered in `Downloads/Otras` or `Downloads`; **Change model…**
-lets you choose them elsewhere. Processing stays on your Mac and keeps the original
-audio unchanged. Progress and cancellation are available while the music continues playing.
+Play or select a track, choose a **Model** in the Karaoke window, then click
+**Prepare** on the bottom playback row. **Add model…** saves another model in the
+selector; your selection is remembered between launches. Compatible files in
+`Downloads/Otras` or `Downloads` are also discovered automatically.
+
+Supported model families:
+
+- **Becruily Deux and compatible Mel-Band RoFormer**: a `.ckpt` checkpoint and its
+  matching `.yaml`/`.yml` configuration, with two stereo 44.1 kHz outputs in
+  Vocals/Instrumental order. Uses Metal when available, with CPU fallback.
+- **UVR MDX ONNX**, including **UVR-MDX-NET-Inst_HQ_5**: an `.onnx` file. Known
+  models are recognized by their UVR fingerprint using the included parameter
+  catalog. For another compatible vocal/instrumental MDX model, supply its matching
+  UVR JSON settings when prompted. Processing uses CPU. Demucs, VR, MDX23C and
+  multi-stem architectures require different processors and are not supported.
+
+An MDX JSON can be a UVR fingerprint catalog or a single parameter object containing
+`mdx_dim_f_set`, `mdx_dim_t_set`, `mdx_n_fft_scale_set`, `compensate` and
+`primary_stem` (`Vocals` or `Instrumental`). The app validates settings and graph
+shape instead of guessing. Imported MDX settings are copied to Application Support;
+model weights remain at their selected location.
+
+Switching models returns playback to Original and uses that model's saved stems,
+or enables preparation if the track is not ready yet. Each model has a separate
+cache. Finish or cancel an active preparation before changing models. Processing
+stays on your Mac, keeps the original audio unchanged, and shows progress while
+music continues playing.
 
 Once ready, choose **Karaoke** to hear the instrumental, **Vocals** to practice with
 the separated voice, or **Original** to return to the recording. Switching retains
@@ -60,8 +83,15 @@ Download **Cover-Flow-1.5.0-macOS.zip** from the
 [1.5.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.5.0), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
-Becruily Deux checkpoint and configuration. The app is
+supported model files (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
+
+## Next build: 1.6.0
+
+**Karaoke model selector.** Save and switch between Becruily Deux, UVR MDX ONNX
+models including Inst_HQ_5, and other compatible models. Preparation, progress,
+source switching and instrumental export use the selected model. Saved stems are
+kept separately for each model. Long-title wrapping and scrolling are also included.
 
 ## What’s new in 1.5.0
 

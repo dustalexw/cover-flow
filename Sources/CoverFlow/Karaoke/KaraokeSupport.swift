@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CryptoKit
+import CoreFoundation
 import Darwin
 
 enum KaraokePlayback: String, CaseIterable, Identifiable {
@@ -11,9 +12,19 @@ enum KaraokePlayback: String, CaseIterable, Identifiable {
     }
 }
 
-struct KaraokeModel: Equatable {
+enum KaraokeModelKind: String, Codable {
+    case melBandRoformer = "mel-band-roformer"
+    case mdx
+    var title: String { self == .mdx ? "UVR MDX · ONNX · CPU" : "Mel-Band RoFormer · automatic device" }
+}
+
+struct KaraokeModel: Equatable, Codable, Identifiable {
     let checkpoint: URL
     let configuration: URL
+    var kind: KaraokeModelKind { checkpoint.pathExtension.lowercased() == "onnx" ? .mdx : .melBandRoformer }
+    var id: String { checkpoint.standardizedFileURL.path + "\n" + configuration.standardizedFileURL.path }
+    var title: String { checkpoint.deletingPathExtension().lastPathComponent }
+    static var bundledMDXCatalog: URL? { Bundle.main.resourceURL?.appendingPathComponent("Karaoke/mdx-model-data.json") }
 
     init(checkpoint: URL, configuration: URL) throws {
         for file in [checkpoint, configuration] {
@@ -21,29 +32,109 @@ struct KaraokeModel: Equatable {
             guard values[.type] as? FileAttributeType == .typeRegular,
                   ((values[.size] as? NSNumber)?.int64Value ?? 0) > 0,
                   FileManager.default.isReadableFile(atPath: file.path) else {
-                throw KaraokeError.message("The model or its configuration is missing. Choose the Becruily Deux files again.")
+                throw KaraokeError.message("The model or its configuration is missing. Add its files again.")
             }
         }
-        guard checkpoint.pathExtension.lowercased() == "ckpt",
-              ["yaml", "yml"].contains(configuration.pathExtension.lowercased()) else {
-            throw KaraokeError.message("Choose the Becruily Deux checkpoint and its matching YAML configuration.")
+        let ext = checkpoint.pathExtension.lowercased(), configExt = configuration.pathExtension.lowercased()
+        guard (ext == "ckpt" && ["yaml", "yml"].contains(configExt)) || (ext == "onnx" && configExt == "json") else {
+            throw KaraokeError.message("Choose a Mel-Band RoFormer checkpoint with YAML, or a UVR MDX ONNX model with matching JSON settings.")
         }
-        self.checkpoint = checkpoint; self.configuration = configuration
+        self.checkpoint = checkpoint.resolvingSymlinksInPath(); self.configuration = configuration.resolvingSymlinksInPath()
+        if kind == .mdx { try Self.validateMDX(checkpoint: checkpoint, configuration: configuration) }
     }
 
-    static func discover(in downloads: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")) -> KaraokeModel? {
-        for directory in [downloads.appendingPathComponent("Otras"), downloads] {
-            if let found = try? KaraokeModel(checkpoint: directory.appendingPathComponent("becruily_deux.ckpt"),
-                                             configuration: directory.appendingPathComponent("config_deux_becruily.yaml")) {
-                return found
+    static func validateMDX(checkpoint: URL, configuration: URL) throws {
+        guard let data = try JSONSerialization.jsonObject(with: Data(contentsOf: configuration)) as? [String: Any] else {
+            throw KaraokeError.message("The MDX settings must contain a JSON object.")
+        }
+        let parameters: [String: Any]?
+        if data["mdx_dim_f_set"] != nil { parameters = data }
+        else { parameters = data[try uvrHash(checkpoint)] as? [String: Any] }
+        guard let parameters, ["Vocals", "Instrumental"].contains(parameters["primary_stem"] as? String ?? ""),
+              ["mdx_dim_f_set", "mdx_dim_t_set", "mdx_n_fft_scale_set", "compensate"].allSatisfy({ parameters[$0] is NSNumber }) else {
+            throw KaraokeError.message("This ONNX model needs its matching UVR vocal/instrumental JSON settings. Choose a parameter file instead of guessing its format.")
+        }
+        func integer(_ key: String) -> Int? {
+            guard let value = parameters[key] as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+                  value.doubleValue.isFinite, value.doubleValue.rounded() == value.doubleValue,
+                  (0...32768).contains(value.doubleValue) else { return nil }
+            return value.intValue
+        }
+        guard let fft = integer("mdx_n_fft_scale_set"), let frequency = integer("mdx_dim_f_set"), let exponent = integer("mdx_dim_t_set"),
+              (2048...32768).contains(fft), fft % 2 == 0, (1...(fft / 2 + 1)).contains(frequency), (4...10).contains(exponent),
+              1024 * ((1 << exponent) - 1) > fft,
+              let gain = parameters["compensate"] as? NSNumber, CFGetTypeID(gain) != CFBooleanGetTypeID(),
+              gain.doubleValue.isFinite, gain.doubleValue > 0, gain.doubleValue <= 4 else {
+            throw KaraokeError.message("The UVR MDX parameter file contains unsupported dimensions or compensation.")
+        }
+    }
+
+    static func uvrHash(_ file: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        try handle.seek(toOffset: size > 10_240_000 ? size - 10_240_000 : 0)
+        return Insecure.MD5.hash(data: try handle.readToEnd() ?? Data()).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Keep imported MDX settings outside the app bundle so moving/updating the
+    /// app cannot invalidate saved model entries. Weights stay at their source.
+    func persisted(in directory: URL) throws -> KaraokeModel {
+        guard kind == .mdx else { return self }
+        guard let object = try JSONSerialization.jsonObject(with: Data(contentsOf: configuration)) as? [String: Any] else {
+            throw KaraokeError.message("The MDX settings must contain a JSON object.")
+        }
+        let parameters = object["mdx_dim_f_set"] == nil ? object[try Self.uvrHash(checkpoint)] as? [String: Any] : object
+        guard let settings = parameters else {
+            throw KaraokeError.message("The MDX settings no longer contain this model. Add its matching JSON settings again.")
+        }
+        let data = try JSONSerialization.data(withJSONObject: settings, options: .sortedKeys)
+        let key = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let folder = directory.appendingPathComponent("ModelSettings", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent(key + ".json")
+        if (try? Data(contentsOf: file)) != data { try data.write(to: file, options: .atomic) }
+        return try KaraokeModel(checkpoint: checkpoint, configuration: file)
+    }
+
+    static func configuration(for checkpoint: URL, mdxCatalog: URL? = bundledMDXCatalog) -> URL? {
+        let base = checkpoint.deletingPathExtension(), folder = checkpoint.deletingLastPathComponent()
+        if checkpoint.pathExtension.lowercased() == "onnx" {
+            for candidate in [base.appendingPathExtension("json"), mdxCatalog].compactMap({ $0 }) {
+                if (try? KaraokeModel(checkpoint: checkpoint, configuration: candidate)) != nil { return candidate }
             }
+        } else {
+            var candidates = [base.appendingPathExtension("yaml"), base.appendingPathExtension("yml"),
+                              folder.appendingPathComponent("config_" + base.lastPathComponent + ".yaml")]
+            if base.lastPathComponent.lowercased() == "becruily_deux" { candidates.insert(folder.appendingPathComponent("config_deux_becruily.yaml"), at: 0) }
+            for candidate in candidates where FileManager.default.isReadableFile(atPath: candidate.path) { return candidate }
         }
         return nil
     }
 
+    static func discoverAll(in downloads: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads"),
+                            mdxCatalog: URL? = bundledMDXCatalog) -> [KaraokeModel] {
+        var models: [KaraokeModel] = []
+        for folder in [downloads.appendingPathComponent("Otras"), downloads] {
+            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+            for file in files.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending })
+                where ["ckpt", "onnx"].contains(file.pathExtension.lowercased()) {
+                if let config = configuration(for: file, mdxCatalog: mdxCatalog),
+                   let model = try? KaraokeModel(checkpoint: file, configuration: config), !models.contains(where: { $0.id == model.id }) { models.append(model) }
+            }
+        }
+        return models
+    }
+
+    static func discover(in downloads: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")) -> KaraokeModel? {
+        discoverAll(in: downloads).first
+    }
+
     func cacheKey(trackID: UUID, source: URL) throws -> String {
         let config = try Data(contentsOf: configuration)
-        let parts = ["becruily-deux-overlap-v1", trackID.uuidString, try Self.identity(source),
+        // Preserve existing Becruily caches; MDX output uses its own processing version.
+        let version = kind == .mdx ? "uvr-mdx-overlap-v1" : "becruily-deux-overlap-v1"
+        let parts = [version, trackID.uuidString, try Self.identity(source),
                      try Self.identity(checkpoint), configuration.path,
                      SHA256.hash(data: config).map { String(format: "%02x", $0) }.joined()]
         return SHA256.hash(data: Data(parts.joined(separator: "\n").utf8))
@@ -148,7 +239,7 @@ final class KaraokeProcess: @unchecked Sendable {
              progress: @escaping @Sendable (KaraokeProgress) -> Void) throws -> KaraokeProgress {
         let process = Process(), pipe = Pipe()
         process.executableURL = runtime.python
-        process.arguments = [runtime.helper.path, "--checkpoint", model.checkpoint.path,
+        process.arguments = [runtime.helper.path, "--backend", model.kind.rawValue, "--checkpoint", model.checkpoint.path,
                              "--config", model.configuration.path, "--input", input.path, "--output", output.path]
         var environment = ProcessInfo.processInfo.environment
         environment["PYTHONPATH"] = [runtime.packages.path, runtime.helper.deletingLastPathComponent().path].joined(separator: ":")
