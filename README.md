@@ -45,14 +45,20 @@ Supported model families:
 - **UVR MDX ONNX**, including **UVR-MDX-NET-Inst_HQ_5**: an `.onnx` file. Known
   models are recognized by their UVR fingerprint using the included parameter
   catalog. For another compatible vocal/instrumental MDX model, supply its matching
-  UVR JSON settings when prompted. Processing uses CPU. Demucs, VR, MDX23C and
+  UVR JSON settings when prompted. Processing prefers Core ML with GPU enabled,
+  and falls back to CPU if conversion or prediction fails. Demucs, VR, MDX23C and
   multi-stem architectures require different processors and are not supported.
 
 An MDX JSON can be a UVR fingerprint catalog or a single parameter object containing
 `mdx_dim_f_set`, `mdx_dim_t_set`, `mdx_n_fft_scale_set`, `compensate` and
 `primary_stem` (`Vocals` or `Instrumental`). The app validates settings and graph
 shape instead of guessing. Imported MDX settings are copied to Application Support;
-model weights remain at their selected location.
+model weights remain at their selected location. Core ML conversion is automatic
+on first preparation and saved in `Karaoke/ModelCache/MDX` for later tracks. The
+conversion cache includes the model contents, settings and runtime version, so
+replacing weights at the same path cannot reuse an outdated conversion. Audio
+transforms and file handling stay on CPU; Core ML schedules supported model
+operations across CPU/GPU. Existing prepared stems remain reusable.
 
 Switching models returns playback to Original and uses that model's saved stems,
 or enables preparation if the track is not ready yet. Each model has a separate
@@ -86,7 +92,14 @@ with macOS 14 or later. Karaoke processing requires Apple silicon and your own
 supported model files (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
 
-## Next build: 1.6.0
+## Next build: 1.6.1
+
+**GPU-enabled MDX preparation.** Inst_HQ_5 and compatible MDX models now convert
+locally to Core ML with GPU computation enabled. Converted models are saved for
+reuse. If conversion or prediction fails, preparation retries on CPU and reports
+that in progress. Becruily retains its Metal/CPU path.
+
+## Local build: 1.6.0
 
 **Karaoke model selector.** Save and switch between Becruily Deux, UVR MDX ONNX
 models including Inst_HQ_5, and other compatible models. Preparation, progress,

@@ -4,3 +4,6 @@ File: mdx_model_data/model_data.json (two-stem vocal/instrumental records only)
 MDX spectral layout and overlap reference: https://github.com/Anjok07/ultimatevocalremovergui
 Revision: a5f88453bfb2b38b05a965bcf67727243e0cbf19
 Model files remain user-supplied; no weights are redistributed in the app.
+
+Core ML GPU provider configuration and conversion cache:
+https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html

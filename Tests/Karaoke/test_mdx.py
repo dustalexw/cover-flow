@@ -4,11 +4,12 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import MagicMock
 import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'Resources/Karaoke'))
-from mdx import MDXSpectrum, predict_primary, read_parameters, uvr_hash, validate_session
+from mdx import MDXSession, MDXSpectrum, predict_primary, read_parameters, uvr_hash, validate_session
 
 PARAMETERS = dict(compensate=1.01, mdx_dim_f_set=1025, mdx_dim_t_set=4,
                   mdx_n_fft_scale_set=2048, primary_stem='Instrumental')
@@ -24,6 +25,72 @@ class IdentitySession:
 
 
 class MDXTests(unittest.TestCase):
+    def runtime(self, gpu=None, cpu=None, available=True):
+        runtime = MagicMock()
+        runtime.__version__ = 'test'
+        runtime.get_available_providers.return_value = ['CoreMLExecutionProvider'] if available else []
+        gpu, cpu = gpu or IdentitySession(), cpu or IdentitySession()
+        gpu.get_providers = lambda: ['CoreMLExecutionProvider', 'CPUExecutionProvider']
+        gpu.disable_fallback = lambda: None
+        cpu.disable_fallback = lambda: None
+        runtime.InferenceSession.side_effect = lambda *args, **kwargs: gpu if isinstance(kwargs['providers'][0], tuple) else cpu
+        return runtime
+
+    def test_gpu_conversion_uses_static_batch_and_content_specific_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / 'model.onnx'; model.write_bytes(b'original')
+            runtime = self.runtime()
+            session = MDXSession(runtime, model, PARAMETERS, Path(directory) / 'cache', lambda *a, **k: None)
+            self.assertEqual(session.device, 'coreml')
+            first = runtime.InferenceSession.call_args.kwargs['providers'][0][1]
+            self.assertEqual(first['MLComputeUnits'], 'CPUAndGPU')
+            self.assertEqual(first['RequireStaticInputShapes'], '1')
+            self.assertEqual(first['ModelFormat'], 'MLProgram')
+            runtime.SessionOptions.return_value.add_free_dimension_override_by_name.assert_any_call('batch_size', 1)
+            model.write_bytes(b'replacement at the same path')
+            MDXSession(runtime, model, PARAMETERS, Path(directory) / 'cache', lambda *a, **k: None)
+            second = runtime.InferenceSession.call_args.kwargs['providers'][0][1]
+            self.assertNotEqual(first['ModelCacheDirectory'], second['ModelCacheDirectory'])
+
+    def test_cpu_mode_and_missing_gpu_provider_do_not_attempt_conversion(self):
+        for mode, available in [('cpu', True), ('auto', False)]:
+            runtime, progress = self.runtime(available=available), []
+            session = MDXSession(runtime, 'no model read needed.onnx', PARAMETERS, '/unused',
+                lambda stage, value, **kwargs: progress.append(kwargs['device']), mode)
+            self.assertEqual(session.device, 'cpu')
+            self.assertEqual(runtime.InferenceSession.call_args.kwargs['providers'], ['CPUExecutionProvider'])
+
+    def test_gpu_load_failure_falls_back_and_keeps_cpu_errors_visible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / 'model.onnx'; model.write_bytes(b'original')
+            runtime = self.runtime(); cpu = runtime.InferenceSession(None, providers=['CPUExecutionProvider'])
+            runtime.InferenceSession.reset_mock()
+            runtime.InferenceSession.side_effect = [RuntimeError('GPU compilation failed'), cpu]
+            progress = []
+            session = MDXSession(runtime, model, PARAMETERS, directory,
+                lambda stage, value, **kwargs: progress.append(kwargs['device']))
+            self.assertEqual(session.device, 'cpu'); self.assertIn('cpu', progress)
+            runtime.InferenceSession.side_effect = RuntimeError('Invalid CPU model')
+            with self.assertRaisesRegex(RuntimeError, 'Invalid CPU model'):
+                MDXSession(runtime, model, PARAMETERS, directory, lambda *a, **k: None)
+
+    def test_gpu_prediction_failure_retries_both_signs_on_cpu_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / 'model.onnx'; model.write_bytes(b'original')
+            spectrum = np.ones((1, 4, 1025, 16), dtype=np.float32)
+            for invalid_output in (False, True):
+                gpu, cpu = IdentitySession(), IdentitySession()
+                gpu.run = MagicMock(side_effect=[[spectrum * 100], [np.full_like(spectrum, np.nan)]] if invalid_output else [[spectrum * 100], RuntimeError('GPU unavailable')])
+                cpu.run = MagicMock(side_effect=lambda _, feed: [next(iter(feed.values())).copy()])
+                runtime = self.runtime(gpu, cpu); events = []
+                session = MDXSession(runtime, model, PARAMETERS, directory,
+                    lambda stage, value, **kwargs: events.append((value, kwargs['device'])))
+                np.testing.assert_array_equal(session.predict(spectrum, 'custom_input', True, .5), spectrum)
+                self.assertEqual(session.device, 'cpu'); self.assertEqual(events[-1], (.5, 'cpu'))
+                self.assertEqual(cpu.run.call_count, 2)
+                session.predict(spectrum, 'custom_input', True, .75)
+                self.assertEqual(gpu.run.call_count, 2)  # No repeated GPU failures.
+
     def test_stereo_complex_packing_round_trip_preserves_channels_and_edges(self):
         rng = np.random.default_rng(10)
         audio = rng.normal(0, .05, (2, 15360)).astype(np.float32)

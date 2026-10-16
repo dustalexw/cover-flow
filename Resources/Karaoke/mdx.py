@@ -5,12 +5,88 @@ are accepted; the complementary stem is the original mix minus the primary.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 
 import numpy as np
 import soundfile as sf
 import torch
+
+
+class MDXSession:
+    """Prefer Core ML's GPU-enabled path and retry a failed prediction on CPU."""
+    def __init__(self, ort, checkpoint, parameters, cache_directory, notify, device='auto'):
+        if device not in ('auto', 'cpu', 'coreml', 'mps'):
+            raise ValueError('Unsupported MDX processing device.')
+        self.ort, self.checkpoint, self.parameters = ort, str(checkpoint), parameters
+        self.notify, self.device, self.progress = notify, 'cpu', 0.0
+        self.session = None
+        if device != 'cpu' and 'CoreMLExecutionProvider' in ort.get_available_providers():
+            try:
+                # The source file is never rewritten. Include its full contents and
+                # conversion settings in the cache identity, even at the same path.
+                digest = hashlib.sha256()
+                with open(checkpoint, 'rb') as file:
+                    for block in iter(lambda: file.read(1024 * 1024), b''): digest.update(block)
+                digest.update((ort.__version__ + ':coreml-mlprogram-cpuandgpu-v1').encode())
+                digest.update(json.dumps(parameters, sort_keys=True).encode())
+                cache = Path(cache_directory) / digest.hexdigest()
+                cache.mkdir(parents=True, exist_ok=True)
+                notify('Converting or loading MDX for Core ML GPU', 0, device='coreml')
+                self.session = self.create([
+                    ('CoreMLExecutionProvider', {
+                        'ModelFormat': 'MLProgram', 'MLComputeUnits': 'CPUAndGPU',
+                        'RequireStaticInputShapes': '1', 'ModelCacheDirectory': str(cache.resolve()),
+                    }), 'CPUExecutionProvider'])
+                if 'CoreMLExecutionProvider' not in self.session.get_providers():
+                    raise RuntimeError('Core ML provider could not be initialized.')
+                self.device = 'coreml'
+            except Exception as error:
+                self.fallback(error)
+        else:
+            if device != 'cpu': notify('Core ML unavailable — using CPU', 0, device='cpu')
+            self.session = self.create(['CPUExecutionProvider'])
+
+    def create(self, providers):
+        options = self.ort.SessionOptions()
+        options.intra_op_num_threads = min(4, os.cpu_count() or 1)
+        options.inter_op_num_threads = 1
+        # MDX always processes one fixed stereo block. Resolving symbolic batch
+        # dimensions enables Core ML to convert the complete Inst_HQ_5 graph.
+        for name in ('batch_size', 'batch', 'batch_dim'):
+            options.add_free_dimension_override_by_name(name, 1)
+        session = self.ort.InferenceSession(self.checkpoint, sess_options=options, providers=providers)
+        session.disable_fallback()  # Report and control fallback ourselves.
+        validate_session(session, self.parameters)
+        return session
+
+    def fallback(self, error):
+        print('MDX Core ML fallback: ' + str(error), file=sys.stderr, flush=True)
+        self.session = None
+        self.device = 'cpu'
+        self.notify('Core ML GPU unavailable — using CPU', self.progress, device='cpu')
+        self.session = self.create(['CPUExecutionProvider'])
+
+    def get_inputs(self): return self.session.get_inputs()
+    def get_outputs(self): return self.session.get_outputs()
+
+    def predict(self, spectrum, input_name, denoise, progress):
+        self.progress = progress
+        def run():
+            positive = self.session.run(None, {input_name: spectrum})[0]
+            result = (positive - self.session.run(None, {input_name: -spectrum})[0]) * .5 if denoise else positive
+            if result.shape != spectrum.shape or not np.isfinite(result).all():
+                raise ValueError('The MDX model returned invalid spectra.')
+            return result
+        try:
+            return run()
+        except Exception as error:
+            if self.device != 'coreml': raise
+            self.fallback(error)
+            # Retry both signs of the current block on the same backend.
+            return run()
 
 
 def uvr_hash(path):
@@ -104,8 +180,11 @@ def predict_primary(audio, session, parameters, scratch, notify, denoise=True):
                 block[:, low - start:high - start] = audio[:, low - trim:high - trim]
             spectrum = spectral.encode(torch.from_numpy(block)).numpy()
             spectrum[:, :, :3, :] = 0
-            positive = session.run(None, {input_name: spectrum})[0]
-            prediction = (positive - session.run(None, {input_name: -spectrum})[0]) * .5 if denoise else positive
+            if isinstance(session, MDXSession):
+                prediction = session.predict(spectrum, input_name, denoise, index / len(starts))
+            else:
+                positive = session.run(None, {input_name: spectrum})[0]
+                prediction = (positive - session.run(None, {input_name: -spectrum})[0]) * .5 if denoise else positive
             if prediction.shape != spectrum.shape or not np.isfinite(prediction).all():
                 raise ValueError('The MDX model returned invalid spectra.')
             wave = spectral.decode(prediction, chunk)
@@ -114,21 +193,20 @@ def predict_primary(audio, session, parameters, scratch, notify, denoise=True):
             weight = np.hanning(length).astype(np.float32) if length > 2 else np.ones(length, dtype=np.float32)
             result[:, start:start + length] += wave[:, :length] * weight
             counter[start:start + length] += weight
-            notify('Separating with UVR MDX on CPU', (index + 1) / len(starts), device='cpu')
+            device = getattr(session, 'device', 'cpu')
+            stage = 'Separating with Core ML (GPU enabled)' if device == 'coreml' else 'Separating with UVR MDX on CPU'
+            notify(stage, (index + 1) / len(starts), device=device)
     return result, counter, trim
 
 
-def separate_mdx(checkpoint, config_path, input_path, output_dir, notify):
+def separate_mdx(checkpoint, config_path, input_path, output_dir, notify, requested_device='auto', cache_directory=None):
     import onnxruntime as ort
     ort.disable_telemetry_events()
     parameters = read_parameters(config_path, checkpoint)
-    notify('Loading UVR MDX model on CPU', 0, device='cpu')
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = min(4, __import__('os').cpu_count() or 1)
-    options.inter_op_num_threads = 1
-    session = ort.InferenceSession(str(checkpoint), sess_options=options, providers=['CPUExecutionProvider'])
-    torch.set_num_threads(min(4, __import__('os').cpu_count() or 1))
     output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
+    session = MDXSession(ort, checkpoint, parameters, cache_directory or output.parent / 'ModelCache' / 'MDX', notify, requested_device)
+    notify('Loading UVR MDX model', 0, device=session.device)
+    torch.set_num_threads(min(4, os.cpu_count() or 1))
     with sf.SoundFile(input_path) as source, tempfile.TemporaryDirectory(prefix='.mdx-', dir=output) as scratch:
         if source.samplerate != 44100 or source.channels != 2 or source.frames < 1:
             raise ValueError('The prepared audio must be stereo at 44.1 kHz.')
@@ -151,11 +229,11 @@ def separate_mdx(checkpoint, config_path, input_path, output_dir, notify):
                 if not np.isfinite(stem).all(): raise ValueError('The MDX model produced non-finite audio.')
                 peak = max(peak, float(np.abs(stem).max()))
         gain = min(1.0, .98 / max(.98, peak))
-        notify('Saving karaoke audio', 1, device='cpu')
+        notify('Saving karaoke audio', 1, device=session.device)
         with sf.SoundFile(output / 'vocals.wav', 'w', samplerate=44100, channels=2, subtype='FLOAT') as vocals, \
              sf.SoundFile(output / 'instrumental.wav', 'w', samplerate=44100, channels=2, subtype='FLOAT') as instrumental:
             for start in range(0, frames, 262144):
                 voice, music = stems_at(start, min(frames, start + 262144))
                 vocals.write(voice.T * gain); instrumental.write(music.T * gain)
         del result, counter, audio
-    return dict(frames=frames, sample_rate=44100, device='cpu', gain=gain)
+    return dict(frames=frames, sample_rate=44100, device=session.device, gain=gain)

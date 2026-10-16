@@ -15,7 +15,7 @@ enum KaraokePlayback: String, CaseIterable, Identifiable {
 enum KaraokeModelKind: String, Codable {
     case melBandRoformer = "mel-band-roformer"
     case mdx
-    var title: String { self == .mdx ? "UVR MDX · ONNX · CPU" : "Mel-Band RoFormer · automatic device" }
+    var title: String { self == .mdx ? "UVR MDX · Core ML GPU preferred · CPU fallback" : "Mel-Band RoFormer · automatic device" }
 }
 
 struct KaraokeModel: Equatable, Codable, Identifiable {
@@ -248,6 +248,11 @@ final class KaraokeProcess: @unchecked Sendable {
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         environment["NUMBA_CACHE_DIR"] = output.appendingPathComponent(".numba-cache").path
+        if model.kind == .mdx {
+            // Core ML needs a writable compilation workspace, separate from the
+            // persistent converted-model cache beside this temporary job folder.
+            environment["TMPDIR"] = output.path + "/"
+        }
         environment.removeValue(forKey: "PYTHONHOME")
         process.environment = environment
         process.standardOutput = pipe
