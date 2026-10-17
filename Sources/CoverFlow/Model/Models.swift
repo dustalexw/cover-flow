@@ -1,6 +1,7 @@
 import Foundation
 
-/// A single audio file in the collection. Files are referenced in place, never copied.
+/// A single audio file in the collection. Importers determine whether the URL
+/// references the original source or an owned local copy.
 struct Track: Identifiable, Codable, Hashable {
     let id: UUID
     var fileURL: URL

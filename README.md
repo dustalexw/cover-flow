@@ -12,6 +12,11 @@ A native macOS audio player built around browsing a record collection: a 3D Cove
 a grid, and **Album View**, a player window that scales from a compact mini-player to an
 almost full-screen cover.
 
+An **iPadOS 17+ version** is available as a separate native Xcode target, with touch
+Cover Flow, local music import, gapless playback, lyrics, native MDX karaoke,
+Last.fm, artwork editing and an audio visualizer. See the [iPad guide](iPad/README.md)
+for features, installation with your developer account and platform differences.
+
 Choose **Cover Flow → About Cover Flow…** for the app version, feature overview,
 credits, and links to releases, source code, and issue reporting.
 

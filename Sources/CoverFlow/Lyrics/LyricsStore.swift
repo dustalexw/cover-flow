@@ -1,4 +1,9 @@
+#if os(macOS)
 import AppKit
+#else
+import Foundation
+import Combine
+#endif
 import UniformTypeIdentifiers
 
 struct LoadedLyrics: Sendable {
@@ -49,6 +54,7 @@ final class LyricsStore: ObservableObject {
         }
     }
 
+    #if os(macOS)
     func chooseFile(for track: Track) {
         let panel = NSOpenPanel()
         panel.title = "Import Lyrics for \(track.title)"
@@ -75,6 +81,8 @@ final class LyricsStore: ObservableObject {
             }
         }
     }
+
+    #endif
 
     nonisolated static func find(trackID: UUID, audioURL: URL, directory: URL) throws -> LoadedLyrics? {
         let imported = directory.appendingPathComponent(trackID.uuidString + ".lrc")

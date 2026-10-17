@@ -1,0 +1,38 @@
+name: iPadOS
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'iPad/**'
+      - 'Sources/CoverFlow/Playback/**'
+      - 'Sources/CoverFlow/Model/**'
+      - 'Sources/CoverFlow/Lyrics/**'
+      - 'Sources/CoverFlow/Scrobbling/**'
+      - 'Sources/CoverFlow/Library/MetadataReader.swift'
+      - 'scripts/*ipad*'
+      - 'build-ipad.command'
+      - '.github/workflows/ipados.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .build/vendor/ipados
+            iPad/Vendor
+          key: ipad-runtime-${{ hashFiles('scripts/fetch-ipad-runtime.sh') }}
+      - name: Prepare native runtime
+        run: bash scripts/fetch-ipad-runtime.sh
+      - name: Verify processing core
+        run: swift test --package-path iPad --disable-sandbox
+      - name: Build for iPad
+        run: bash build-ipad.command --device
+      - name: Build for Simulator
+        run: bash build-ipad.command --simulator

@@ -1,5 +1,9 @@
 import AVFoundation
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Combine
 import MediaPlayer
 
@@ -508,6 +512,10 @@ final class PlayerEngine: ObservableObject {
         }
     }
 
+    #if os(iOS)
+    func refreshLibraryMetadata() { updateNowPlayingInfo() }
+    #endif
+
     // MARK: System Now Playing + media keys
 
     private func configureRemoteCommands() {
@@ -547,7 +555,9 @@ final class PlayerEngine: ObservableObject {
         let info = MPNowPlayingInfoCenter.default()
         guard let track = currentTrack else {
             info.nowPlayingInfo = nil
+            #if os(macOS)
             info.playbackState = .stopped
+            #endif
             return
         }
         var dict: [String: Any] = [
@@ -575,7 +585,9 @@ final class PlayerEngine: ObservableObject {
             if let art = nowPlayingArtwork { dict[MPMediaItemPropertyArtwork] = art }
         }
         info.nowPlayingInfo = dict
+        #if os(macOS)
         info.playbackState = isPlaying ? .playing : .paused
+        #endif
     }
 }
 

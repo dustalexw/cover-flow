@@ -22,7 +22,7 @@ enum MetadataError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notPlayable: return "This audio format can’t be played on macOS."
+        case .notPlayable: return "This audio format can’t be played on this device."
         case .unreadable(let why): return why
         }
     }

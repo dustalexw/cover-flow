@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Combine
 import Foundation
 
@@ -44,7 +48,7 @@ final class LastFmScrobbler: ObservableObject {
          storageURL: URL = AppPaths.root.appendingPathComponent("LastfmPending.json"),
          initialCredentials: LastFmCredentials = LastFmKeychain.load() ?? LastFmCredentials(apiKey: "", secret: ""),
          saveCredentials: @escaping (LastFmCredentials) throws -> Void = LastFmKeychain.save,
-         openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
+         openURL: @escaping (URL) -> Bool = { url in MainActor.assumeIsolated { LastFmScrobbler.openBrowser(url) } }) {
         self.api = api
         self.defaults = defaults
         self.storageURL = storageURL
@@ -68,6 +72,16 @@ final class LastFmScrobbler: ObservableObject {
     }
 
     deinit { retry?.cancel(); upload?.cancel(); nowPlaying?.cancel() }
+
+    static func openBrowser(_ url: URL) -> Bool {
+        #if os(macOS)
+        return NSWorkspace.shared.open(url)
+        #else
+        guard UIApplication.shared.canOpenURL(url) else { return false }
+        UIApplication.shared.open(url)
+        return true
+        #endif
+    }
 
     func configure(apiKey: String, secret: String) throws {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -217,7 +231,7 @@ final class LastFmScrobbler: ObservableObject {
     private func persist() {
         pendingCount = records.filter { $0.username == username }.count
         do { try JSONEncoder().encode(records).write(to: storageURL, options: .atomic) }
-        catch { status = "Couldn’t save pending scrobbles on this Mac." }
+        catch { status = "Couldn’t save pending scrobbles on this device." }
     }
 
     private func flush() {

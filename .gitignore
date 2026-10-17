@@ -9,3 +9,11 @@ Import Sample/
 .DS_Store
 __pycache__/
 *.pyc
+
+iPad/Vendor/
+iPad/.build/
+iPad/build/
+*.xcuserstate
+xcuserdata/
+
+iPad/build-*/

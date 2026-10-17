@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 
 /// Keeps compact players one line tall while revealing the entire title.
@@ -96,7 +100,11 @@ enum TrackTitleLayout {
     static func needsWideColumn(_ title: String) -> Bool {
         // A two-column album panel leaves 221 points for each title after the
         // track number, duration and spacing. Long names get the full list width.
+        #if os(macOS)
         let font = NSFont(name: "Helvetica Neue", size: 13) ?? .systemFont(ofSize: 13)
+        #else
+        let font = UIFont(name: "HelveticaNeue", size: 13) ?? .systemFont(ofSize: 13)
+        #endif
         return title.rangeOfCharacter(from: .newlines) != nil
             || (title as NSString).size(withAttributes: [.font: font]).width > 221
     }

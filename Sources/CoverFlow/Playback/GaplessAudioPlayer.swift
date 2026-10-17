@@ -183,6 +183,9 @@ final class GaplessAudioPlayer {
     }
 
     private func startNode() throws {
+        #if os(iOS)
+        try AVAudioSession.sharedInstance().setActive(true)
+        #endif
         if !engine.isRunning { try engine.start() }
         node.play()
     }
