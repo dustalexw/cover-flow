@@ -260,11 +260,16 @@ struct MobileLibraryFile: Codable {
     onMetadataChanged?()
   }
   func removeAlbums(_ ids: Set<UUID>) {
+    removeTracks(Set(albums.filter { ids.contains($0.id) }.flatMap(\.trackIDs)))
+  }
+  func removeTracks(_ ids: Set<UUID>) {
     guard !importing else {
-      notice = "Finish or cancel the music import before removing albums."
+      notice = "Finish or cancel the music import before removing music."
       return
     }
-    let removed = Set(albums.filter { ids.contains($0.id) }.flatMap(\.trackIDs))
+    let removed = ids.intersection(tracks.keys)
+    guard !removed.isEmpty else { return }
+    let affectedAlbums = Set(albums.filter { $0.trackIDs.contains { removed.contains($0) } }.map(\.id))
     onTracksRemoved?(removed)
     for id in removed {
       tracks[id] = nil
@@ -274,13 +279,17 @@ struct MobileLibraryFile: Codable {
       try? FileManager.default.removeItem(
         at: AppPaths.root.appendingPathComponent("Lyrics/" + id.uuidString + ".lrc"))
     }
-    for album in albums where ids.contains(album.id) {
+    for index in albums.indices where affectedAlbums.contains(albums[index].id) {
+      albums[index].trackIDs.removeAll { removed.contains($0) }
+    }
+    let emptyAlbums = albums.filter { affectedAlbums.contains($0.id) && $0.trackIDs.isEmpty }
+    for album in emptyAlbums {
       if let artworkFile = album.artworkFile {
         try? FileManager.default.removeItem(
           at: AppPaths.artwork.appendingPathComponent((artworkFile as NSString).lastPathComponent))
       }
     }
-    albums.removeAll { ids.contains($0.id) }
+    albums.removeAll { affectedAlbums.contains($0.id) && $0.trackIDs.isEmpty }
     artwork.invalidate()
     saveNow()
   }

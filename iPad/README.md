@@ -28,7 +28,7 @@ an iPad. Signing and installing through Xcode uses your own developer account.
 | Cover Flow | Touch carousel, 3D covers and reflections, reduced-motion support |
 | Collection | Adaptive grid, search across albums/artists/tracks, sorting, multi-album selection |
 | Music import | Files, iCloud Drive and attached drives; recursive folder import, duplicate detection, format/error reporting |
-| Local library | Owned audio copies, original filenames and matching LRC sidecars; persistent library and playback queue |
+| Local library | Owned audio copies, original filenames and matching LRC sidecars; persistent library and playback queue; individual-track removal from the touch-and-hold menu |
 | Playback | Shared gapless engine, queue ordering, shuffle, repeat, seek, volume, mute and upcoming-track editing |
 | System audio | Background audio capability, lock-screen/Control Center commands, AirPlay routing and interruption/headphone handling |
 | Album View | Full Now Playing sheet, large artwork and artwork focus; long titles wrap or scroll in the compact bar |

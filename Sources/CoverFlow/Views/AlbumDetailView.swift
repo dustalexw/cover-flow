@@ -8,6 +8,8 @@ struct AlbumDetailView: View {
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var trackToRemove: Track?
+    @State private var confirmingTrackRemoval = false
 
     var body: some View {
         Group {
@@ -21,7 +23,7 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
-        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil,
+        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil && !confirmingTrackRemoval,
                                      onDismiss: { dismiss() }, onTogglePlayback: { player.togglePlayPause() }))
         .sheet(item: $state.editAlbum) { ref in
             AlbumEditView(albumID: ref.id).environmentObject(library)
@@ -30,6 +32,17 @@ struct AlbumDetailView: View {
             AlbumAppearanceView(albumID: ref.id).environmentObject(library)
         }
         .modifier(RemoveAlbumConfirmation(active: true))
+        .alert("Remove Track from Collection?", isPresented: $confirmingTrackRemoval, presenting: trackToRemove) { track in
+            Button("Remove Track", role: .destructive) {
+                library.removeTracks([track.id])
+                if library.album(albumID) == nil { dismiss() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { track in
+            Text("“\(track.title)” will be removed from this album and the playback queue. " + (track.isDemo
+                ? "Its generated demo audio will be deleted."
+                : "Your original audio file will stay on disk."))
+        }
     }
 
     private func content(_ album: Album, colors: AlbumDetailPalette) -> some View {
@@ -85,7 +98,10 @@ struct AlbumDetailView: View {
                                                 .padding(.top, track.id == columns[column].first?.id ? 0 : 14)
                                                 .padding(.bottom, 5).padding(.leading, 8)
                                         }
-                                        TrackRow(track: track, position: index + 1, album: album, colors: colors)
+                                        TrackRow(track: track, position: index + 1, album: album, colors: colors) { track in
+                                            trackToRemove = track
+                                            confirmingTrackRemoval = true
+                                        }
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -179,6 +195,7 @@ struct TrackRow: View {
     let position: Int
     let album: Album
     let colors: AlbumDetailPalette
+    var onRemove: (Track) -> Void
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @State private var hover = false
@@ -237,6 +254,8 @@ struct TrackRow: View {
             Button("Add to Queue") { player.addToQueue([track.id]) }
             Divider()
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([track.fileURL]) }
+            Divider()
+            Button("Remove from Collection…", role: .destructive) { onRemove(track) }
         }
         .task(id: track.fileURL) { exists = library.fileExists(track) }
         .accessibilityLabel("Track \(track.trackNumber ?? position), \(track.title), \(formatTime(track.duration))\(isCurrent ? ", now playing" : "")\(exists ? "" : ", file missing")")

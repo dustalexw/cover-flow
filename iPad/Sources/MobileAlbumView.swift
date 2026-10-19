@@ -11,6 +11,8 @@ struct MobileAlbumView: View {
   @State private var remove = false
   @State private var photo: PhotosPickerItem?
   @State private var trackEdit: Track?
+  @State private var trackToRemove: Track?
+  @State private var confirmingTrackRemoval = false
   var album: Album? { library.album(albumID) }
   var body: some View {
     NavigationStack {
@@ -50,6 +52,11 @@ struct MobileAlbumView: View {
                   ShareLink(item: track.fileURL) {
                     Label("Share Audio", systemImage: "square.and.arrow.up")
                   }
+                  Divider()
+                  Button("Remove from Collection", systemImage: "trash", role: .destructive) {
+                    trackToRemove = track
+                    confirmingTrackRemoval = true
+                  }.disabled(library.importing)
                 }
                 Divider().opacity(0.4)
               }
@@ -112,6 +119,15 @@ struct MobileAlbumView: View {
       } else {
         ContentUnavailableView("Album unavailable", systemImage: "music.note")
       }
+    }
+    .alert("Remove Track from Collection?", isPresented: $confirmingTrackRemoval, presenting: trackToRemove) { track in
+      Button("Remove Track", role: .destructive) {
+        library.removeTracks([track.id])
+        if library.album(albumID) == nil { dismiss() }
+      }
+      Button("Cancel", role: .cancel) { }
+    } message: { track in
+      Text("“\(track.title)” and its imported audio will be removed from this iPad and the playback queue. The original file in Files or iCloud will stay untouched.")
     }
     .preferredColorScheme(
       album?.panelAppearance.backgroundHex.map {

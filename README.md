@@ -26,6 +26,12 @@ Lyrics and karaoke preparation headers scroll overflowing titles, pausing at bot
 ends; hovering shows the full title immediately. Titles that fit stay still, and
 Reduce Motion disables automatic scrolling.
 
+To remove an individual track, open its album, right-click the track and choose
+**Remove from Collection…**, then confirm. It is also removed from the playback
+queue. Your original audio file stays on disk; removing the last track removes
+the empty album. On iPad, touch and hold a track for the same action; only the
+app’s imported copy is deleted.
+
 ## Karaoke
 
 Open **View → Karaoke** (⌘5) for lyrics, preparation and export.

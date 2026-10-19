@@ -69,14 +69,16 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var isGeneratingDemo = false
 
     let artwork: ArtworkStore
+    private let libraryURL: URL
     private var albumIndex: [UUID: Int] = [:]
     private var trackToAlbum: [UUID: UUID] = [:]
     private var pendingSave: DispatchWorkItem?
     /// Lets the player drop tracks that left the collection.
     var onTracksRemoved: ((Set<UUID>) -> Void)?
 
-    init(artwork: ArtworkStore) {
+    init(artwork: ArtworkStore, libraryURL: URL = AppPaths.library) {
         self.artwork = artwork
+        self.libraryURL = libraryURL
     }
 
     // MARK: Lookup
@@ -142,7 +144,7 @@ final class LibraryStore: ObservableObject {
     // MARK: Persistence
 
     func load() {
-        let url = AppPaths.library
+        let url = libraryURL
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             let data = try Data(contentsOf: url)
@@ -152,7 +154,7 @@ final class LibraryStore: ObservableObject {
             rebuildIndex()
         } catch {
             // Keep the unreadable file so nothing is lost, and start fresh.
-            let backup = AppPaths.root.appendingPathComponent("Library-unreadable-\(Int(Date().timeIntervalSince1970)).json")
+            let backup = libraryURL.deletingLastPathComponent().appendingPathComponent("Library-unreadable-\(Int(Date().timeIntervalSince1970)).json")
             try? FileManager.default.moveItem(at: url, to: backup)
             notice = "Your saved collection couldn’t be read, so Cover Flow started fresh. The old file was kept as \(backup.lastPathComponent)."
         }
@@ -173,7 +175,7 @@ final class LibraryStore: ObservableObject {
         let file = LibraryFile(version: 1, albums: albums, tracks: Array(tracks.values))
         do {
             let data = try JSONEncoder().encode(file)
-            try data.write(to: AppPaths.library, options: .atomic)
+            try data.write(to: libraryURL, options: .atomic)
         } catch {
             notice = "Couldn’t save your collection: \(error.localizedDescription)"
         }
@@ -479,6 +481,30 @@ final class LibraryStore: ObservableObject {
         albums[i].tintHex = nil
         albums[i].artworkVersion += 1
         scheduleSave()
+    }
+
+    /// Removes collection entries without deleting the user's original audio files.
+    func removeTracks(_ ids: Set<UUID>) {
+        let removed = ids.intersection(tracks.keys)
+        guard !removed.isEmpty else { return }
+        let affectedAlbums = Set(removed.compactMap { trackToAlbum[$0] })
+        for id in removed {
+            if let track = tracks[id], track.isDemo {
+                try? FileManager.default.removeItem(at: track.fileURL)
+            }
+            tracks[id] = nil
+        }
+        for index in albums.indices where affectedAlbums.contains(albums[index].id) {
+            albums[index].trackIDs.removeAll { removed.contains($0) }
+            if albums[index].trackIDs.isEmpty {
+                artwork.remove(file: albums[index].artworkFile)
+            }
+        }
+        albums.removeAll { affectedAlbums.contains($0.id) && $0.trackIDs.isEmpty }
+        for id in affectedAlbums { finalizeAlbum(id) }
+        rebuildIndex()
+        saveNow()
+        onTracksRemoved?(removed)
     }
 
     /// Removes albums from the collection. Audio files on disk are not touched (except generated demo audio).
