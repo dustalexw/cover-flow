@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.5.0"><img src="docs/badge-release.svg" alt="Release v1.5.0"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.5.0/Cover-Flow-1.5.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2"><img src="docs/badge-release.svg" alt="Release v1.6.2"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.6.2/Cover-Flow-1.6.2-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -96,26 +96,38 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.5.0-macOS.zip** from the
-[1.5.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.5.0), unzip it, and move
+Download **Cover-Flow-1.6.2-macOS.zip** from the
+[1.6.2 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
 supported model files (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
 
-## Next build: 1.6.1
+## What’s new in 1.6.2
+
+**Individual track removal.** Open an album, right-click a track and choose
+**Remove from Collection…**. Removal updates the playback queue and saved library,
+and removes an album when its last track is removed. Original audio files stay
+on disk; generated demo audio is deleted. The iPad project has the same action
+in a track’s touch-and-hold menu, deleting only its imported copy.
+
+**Long track titles.** Track lists and queues wrap long titles, while compact
+playback headers scroll overflowing text with support for Reduce Motion.
+
+**Native iPad project.** The source includes an iPadOS 17+ Xcode target with touch
+browsing, Files/iCloud import, gapless playback, lyrics, karaoke, AirPlay, Last.fm
+and visualizers. Build and sign it with your Apple Developer account; the macOS
+download below is a separate desktop app.
 
 **GPU-enabled MDX preparation.** Inst_HQ_5 and compatible MDX models now convert
 locally to Core ML with GPU computation enabled. Converted models are saved for
 reuse. If conversion or prediction fails, preparation retries on CPU and reports
 that in progress. Becruily retains its Metal/CPU path.
 
-## Local build: 1.6.0
-
 **Karaoke model selector.** Save and switch between Becruily Deux, UVR MDX ONNX
 models including Inst_HQ_5, and other compatible models. Preparation, progress,
 source switching and instrumental export use the selected model. Saved stems are
-kept separately for each model. Long-title wrapping and scrolling are also included.
+kept separately for each model.
 
 ## What’s new in 1.5.0
 
