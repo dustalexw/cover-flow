@@ -19,12 +19,13 @@ elif [ "$MODE" != "--device" ]; then
   echo "Usage: ./build-ipad.command [--device | --simulator | --project]"
   exit 2
 fi
-EXTRA=()
+# Keep the array nonempty: macOS Bash 3.2 treats an empty array as unset with -u.
+EXTRA=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 # Swift's compiler plugin sandbox cannot nest inside some CI/agent sandboxes.
 # Ordinary Xcode builds keep the compiler's default behavior.
 if [ "${COVERFLOW_COMPILER_SANDBOX_WORKAROUND:-0}" = 1 ]; then EXTRA+=('OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox'); fi
 xcodebuild -project iPad/CoverFlow-iPad.xcodeproj -scheme CoverFlowiPad \
   -configuration Release -sdk "$SDK" -destination "$DESTINATION" \
-  -derivedDataPath "$OUT" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO "${EXTRA[@]}" build
+  -derivedDataPath "$OUT" "${EXTRA[@]}" build
 echo "Built: $OUT/Build/Products/Release-$SDK/Cover Flow.app"
 echo "For device installation, open the Xcode project, select your team in Signing & Capabilities, choose your iPad, and Run."
