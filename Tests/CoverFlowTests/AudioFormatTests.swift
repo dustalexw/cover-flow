@@ -8,6 +8,8 @@ import XCTest
 /// 440 Hz sine, except tone.spx (16 kHz mono), tone.mpc (44.1 kHz) and tone.dsf (0.1 s of
 /// DSD64 at amplitude 1/4, made by scripts/make-dsd-fixture.py). The sine is ffmpeg's
 /// amplitude 1/8, and ffmpeg's mono-to-stereo upmix lowered it by 3 dB, to an RMS of 0.0625.
+/// tone.spx is mono, so not upmixed, but Speex's low-bitrate coding brings it to about the
+/// same level.
 /// tags.* carry the same tags as the other tag fixtures; tags.ogg also has a PNG cover.
 final class AudioFormatTests: XCTestCase {
     private var directory: URL!
