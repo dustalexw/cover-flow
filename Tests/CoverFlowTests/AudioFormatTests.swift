@@ -5,8 +5,9 @@ import XCTest
 @testable import CoverFlow
 
 /// Formats decoded through the bundled FFmpeg build. The fixtures hold one second of a
-/// 440 Hz sine at amplitude 1/8, except tone.spx (16 kHz mono), tone.mpc (44.1 kHz) and
-/// tone.dsf (0.1 s of DSD64 at amplitude 1/4, made by scripts/make-dsd-fixture.py).
+/// 440 Hz sine, except tone.spx (16 kHz mono), tone.mpc (44.1 kHz) and tone.dsf (0.1 s of
+/// DSD64 at amplitude 1/4, made by scripts/make-dsd-fixture.py). The sine is ffmpeg's
+/// amplitude 1/8, and ffmpeg's mono-to-stereo upmix lowered it by 3 dB, to an RMS of 0.0625.
 /// tags.* carry the same tags as the other tag fixtures; tags.ogg also has a PNG cover.
 final class AudioFormatTests: XCTestCase {
     private var directory: URL!
@@ -49,10 +50,10 @@ final class AudioFormatTests: XCTestCase {
     func testEveryFormatDecodesToTheTone() async throws {
         // Lossless formats decode exactly; lossy codecs drop or add a few milliseconds.
         let cases: [(String, ClosedRange<Int>, Float)] = [
-            ("tone.wv", 48_000...48_000, 0.088), ("tone.tta", 48_000...48_000, 0.088),
-            ("tone.mka", 48_000...48_000, 0.088), ("tone.ogg", 47_000...48_000, 0.088),
-            ("tone.wma", 46_500...48_100, 0.088), ("tone.spx", 47_900...48_100, 0.088),
-            ("tone.mpc", 48_000...48_950, 0.088), ("tone.dsf", 4_700...4_900, 0.18)
+            ("tone.wv", 48_000...48_000, 0.0625), ("tone.tta", 48_000...48_000, 0.0625),
+            ("tone.mka", 48_000...48_000, 0.0625), ("tone.ogg", 47_000...48_000, 0.0625),
+            ("tone.wma", 46_500...48_100, 0.0625), ("tone.spx", 47_900...48_100, 0.0625),
+            ("tone.mpc", 48_000...48_950, 0.0625), ("tone.dsf", 4_700...4_900, 0.18)
         ]
         for (name, frames, rms) in cases {
             let samples = try await decode(fixture(name))

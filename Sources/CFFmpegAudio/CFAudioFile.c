@@ -4,9 +4,11 @@
 #include <libavformat/avformat.h>
 #include <libavutil/audio_fifo.h>
 #include <libavutil/avstring.h>
+#include <libavutil/log.h>
 #include <libavutil/opt.h>
 #include <libswresample/swresample.h>
 #include <stdio.h>
+#include <string.h>
 
 /// Returned while seeking when a decoded frame carries no timestamp.
 #define CF_NO_TIMESTAMP FFERRTAG('C', 'F', 'N', 'T')
@@ -277,6 +279,8 @@ static int prime(CFAudioFile *file) {
 }
 
 CFAudioFile *cf_audio_open(const char *path, char *error, size_t errorSize) {
+    // FFmpeg's warnings about unusual but readable files would only fill the console.
+    av_log_set_level(AV_LOG_ERROR);
     CFAudioFile *file = av_mallocz(sizeof *file);
     if (!file || !(file->path = av_strdup(path))) {
         av_free(file);
@@ -419,19 +423,61 @@ const char *cf_audio_tag(const CFAudioFile *file, const char *key) {
     return entry && entry->value[0] ? entry->value : NULL;
 }
 
+static bool looksLikeImage(const uint8_t *data, int size) {
+    if (size < 4) return false;
+    return (data[0] == 0xFF && data[1] == 0xD8) ||                               // JPEG
+           (data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') || // PNG
+           (data[0] == 'G' && data[1] == 'I' && data[2] == 'F') ||                 // GIF
+           (data[0] == 'B' && data[1] == 'M') ||                                   // BMP
+           (size >= 12 && !memcmp(data, "RIFF", 4) && !memcmp(data + 8, "WEBP", 4));
+}
+
+/// An APE tag cover ("Cover Art (Front)") that FFmpeg left as a plain attachment because
+/// its stored file name has no image extension, as TagLib and some taggers write it.
+static bool apeCover(const AVStream *stream, bool *front) {
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT ||
+        !looksLikeImage(stream->codecpar->extradata, stream->codecpar->extradata_size)) {
+        return false;
+    }
+    const AVDictionaryEntry *entry = NULL;
+    while ((entry = av_dict_iterate(stream->metadata, entry))) {
+        if (av_strncasecmp(entry->key, "Cover Art", 9) == 0) {
+            *front = av_stristr(entry->key, "front") != NULL;
+            return true;
+        }
+    }
+    return false;
+}
+
 const unsigned char *cf_audio_picture(const CFAudioFile *file, size_t *size) {
-    const AVPacket *best = NULL;
-    for (unsigned i = 0; i < file->format->nb_streams; i++) {
+    const uint8_t *best = NULL;
+    int bestSize = 0;
+    bool bestIsFront = false;
+    for (unsigned i = 0; i < file->format->nb_streams && !bestIsFront; i++) {
         const AVStream *stream = file->format->streams[i];
-        if (!(stream->disposition & AV_DISPOSITION_ATTACHED_PIC) || stream->attached_pic.size <= 0) continue;
-        // ID3, FLAC and Ogg pictures name their type in "comment"; APE tags use the item key.
-        const AVDictionaryEntry *type = av_dict_get(stream->metadata, "comment", NULL, 0);
-        bool front = (type && av_stristr(type->value, "front")) ||
-                     av_dict_get(stream->metadata, "Cover Art (Front)", NULL, 0);
-        if (!best || front) best = &stream->attached_pic;
-        if (front) break;
+        const uint8_t *data;
+        int length;
+        bool front = false;
+        if ((stream->disposition & AV_DISPOSITION_ATTACHED_PIC) && stream->attached_pic.size > 0) {
+            data = stream->attached_pic.data;
+            length = stream->attached_pic.size;
+            // ID3, FLAC and Ogg pictures name their type in "comment"; APE tags use the item key.
+            const AVDictionaryEntry *type = av_dict_get(stream->metadata, "comment", NULL, 0);
+            front = (type && av_stristr(type->value, "front")) ||
+                    av_dict_get(stream->metadata, "Cover Art (Front)", NULL, 0);
+        } else if (apeCover(stream, &front)) {
+            data = stream->codecpar->extradata;
+            length = stream->codecpar->extradata_size;
+        } else {
+            continue;
+        }
+        if (!best || front) {
+            best = data;
+            bestSize = length;
+            bestIsFront = front;
+        }
     }
     if (!best) return NULL;
-    *size = (size_t)best->size;
-    return best->data;
+    *size = (size_t)bestSize;
+    return best;
 }
