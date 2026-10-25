@@ -5,8 +5,8 @@ import XCTest
 @testable import CoverFlow
 
 /// The Opus fixtures are one second of a 440 Hz sine at ffmpeg's default amplitude of
-/// 1/8: tone.opus and tags.opus are stereo with 20 ms packets, tone-mono.opus is mono
-/// with 60 ms packets. tags.opus also carries Vorbis comments and an 8×8 PNG front cover.
+/// 1/8, lowered 3 dB by ffmpeg's mono-to-stereo upmix when they were made: tone.opus and
+/// tags.opus are stereo with 20 ms packets, tone-mono.opus is mono with 60 ms packets. tags.opus also carries Vorbis comments and an 8×8 PNG front cover.
 final class OpusTests: XCTestCase {
     private var directory: URL!
 
@@ -84,14 +84,14 @@ final class OpusTests: XCTestCase {
         for name in ["tone.opus", "tone-mono.opus"] {
             let samples = try await decode(fixture(name))
             XCTAssertEqual(samples.count, 48_000, name)
-            // Aligned output differs from the source by about 0.026 RMS (coding error); a
-            // misplaced pre-skip (312) or decoder delay (120 samples) gives 0.05 or more.
+            // Aligned output differs from the source by about 0.0005 RMS; a misplaced
+            // pre-skip (312) or decoder delay (120 samples) gives 0.039 or more.
             var error: Float = 0
             for n in 2_400..<45_600 {
-                let expected = Float(0.125 * sin(2 * Double.pi * 440 * Double(n) / 48_000))
+                let expected = Float(0.125 / 2.0.squareRoot() * sin(2 * Double.pi * 440 * Double(n) / 48_000))
                 error += (samples[n] - expected) * (samples[n] - expected)
             }
-            XCTAssertLessThan((error / 43_200).squareRoot(), 0.035, name)
+            XCTAssertLessThan((error / 43_200).squareRoot(), 0.005, name)
         }
     }
 
