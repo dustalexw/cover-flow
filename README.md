@@ -271,6 +271,12 @@ sample rates or channel counts are converted to a shared output format, and deco
 bounded buffer rather than loading entire songs into memory. Silence already present in a
 recording is preserved.
 
+Mono and stereo **Opus** files (`.opus`, or Opus in `.ogg`/`.oga`) import and play like
+any other track, gaplessly, with encoder delay and end padding trimmed. Their tags and
+embedded cover art are read, **Replace Artwork** can embed covers in them, and karaoke
+preparation accepts them. Opus is decoded by macOS's own decoder; surround Opus and Ogg
+Vorbis files are listed as unsupported in the import report.
+
 Run the playback checks with `swift test`.
 
 ## Last.fm and album selection
@@ -315,7 +321,7 @@ for Cover Flow, AVFoundation for playback and tag/artwork reading, AppKit where 
 | Folder | Responsibility |
 | --- | --- |
 | `Model` | Track / Album values, sort and repeat modes, storage paths |
-| `Library` | Import, metadata (AVFoundation + a small FLAC reader), album grouping, artwork cache, persistence, demo collection |
+| `Library` | Import, metadata (AVFoundation + small FLAC and Ogg Opus readers), album grouping, artwork cache, persistence, demo collection |
 | `Playback` | `PlayerEngine` — queue, shuffle/repeat, seeking, volume, errors, Now Playing + media keys |
 | `Scrobbling` | Last.fm authorization, Keychain credentials, listening progress and durable retry queue |
 | `Views` | Cover Flow, grid, album sheet, editor, queue, player bar, settings |

@@ -57,7 +57,7 @@ struct ArtworkTagError: LocalizedError {
 /// Serializes file changes, including replacements initiated from different windows.
 actor ArtworkTagWriter {
     static let shared = ArtworkTagWriter()
-    static let supportedExtensions: Set<String> = ["mp3", "m4a", "m4b", "mp4", "flac", "wav", "wave", "aif", "aiff", "aifc"]
+    static let supportedExtensions: Set<String> = ["mp3", "m4a", "m4b", "mp4", "flac", "wav", "wave", "aif", "aiff", "aifc", "opus", "ogg", "oga"]
 
     func embed(_ artwork: EmbeddedArtwork, in urls: [URL]) -> ArtworkWriteReport {
         var report = ArtworkWriteReport()

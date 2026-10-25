@@ -29,16 +29,48 @@ enum MetadataError: LocalizedError {
 }
 
 enum MetadataReader {
-    /// Formats AVFoundation plays natively on macOS.
+    /// Formats AVFoundation plays natively, plus Opus in Ogg, which `PCMDecoder` demuxes
+    /// itself. Ogg files holding another codec, such as Vorbis, are reported as unsupported.
     static let supportedExtensions: Set<String> = [
-        "mp3", "m4a", "m4b", "m4p", "aac", "adts", "wav", "wave", "aif", "aiff", "aifc", "caf", "flac", "mp4", "3gp", "ac3", "eac3", "amr"
+        "mp3", "m4a", "m4b", "m4p", "aac", "adts", "wav", "wave", "aif", "aiff", "aifc", "caf", "flac", "mp4", "3gp", "ac3", "eac3", "amr",
+        "opus", "ogg", "oga"
     ]
     /// Audio formats people commonly have that macOS can’t decode — reported, not silently skipped.
     static let knownUnsupported: Set<String> = [
-        "ogg", "oga", "opus", "wma", "ape", "wv", "dsf", "dff", "mka", "mid", "midi", "ra", "rm", "spx", "tta", "mpc", "xm", "mod"
+        "wma", "ape", "wv", "dsf", "dff", "mka", "mid", "midi", "ra", "rm", "spx", "tta", "mpc", "xm", "mod"
     ]
 
     static func read(_ url: URL) async throws -> ParsedMetadata {
+        var meta: ParsedMetadata
+        if OggOpusStream.isOgg(url) { meta = try readOggOpus(url) } else { meta = try await readAsset(url) }
+
+        // Fallbacks: filename for title and numbering, folder for album, folder image for artwork.
+        let parsed = parseFilename(url.deletingPathExtension().lastPathComponent)
+        if meta.title == nil { meta.title = parsed.title; meta.usedFallback = true }
+        if meta.trackNumber == nil { meta.trackNumber = parsed.track }
+        if meta.discNumber == nil { meta.discNumber = parsed.disc }
+        if meta.album == nil { meta.usedFallback = true }
+        if meta.artwork == nil { meta.artwork = folderArtwork(near: url) }
+        return meta
+    }
+
+    /// AVFoundation can’t open Ogg, so Opus tags and duration come from the stream headers.
+    private static func readOggOpus(_ url: URL) throws -> ParsedMetadata {
+        let stream: OggOpusStream
+        do {
+            stream = try OggOpusStream(url: url)
+        } catch OggOpusError.notOpus, OggOpusError.unsupportedChannels {
+            throw MetadataError.notPlayable
+        } catch {
+            throw MetadataError.unreadable(error.localizedDescription)
+        }
+        var meta = ParsedMetadata()
+        meta.duration = stream.duration
+        VorbisComments.apply(stream.comments, to: &meta, readsPictures: true)
+        return meta
+    }
+
+    private static func readAsset(_ url: URL) async throws -> ParsedMetadata {
         var meta = ParsedMetadata()
         let asset = AVURLAsset(url: url)
         let playable: Bool
@@ -64,14 +96,6 @@ enum MetadataReader {
         if url.pathExtension.lowercased() == "flac" {
             FLACReader.read(url, into: &meta)
         }
-
-        // Fallbacks: filename for title and numbering, folder for album, folder image for artwork.
-        let parsed = parseFilename(url.deletingPathExtension().lastPathComponent)
-        if meta.title == nil { meta.title = parsed.title; meta.usedFallback = true }
-        if meta.trackNumber == nil { meta.trackNumber = parsed.track }
-        if meta.discNumber == nil { meta.discNumber = parsed.disc }
-        if meta.album == nil { meta.usedFallback = true }
-        if meta.artwork == nil { meta.artwork = folderArtwork(near: url) }
         return meta
     }
 
@@ -191,30 +215,38 @@ enum FLACReader {
             if type == 4 || (type == 6 && meta.artwork == nil) {
                 guard let body = try? h.read(upToCount: length), body.count == length else { return }
                 let bytes = [UInt8](body)
-                if type == 4 { parseVorbis(bytes, into: &meta) } else { parsePicture(bytes, into: &meta) }
+                if type == 4 { VorbisComments.apply(bytes, to: &meta) }
+                else if let picture = VorbisComments.picture(bytes) { meta.artwork = picture.data }
             } else {
                 guard let offset = try? h.offset() else { return }
                 do { try h.seek(toOffset: offset + UInt64(length)) } catch { return }
             }
         }
     }
+}
 
+/// Vorbis comment blocks, the tags of both FLAC and Opus files.
+enum VorbisComments {
     private static func le32(_ b: [UInt8], _ i: Int) -> Int? {
-        guard i + 4 <= b.count else { return nil }
+        guard i >= 0, i + 4 <= b.count else { return nil }
         return Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24
     }
 
     private static func be32(_ b: [UInt8], _ i: Int) -> Int? {
-        guard i + 4 <= b.count else { return nil }
+        guard i >= 0, i + 4 <= b.count else { return nil }
         return Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3])
     }
 
-    private static func parseVorbis(_ b: [UInt8], into meta: inout ParsedMetadata) {
+    /// Fills unset fields. Opus has no picture block, so its cover art is a base64 FLAC
+    /// picture in a METADATA_BLOCK_PICTURE comment; `readsPictures` reads those too,
+    /// preferring the front cover.
+    static func apply(_ b: [UInt8], to meta: inout ParsedMetadata, readsPictures: Bool = false) {
         var i = 0
         guard let vendorLen = le32(b, i) else { return }
         i += 4 + vendorLen
         guard let count = le32(b, i) else { return }
         i += 4
+        var hasFrontCover = false
         for _ in 0..<min(count, 1000) {
             guard let len = le32(b, i), i + 4 + len <= b.count else { return }
             let s = String(decoding: b[(i + 4)..<(i + 4 + len)], as: UTF8.self)
@@ -232,18 +264,27 @@ enum FLACReader {
             case "DISCNUMBER": if meta.discNumber == nil { meta.discNumber = MetadataReader.parseNumberPair(value) }
             case "DATE", "YEAR", "ORIGINALDATE": if meta.year == nil { meta.year = MetadataReader.parseYear(value) }
             case "GENRE": if meta.genre == nil { meta.genre = value }
+            case "METADATA_BLOCK_PICTURE" where readsPictures && !hasFrontCover:
+                guard let block = Data(base64Encoded: value, options: .ignoreUnknownCharacters),
+                      let image = picture([UInt8](block)) else { continue }
+                if image.type == 3 || meta.artwork == nil {
+                    meta.artwork = image.data
+                    hasFrontCover = image.type == 3
+                }
             default: break
             }
         }
     }
 
-    private static func parsePicture(_ b: [UInt8], into meta: inout ParsedMetadata) {
-        var i = 4 // picture type
-        guard let mimeLen = be32(b, i) else { return }
+    /// A FLAC picture block: its picture type (3 is the front cover) and image data.
+    static func picture(_ b: [UInt8]) -> (type: Int, data: Data)? {
+        guard let type = be32(b, 0) else { return nil }
+        var i = 4
+        guard let mimeLen = be32(b, i) else { return nil }
         i += 4 + mimeLen
-        guard let descLen = be32(b, i) else { return }
+        guard let descLen = be32(b, i) else { return nil }
         i += 4 + descLen + 16
-        guard let dataLen = be32(b, i), i + 4 + dataLen <= b.count, dataLen > 0 else { return }
-        meta.artwork = Data(b[(i + 4)..<(i + 4 + dataLen)])
+        guard let dataLen = be32(b, i), dataLen > 0, i + 4 + dataLen <= b.count else { return nil }
+        return (type, Data(b[(i + 4)..<(i + 4 + dataLen)]))
     }
 }
