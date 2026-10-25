@@ -239,7 +239,7 @@ Double-click **build.command** in Finder (or run `./build.command` in Terminal).
 universal release build with the Swift toolchain from Xcode, assembles **Cover Flow.app** next to the
 script, signs it for local use and launches it. Requires macOS 14 or later and Xcode (or the
 Command Line Tools). You can drag `Cover Flow.app` into /Applications.
-The first build downloads verified projectM 4.1.8 and TagLib 2.3.2 source, the Stable Diffusion
+The first build downloads verified projectM 4.1.8, TagLib 2.3.2 and FFmpeg 7.1.2 source, the Stable Diffusion
 model (about 1.6 GB, checksum-verified) and, if needed, a local CMake tool. Later builds reuse them.
 No Homebrew installation is required. Run `COVERFLOW_SKIP_SD=1 ./build.command` to build without
 the model; scene refinement is then hidden.
@@ -271,11 +271,15 @@ sample rates or channel counts are converted to a shared output format, and deco
 bounded buffer rather than loading entire songs into memory. Silence already present in a
 recording is preserved.
 
-Mono and stereo **Opus** files (`.opus`, or Opus in `.ogg`/`.oga`) import and play like
-any other track, gaplessly, with encoder delay and end padding trimmed. Their tags and
-embedded cover art are read, **Replace Artwork** can embed covers in them, and karaoke
-preparation accepts them. Opus is decoded by macOS's own decoder; surround Opus and Ogg
-Vorbis files are listed as unsupported in the import report.
+Beyond what macOS plays itself (MP3, AAC/ALAC, FLAC, WAV, AIFF, CAF, AC-3), Cover Flow
+imports and plays **Opus**, **Ogg Vorbis**, **Speex**, **Monkey's Audio** (`.ape`),
+**WavPack**, **Windows Media Audio**, **DSD** (`.dsf`, `.dff`), **Musepack**, **TTA**,
+**TAK**, **Shorten**, **DTS**, Wave64 and Matroska/WebM audio (`.mka`, `.webm`,
+`.weba`), all gaplessly. Tags and embedded covers are read, and **Replace Artwork**
+can embed covers in the formats that have tags. Opus uses macOS's own decoder; the
+others use a decoder-only build of FFmpeg (LGPL) bundled with the app. Surround files
+are downmixed to stereo. MIDI and tracker modules are listed as unsupported in the
+import report. On iPad, Opus is supported; the other formats here are Mac only.
 
 Run the playback checks with `swift test`.
 
@@ -321,7 +325,7 @@ for Cover Flow, AVFoundation for playback and tag/artwork reading, AppKit where 
 | Folder | Responsibility |
 | --- | --- |
 | `Model` | Track / Album values, sort and repeat modes, storage paths |
-| `Library` | Import, metadata (AVFoundation + small FLAC and Ogg Opus readers), album grouping, artwork cache, persistence, demo collection |
+| `Library` | Import, metadata (AVFoundation, small FLAC and Ogg Opus readers, FFmpeg for other formats), album grouping, artwork cache, persistence, demo collection |
 | `Playback` | `PlayerEngine` — queue, shuffle/repeat, seeking, volume, errors, Now Playing + media keys |
 | `Scrobbling` | Last.fm authorization, Keychain credentials, listening progress and durable retry queue |
 | `Views` | Cover Flow, grid, album sheet, editor, queue, player bar, settings |

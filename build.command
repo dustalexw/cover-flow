@@ -40,6 +40,8 @@ if [ "${COVERFLOW_SKIP_KARAOKE:-0}" != "1" ]; then
   }
 fi
 bash scripts/build-tags.sh >> "$LOG" 2>&1 || { echo "Tag writer build failed. Details are in build.log."; exit 1; }
+echo "Preparing audio decoders (first build compiles FFmpeg)…"
+bash scripts/build-ffmpeg.sh >> "$LOG" 2>&1 || { echo "FFmpeg decoder build failed. Details are in build.log."; exit 1; }
 export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
 SWIFT_BUILD_ARGS=(-c release --arch arm64 --arch x86_64 -debug-info-format "${DEBUG_INFO_FORMAT:-dwarf}" \
   --scratch-path "${SWIFT_SCRATCH_PATH:-$PWD/.build}" --disable-sandbox --cache-path "$PWD/.build/swift-cache")
@@ -61,9 +63,19 @@ cp "$BIN_DIR/CoverFlow" "$APP/Contents/MacOS/CoverFlow"
 cp -R "$BIN_DIR/CoverFlow_CoverFlow.bundle" "$APP/Contents/Resources/"
 cp .build/vendor/projectm-install-universal/lib/libprojectM-4.4.1.8.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
 install_name_tool -id @rpath/libprojectM-4.dylib "$APP/Contents/Frameworks/libprojectM-4.dylib"
+FFMPEG_LIBS=()
+for LIBRARY in .build/vendor/ffmpeg-install-universal/lib/lib*.*.dylib; do
+  # One file per library under the name the app links: libavcodec.61.dylib.
+  case "$(basename "$LIBRARY")" in *.*.*.*.dylib) continue ;; esac
+  cp -L "$LIBRARY" "$APP/Contents/Frameworks/"
+  FFMPEG_LIBS+=("$APP/Contents/Frameworks/$(basename "$LIBRARY")")
+done
+# The build-tree rpath is only for `swift test`.
+install_name_tool -delete_rpath "$PWD/.build/vendor/ffmpeg-install-universal/lib" "$APP/Contents/MacOS/CoverFlow" 2>/dev/null || true
 cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
 cp .build/vendor/taglib-2.3.2.tar.gz "$APP/Contents/Resources/ThirdPartySources/"
+cp .build/vendor/ffmpeg-7.1.2.tar.xz scripts/build-ffmpeg.sh "$APP/Contents/Resources/ThirdPartySources/"
 cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
 if [ "${COVERFLOW_SKIP_KARAOKE:-0}" != "1" ]; then
   ditto Resources/Karaoke "$APP/Contents/Resources/Karaoke"
@@ -114,13 +126,13 @@ PLIST
 
 # Both the app and the dynamically loaded visualizer must support both CPUs.
 if ! bash scripts/verify-universal.sh "$APP/Contents/MacOS/CoverFlow" \
-  "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1; then
+  "$APP/Contents/Frameworks/libprojectM-4.dylib" "${FFMPEG_LIBS[@]}" >> "$LOG" 2>&1; then
   echo "FAILED architecture check" > "$STATUS"
   echo "Universal build is missing an architecture. Details are in build.log."
   exit 1
 fi
 
-codesign --force --sign - "$APP/Contents/Frameworks/libprojectM-4.dylib" >> "$LOG" 2>&1
+codesign --force --sign - "$APP/Contents/Frameworks/libprojectM-4.dylib" "${FFMPEG_LIBS[@]}" >> "$LOG" 2>&1
 codesign --force --deep --sign - "$APP" >> "$LOG" 2>&1
 codesign --verify --deep --strict "$APP" >> "$LOG" 2>&1 || exit 1
 
