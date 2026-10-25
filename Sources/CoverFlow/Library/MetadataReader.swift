@@ -30,19 +30,36 @@ enum MetadataError: LocalizedError {
 
 enum MetadataReader {
     /// Formats AVFoundation plays natively, plus Opus in Ogg, which `PCMDecoder` demuxes
-    /// itself. Ogg files holding another codec, such as Vorbis, are reported as unsupported.
-    static let supportedExtensions: Set<String> = [
-        "mp3", "m4a", "m4b", "m4p", "aac", "adts", "wav", "wave", "aif", "aiff", "aifc", "caf", "flac", "mp4", "3gp", "ac3", "eac3", "amr",
-        "opus", "ogg", "oga"
-    ]
-    /// Audio formats people commonly have that macOS can’t decode — reported, not silently skipped.
-    static let knownUnsupported: Set<String> = [
-        "wma", "ape", "wv", "dsf", "dff", "mka", "mid", "midi", "ra", "rm", "spx", "tta", "mpc", "xm", "mod"
-    ]
+    /// itself. On the Mac, the bundled FFmpeg build adds Vorbis, Monkey's Audio, WavPack,
+    /// WMA, DSD and the other formats in `FFmpegAudioFile.extensions`.
+    static let supportedExtensions: Set<String> = {
+        var formats: Set<String> = [
+            "mp3", "m4a", "m4b", "m4p", "aac", "adts", "wav", "wave", "aif", "aiff", "aifc", "caf", "flac", "mp4", "3gp", "ac3", "eac3", "amr",
+            "opus", "ogg", "oga"
+        ]
+        #if canImport(CFFmpegAudio)
+        formats.formUnion(FFmpegAudioFile.extensions)
+        #endif
+        return formats
+    }()
+    /// Audio formats people commonly have that can’t be decoded here — reported, not silently skipped.
+    static let knownUnsupported: Set<String> = Set([
+        "wma", "ape", "wv", "dsf", "dff", "mka", "weba", "spx", "tta", "tak", "shn", "mpc", "w64",
+        "mid", "midi", "ra", "rm", "xm", "mod"
+    ]).subtracting(supportedExtensions)
 
     static func read(_ url: URL) async throws -> ParsedMetadata {
         var meta: ParsedMetadata
-        if OggOpusStream.isOgg(url) { meta = try readOggOpus(url) } else { meta = try await readAsset(url) }
+        let isOgg = OggOpusStream.isOgg(url)
+        if isOgg, let opus = try readOggOpus(url) {
+            meta = opus
+        } else if usesFFmpeg(url, isOgg: isOgg) {
+            meta = try readFFmpeg(url)
+        } else if isOgg {
+            throw MetadataError.notPlayable
+        } else {
+            meta = try await readAsset(url)
+        }
 
         // Fallbacks: filename for title and numbering, folder for album, folder image for artwork.
         let parsed = parseFilename(url.deletingPathExtension().lastPathComponent)
@@ -55,11 +72,15 @@ enum MetadataReader {
     }
 
     /// AVFoundation can’t open Ogg, so Opus tags and duration come from the stream headers.
-    private static func readOggOpus(_ url: URL) throws -> ParsedMetadata {
+    /// Returns nil for another Ogg codec, or for surround Opus when FFmpeg can downmix it.
+    private static func readOggOpus(_ url: URL) throws -> ParsedMetadata? {
         let stream: OggOpusStream
         do {
             stream = try OggOpusStream(url: url)
-        } catch OggOpusError.notOpus, OggOpusError.unsupportedChannels {
+        } catch OggOpusError.notOpus {
+            return nil
+        } catch OggOpusError.unsupportedChannels {
+            if usesFFmpeg(url, isOgg: true) { return nil }
             throw MetadataError.notPlayable
         } catch {
             throw MetadataError.unreadable(error.localizedDescription)
@@ -68,6 +89,41 @@ enum MetadataReader {
         meta.duration = stream.duration
         VorbisComments.apply(stream.comments, to: &meta, readsPictures: true)
         return meta
+    }
+
+    private static func usesFFmpeg(_ url: URL, isOgg: Bool) -> Bool {
+        #if canImport(CFFmpegAudio)
+        return isOgg || FFmpegAudioFile.extensions.contains(url.pathExtension.lowercased())
+        #else
+        return false
+        #endif
+    }
+
+    private static func readFFmpeg(_ url: URL) throws -> ParsedMetadata {
+        #if canImport(CFFmpegAudio)
+        let file: FFmpegAudioFile
+        do {
+            file = try FFmpegAudioFile(url: url)
+        } catch {
+            throw MetadataError.unreadable(error.localizedDescription)
+        }
+        guard file.length > 0 else { throw MetadataError.unreadable("The file contains no audio.") }
+        var meta = ParsedMetadata()
+        meta.duration = file.duration
+        // FFmpeg normalizes common tag names; the alternatives cover APE and WMA spellings.
+        meta.title = file.tag("title")
+        meta.artist = file.tag("artist")
+        meta.album = file.tag("album")
+        meta.albumArtist = file.tag("album_artist", "albumartist", "album artist", "WM/AlbumArtist")
+        meta.trackNumber = file.tag("track", "tracknumber", "WM/TrackNumber").flatMap(parseNumberPair)
+        meta.discNumber = file.tag("disc", "discnumber", "WM/PartOfSet").flatMap(parseNumberPair)
+        meta.year = file.tag("date", "year", "originaldate", "WM/Year").flatMap(parseYear)
+        meta.genre = file.tag("genre", "WM/Genre")
+        meta.artwork = file.picture
+        return meta
+        #else
+        throw MetadataError.notPlayable
+        #endif
     }
 
     private static func readAsset(_ url: URL) async throws -> ParsedMetadata {

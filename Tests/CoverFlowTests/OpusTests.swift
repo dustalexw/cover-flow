@@ -65,17 +65,18 @@ final class OpusTests: XCTestCase {
         XCTAssertEqual(artwork.prefix(8), Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
     }
 
-    func testOggWithoutOpusIsReportedAsNotPlayable() async throws {
-        // One beginning-of-stream page holding a Vorbis identification packet.
+    func testOggWithoutOpusIsNotReadAsOpus() async throws {
+        // One beginning-of-stream page holding a truncated Vorbis identification packet:
+        // not Opus, and too damaged for the Vorbis decoder to open.
         var page = Data("OggS".utf8) + Data([0, 0x02]) + Data(count: 8) + Data([1, 0, 0, 0]) + Data(count: 8)
         page += Data([1, 30]) + Data([1]) + Data("vorbis".utf8) + Data(count: 23)
         let url = directory.appendingPathComponent("vorbis.ogg")
         try page.write(to: url)
+        XCTAssertThrowsError(try OggOpusStream(url: url)) { XCTAssertEqual($0 as? OggOpusError, .notOpus) }
         do {
             _ = try await MetadataReader.read(url)
-            XCTFail("A Vorbis stream must not import as Opus")
-        } catch MetadataError.notPlayable {}
-        XCTAssertThrowsError(try OggOpusStream(url: url)) { XCTAssertEqual($0 as? OggOpusError, .notOpus) }
+            XCTFail("A damaged Vorbis stream must not import")
+        } catch {}
     }
 
     func testDecodedOpusIsTrimmedAndAlignedWithTheSource() async throws {

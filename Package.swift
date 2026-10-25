@@ -4,6 +4,10 @@ import Foundation
 
 let taglib = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     .appendingPathComponent(".build/vendor/taglib-install-universal").path
+// Decoder-only LGPL FFmpeg, built as shared libraries by scripts/build-ffmpeg.sh and
+// bundled in Contents/Frameworks. The second rpath lets `swift test` find them.
+let ffmpeg = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent(".build/vendor/ffmpeg-install-universal").path
 
 let package = Package(
     name: "CoverFlow",
@@ -17,9 +21,16 @@ let package = Package(
         .target(name: "CArtworkTags", path: "Sources/CArtworkTags",
                 cxxSettings: [.unsafeFlags(["-I", taglib + "/include/taglib"])],
                 linkerSettings: [.unsafeFlags(["-L", taglib + "/lib"]), .linkedLibrary("tag"), .linkedLibrary("z"), .linkedFramework("CoreFoundation")]),
+        .target(name: "CFFmpegAudio", path: "Sources/CFFmpegAudio",
+                cSettings: [.unsafeFlags(["-I", ffmpeg + "/include"])],
+                linkerSettings: [.unsafeFlags(["-L", ffmpeg + "/lib",
+                                               "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                                               "-Xlinker", "-rpath", "-Xlinker", ffmpeg + "/lib"]),
+                                 .linkedLibrary("avformat"), .linkedLibrary("avcodec"),
+                                 .linkedLibrary("swresample"), .linkedLibrary("avutil")]),
         .executableTarget(
             name: "CoverFlow",
-            dependencies: ["CProjectM", "CArtworkTags",
+            dependencies: ["CProjectM", "CArtworkTags", "CFFmpegAudio",
                            .product(name: "StableDiffusion", package: "ml-stable-diffusion")],
             path: "Sources/CoverFlow",
             resources: [.copy("Visualizer/Presets")]

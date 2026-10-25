@@ -51,12 +51,32 @@ actor PCMDecoder {
     }
 
     private static func open(_ url: URL) throws -> any PCMFrameSource {
-        if OggOpusStream.isOgg(url) {
+        let isOgg = OggOpusStream.isOgg(url)
+        #if canImport(CFFmpegAudio)
+        if isOgg {
+            // FFmpeg takes the other Ogg codecs, and surround Opus, which it downmixes.
+            do { return try OpusFileReader(url: url) }
+            catch OggOpusError.notOpus, OggOpusError.unsupportedChannels, OggOpusError.decoderUnavailable {}
+            return try FFmpegFileReader(url: url)
+        }
+        if FFmpegAudioFile.extensions.contains(url.pathExtension.lowercased()) {
+            return try FFmpegFileReader(url: url)
+        }
+        do {
+            return try PCMFileReader(url: url)
+        } catch {
+            // A file whose extension doesn't match its contents may still be readable.
+            if let reader = try? FFmpegFileReader(url: url) { return reader }
+            throw error
+        }
+        #else
+        if isOgg {
             do { return try OpusFileReader(url: url) } catch OggOpusError.notOpus {
                 // Another Ogg codec: Core Audio reports whether it can read it.
             }
         }
         return try PCMFileReader(url: url)
+        #endif
     }
 
     func read() throws -> Chunk? {
@@ -275,3 +295,34 @@ private final class OpusFileReader: PCMFrameSource {
         return output
     }
 }
+
+#if canImport(CFFmpegAudio)
+/// Formats macOS can't decode, through the bundled FFmpeg build.
+private final class FFmpegFileReader: PCMFrameSource {
+    let format: AVAudioFormat
+    let length: AVAudioFramePosition
+    private let file: FFmpegAudioFile
+
+    init(url: URL) throws {
+        file = try FFmpegAudioFile(url: url)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: file.sampleRate,
+                                         channels: AVAudioChannelCount(file.channels)) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.format = format
+        length = file.length
+    }
+
+    func seek(to frame: AVAudioFramePosition) throws { try file.seek(to: frame) }
+
+    func read(into buffer: AVAudioPCMBuffer, frameCount: AVAudioFrameCount?) throws {
+        let wanted = Int(min(frameCount ?? buffer.frameCapacity, buffer.frameCapacity))
+        guard let data = buffer.floatChannelData else {
+            buffer.frameLength = 0
+            return
+        }
+        let count = try file.read(into: data, frames: wanted)
+        buffer.frameLength = AVAudioFrameCount(count)
+    }
+}
+#endif

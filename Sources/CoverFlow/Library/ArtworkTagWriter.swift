@@ -57,7 +57,12 @@ struct ArtworkTagError: LocalizedError {
 /// Serializes file changes, including replacements initiated from different windows.
 actor ArtworkTagWriter {
     static let shared = ArtworkTagWriter()
-    static let supportedExtensions: Set<String> = ["mp3", "m4a", "m4b", "mp4", "flac", "wav", "wave", "aif", "aiff", "aifc", "opus", "ogg", "oga"]
+    /// TagLib also writes Vorbis comments (Ogg, Speex), APE tags (Monkey's Audio, WavPack,
+    /// Musepack), ASF (WMA), ID3v2 (TTA, DSD) and Matroska tags.
+    static let supportedExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "mp4", "flac", "wav", "wave", "aif", "aiff", "aifc", "opus", "ogg", "oga",
+        "spx", "ape", "wv", "mpc", "wma", "asf", "tta", "dsf", "dff", "mka", "webm", "weba"
+    ]
 
     func embed(_ artwork: EmbeddedArtwork, in urls: [URL]) -> ArtworkWriteReport {
         var report = ArtworkWriteReport()
@@ -94,7 +99,7 @@ actor ArtworkTagWriter {
         }
         // Same-directory temporary files make the final rename atomic, including on
         // external volumes. Keep the extension so TagLib resolves the correct format.
-        let ext = url.pathExtension.lowercased() == "wave" ? "wav" : url.pathExtension
+        let ext = ["wave": "wav", "weba": "webm"][url.pathExtension.lowercased()] ?? url.pathExtension
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".coverflow-\(UUID().uuidString).\(ext)")
         defer { try? manager.removeItem(at: temporary) }
         try manager.copyItem(at: url, to: temporary)

@@ -34,9 +34,11 @@ jobs:
         with:
           path: |
             .build/vendor/*.tar.gz
+            .build/vendor/*.tar.xz
+            .build/vendor/ffmpeg-install-universal
             .build/vendor/stable-diffusion-model
             .build/vendor/karaoke-runtime
-          key: vendor-${{ hashFiles('scripts/build-visualizer.sh', 'scripts/build-tags.sh', 'scripts/fetch-sd-model.sh', 'scripts/build-karaoke-runtime.sh', 'Resources/Karaoke/runtime-lock.txt') }}
+          key: vendor-${{ hashFiles('scripts/build-visualizer.sh', 'scripts/build-tags.sh', 'scripts/build-ffmpeg.sh', 'scripts/fetch-sd-model.sh', 'scripts/build-karaoke-runtime.sh', 'Resources/Karaoke/runtime-lock.txt') }}
           restore-keys: |
             vendor-
 
