@@ -10,6 +10,7 @@ on:
       - 'Sources/CoverFlow/Lyrics/**'
       - 'Sources/CoverFlow/Scrobbling/**'
       - 'Sources/CoverFlow/Library/MetadataReader.swift'
+      - 'Sources/CoverFlow/Library/OggOpus.swift'
       - 'scripts/*ipad*'
       - 'build-ipad.command'
       - '.github/workflows/ipados.yml'
