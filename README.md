@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2"><img src="docs/badge-release.svg" alt="Release v1.6.2"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.6.2/Cover-Flow-1.6.2-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.7.0"><img src="docs/badge-release.svg" alt="Release v1.7.0"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.7.0/Cover-Flow-1.7.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -96,12 +96,22 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.6.2-macOS.zip** from the
-[1.6.2 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2), unzip it, and move
+Download **Cover-Flow-1.7.0-macOS.zip** from the
+[1.7.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.7.0), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
 supported model files (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
+
+## What’s new in 1.7.0
+
+**Many more audio formats.** Cover Flow now imports and plays Opus, Ogg Vorbis,
+Speex, Monkey's Audio (APE), WavPack, Windows Media Audio, DSD (DSF/DFF), Musepack,
+TTA, TAK, Shorten, DTS, Wave64 and Matroska/WebM audio, gaplessly and with seeking,
+alongside the formats macOS already plays. Their tags and embedded cover art are
+read, and **Replace Artwork** can embed covers in them. Surround files are downmixed
+to stereo. Opus uses macOS's own decoder; the others use a decoder-only FFmpeg build
+(LGPL) bundled with the app. The iPad project adds Opus.
 
 ## What’s new in 1.6.2
 
