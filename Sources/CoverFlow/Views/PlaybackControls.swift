@@ -197,7 +197,7 @@ struct NowPlayingBar: View {
                     .help("Album View — a resizable player for the current cover (⇧⌘A)")
                     .accessibilityLabel(albumView.isOpen ? "Close Album View" : "Open Album View")
                 }
-                .frame(width: wide ? 426 : (medium ? 336 : 246), alignment: .trailing)
+                .frame(width: wide ? 468 : (medium ? 378 : 288), alignment: .trailing)
             }
             .padding(.horizontal, 18)
             .frame(width: geo.size.width, height: geo.size.height)

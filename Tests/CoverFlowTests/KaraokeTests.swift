@@ -4,6 +4,53 @@ import AppKit
 @testable import CoverFlow
 
 final class KaraokeTests: XCTestCase {
+    func testDemucsCatalogAndAllStemManifest() throws {
+        let root = try temporary()
+        let models = try KaraokeModel.demucsModels(in: root)
+        XCTAssertEqual(models.count, 5)
+        XCTAssertTrue(models.allSatisfy { $0.kind == .demucs })
+        XCTAssertTrue(models[0].title.contains("6 stems"))
+        let names = ["vocals", "drums", "bass", "guitar", "piano", "other"]
+        for name in names + ["instrumental"] { try wave(at: root.appendingPathComponent(name + ".wav")) }
+        let audio = KaraokeAudio(key: "six", trackID: UUID(), frames: 4410, sampleRate: 44100,
+                                 modelSHA256: String(repeating: "a", count: 64), directory: root, stemNames: names)
+        try audio.validate()
+        XCTAssertEqual(audio.stemFiles.count, 6)
+        XCTAssertEqual(audio.url(for: .guitar)?.lastPathComponent, "guitar.wav")
+        XCTAssertEqual(audio.url(for: .piano)?.lastPathComponent, "piano.wav")
+        XCTAssertNil(audio.url(for: .original))
+        var saved = try JSONDecoder().decode(KaraokeAudio.self, from: JSONEncoder().encode(audio))
+        XCTAssertEqual(saved, audio)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("piano.wav"))
+        XCTAssertThrowsError(try saved.validate())
+        saved.stemNames = ["../source"]
+        XCTAssertThrowsError(try saved.validate())
+    }
+
+    func testLegacyTwoStemManifestStillLoads() throws {
+        let root = try temporary()
+        let audio = KaraokeAudio(key: "old", trackID: UUID(), frames: 4410, sampleRate: 44100,
+                                 modelSHA256: "fixture", directory: root)
+        XCTAssertEqual(audio.availableStems, [.vocals, .instrumental])
+        XCTAssertNil(audio.url(for: .drums))
+        let saved = try JSONDecoder().decode(KaraokeAudio.self, from: JSONEncoder().encode(audio))
+        XCTAssertEqual(saved.stemFiles.count, 2)
+    }
+
+    func testStemMixGainMuteSoloAndInvalidLevels() {
+        var mix = StemMixSettings()
+        XCTAssertEqual(mix.gain(.drums), 1)
+        mix.levels[.drums] = 0.4
+        mix.solo = [.drums, .piano]
+        XCTAssertEqual(mix.gain(.drums), 0.4)
+        XCTAssertEqual(mix.gain(.bass), 0)
+        XCTAssertEqual(mix.gain(.piano), 1)
+        mix.muted.insert(.drums)
+        XCTAssertEqual(mix.gain(.drums), 0)
+        mix.levels[.piano] = .nan
+        XCTAssertEqual(mix.gain(.piano), 0)
+    }
+
     func testPlaybackShortcutsDoNotCaptureMenuCombinations() throws {
         func event(_ text: String, key: UInt16 = 0, flags: NSEvent.ModifierFlags = [], repeating: Bool = false) throws -> NSEvent {
             try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,

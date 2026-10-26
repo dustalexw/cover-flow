@@ -11,9 +11,19 @@ struct KaraokePlaybackButtons: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            HStack(spacing: 2) {
+            VStack(spacing: 1) {
+                HStack(spacing: 1) {
                 modeButton(.instrumental, symbol: "mic.slash.fill", title: "Karaoke")
                 modeButton(.vocals, symbol: "mic.fill", title: "Vocals Only")
+                Button { AppEnvironment.shared.karaokeWindow.show() } label: {
+                    Image(systemName: "slider.horizontal.3").frame(width: 28, height: 25)
+                }.buttonStyle(.plain).help("Open Stem Mix").accessibilityLabel("Stem Mix")
+                }
+                HStack(spacing: 1) {
+                    ForEach([AudioStem.drums, .bass, .guitar, .piano, .other]) { stem in
+                        modeButton(KaraokePlayback(rawValue: stem.rawValue)!, symbol: stem.symbol, title: stem.title + " Only", compact: true)
+                    }
+                }
             }
             .padding(3)
             .background(Palette.raised(scheme), in: Capsule())
@@ -36,7 +46,7 @@ struct KaraokePlaybackButtons: View {
                 }.buttonStyle(.plain).help("Show karaoke preparation error")
             }
         }
-        .frame(width: 84)
+        .frame(width: 126)
         .popover(isPresented: $showDetails, arrowEdge: .top) { details }
         .contextMenu {
             Button("Open Karaoke…") { AppEnvironment.shared.karaokeWindow.show() }
@@ -46,7 +56,7 @@ struct KaraokePlaybackButtons: View {
         .onChange(of: karaoke.errorMessage) { if karaoke.errorMessage != nil { showDetails = true } }
     }
 
-    private func modeButton(_ mode: KaraokePlayback, symbol: String, title: String) -> some View {
+    private func modeButton(_ mode: KaraokePlayback, symbol: String, title: String, compact: Bool = false) -> some View {
         let active = selected == mode
         return Button {
             guard let track = player.currentTrack else { return }
@@ -56,8 +66,8 @@ struct KaraokePlaybackButtons: View {
             }
         } label: {
             Image(systemName: symbol)
-                .frame(width: 32, height: 28)
-                .font(.system(size: 14, weight: .semibold))
+                .frame(width: compact ? 22 : 28, height: 24)
+                .font(.system(size: compact ? 12 : 14, weight: .semibold))
                 .foregroundStyle(active ? Palette.onAccent(scheme) : Color.secondary)
                 .background(active ? Palette.accent(scheme) : Color.clear, in: Capsule())
                 .contentShape(Capsule())

@@ -8,13 +8,7 @@ import Foundation
   import NativeMDX
 #endif
 
-enum KaraokePlayback: String, CaseIterable, Identifiable {
-  case original, instrumental, vocals
-  var id: String { rawValue }
-  var title: String {
-    self == .original ? "Original" : self == .instrumental ? "Karaoke" : "Vocals Only"
-  }
-}
+
 struct KaraokeAudio: Codable, Equatable, Sendable {
   let key: String
   let trackID: UUID
@@ -22,16 +16,27 @@ struct KaraokeAudio: Codable, Equatable, Sendable {
   let sampleRate: Double
   let modelSHA256: String
   var directory: URL
+  var stemNames: [String]? = nil
   var instrumental: URL { directory.appendingPathComponent("instrumental.wav") }
   var vocals: URL { directory.appendingPathComponent("vocals.wav") }
-  func url(for mode: KaraokePlayback) -> URL? {
-    mode == .original ? nil : mode == .instrumental ? instrumental : vocals
-  }
+    var availableStems: [AudioStem] {
+        (stemNames ?? ["vocals", "instrumental"]).compactMap(AudioStem.init(rawValue:))
+    }
+    var stemFiles: [AudioStem: URL] {
+        Dictionary(uniqueKeysWithValues: availableStems.map { ($0, directory.appendingPathComponent($0.rawValue + ".wav")) })
+    }
+    func url(for mode: KaraokePlayback) -> URL? {
+        if mode == .mix { return instrumental }
+        guard let stem = mode.stem else { return nil }
+        if stem == .instrumental { return instrumental }
+        return stemFiles[stem]
+    }
+
   func validate() throws {
-    guard frames > 0, sampleRate == 44100 else {
+    guard frames > 0, sampleRate == 44100, Set(stemNames ?? []).count == (stemNames ?? []).count, (stemNames ?? []).allSatisfy({ AudioStem(rawValue: $0) != nil }) else {
       throw NativeKaraokeError.message("Incomplete prepared audio.")
     }
-    for url in [instrumental, vocals] {
+    for url in Set([instrumental, vocals] + Array(stemFiles.values)) {
       let file = try AVAudioFile(forReading: url)
       guard file.length == frames, file.fileFormat.sampleRate == 44100,
         file.fileFormat.channelCount == 2

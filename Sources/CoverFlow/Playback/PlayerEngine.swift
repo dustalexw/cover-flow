@@ -32,7 +32,12 @@ final class PlayerEngine: ObservableObject {
     @Published private(set) var repeatMode: RepeatMode = .off
     @Published var errorMessage: String?
     @Published private(set) var karaokePlayback: KaraokePlayback = .original
-    private var karaokeOverride: (trackID: UUID, url: URL)?
+    private var karaokeOverride: (trackID: UUID, url: URL, stems: [AudioStem: URL]?)?
+    @Published private(set) var stemMix = StemMixSettings()
+
+    func setStemMix(_ mix: StemMixSettings) {
+        stemMix = mix; player.setStemMix(mix)
+    }
     @Published var volume: Float = 0.8 {
         didSet { player.volume = volume; scheduleSave() }
     }
@@ -217,7 +222,11 @@ final class PlayerEngine: ObservableObject {
         if mode != .original {
             guard let audio, audio.trackID == id else { return }
             do { try audio.validate() } catch { errorMessage = error.localizedDescription; return }
-            karaokeOverride = (id, audio.url(for: mode)!)
+            guard let url = audio.url(for: mode) else {
+                errorMessage = "This model does not separate \(mode.title.lowercased()). Choose Demucs 6 stems and prepare again."
+                return
+            }
+            karaokeOverride = (id, url, mode == .mix ? audio.stemFiles : nil)
         } else { karaokeOverride = nil }
         karaokePlayback = mode
         guard let index = currentIndex, let source = audioSource(at: index) else { return }
@@ -402,7 +411,7 @@ final class PlayerEngine: ObservableObject {
     private func audioSource(at index: Int) -> AudioSource? {
         guard let id = queue[safe: index], let track = library.track(id) else { return nil }
         let url = karaokeOverride?.trackID == id ? karaokeOverride!.url : track.fileURL
-        return AudioSource(index: index, trackID: id, url: url)
+        return AudioSource(index: index, trackID: id, url: url, stemFiles: karaokeOverride?.trackID == id ? karaokeOverride?.stems : nil)
     }
 
     private func refreshUpcoming() {

@@ -149,12 +149,15 @@ def main():
     parser = argparse.ArgumentParser()
     for flag in ('checkpoint', 'config', 'input', 'output'):
         parser.add_argument('--' + flag, required=True)
-    parser.add_argument('--backend', choices=('auto', 'mel-band-roformer', 'mdx'), default='auto')
+    parser.add_argument('--backend', choices=('auto', 'mel-band-roformer', 'mdx', 'demucs'), default='auto')
     parser.add_argument('--device', choices=('auto', 'cpu', 'mps', 'coreml'), default='auto')
     args = parser.parse_args()
     try:
         backend = ('mdx' if Path(args.checkpoint).suffix.lower() == '.onnx' else 'mel-band-roformer') if args.backend == 'auto' else args.backend
-        if backend == 'mdx':
+        if backend == 'demucs':
+            from demucs_backend import separate_demucs
+            emit('Ready', 1, **separate_demucs(args.checkpoint, args.config, args.input, args.output, emit, args.device))
+        elif backend == 'mdx':
             from mdx import separate_mdx
             result = separate_mdx(args.checkpoint, args.config, args.input, args.output, emit, args.device)
             emit('Ready', 1, model_sha256=file_hash(args.checkpoint), **result)

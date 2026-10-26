@@ -15,18 +15,98 @@ final class GaplessPlaybackTests: XCTestCase {
     }
 
     private func fixture(_ name: String, rate: Double = 48_000, channels: AVAudioChannelCount = 2,
-                         seconds: Double = 0.2, value: Float = 0.25) throws -> URL {
+                         seconds: Double = 0.2, value: Float = 0.25, frequency: Double = 0) throws -> URL {
         let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels)!
         let count = AVAudioFrameCount(rate * seconds)
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count)!
         buffer.frameLength = count
         for channel in 0..<Int(channels) {
-            for frame in 0..<Int(count) { buffer.floatChannelData![channel][frame] = value }
+            for frame in 0..<Int(count) { buffer.floatChannelData![channel][frame] = frequency == 0 ? value : value * Float(sin(Double(frame) * 2 * .pi * frequency / rate)) }
         }
         let url = directory.appendingPathComponent(name + ".caf")
         let file = try AVAudioFile(forWriting: url, settings: format.settings)
         try file.write(from: buffer)
         return url
+    }
+
+    func testStemMixChangesImmediatelyAndPreservesClockAndSeek() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Live stem mix")
+        Task { @MainActor in
+            do {
+                let source = AudioSource(index: 0, trackID: UUID(), url: try fixture("clock", seconds: 4, value: 0.9),
+                                         stemFiles: [.drums: try fixture("drums", seconds: 4, value: 0.1),
+                                                     .vocals: try fixture("vocals", seconds: 4, value: 0.2)])
+                let player = GaplessAudioPlayer()
+                player.volume = 0.01
+                player.visualizerAudio.setEnabled(true)
+                player.onFailure = { _, error in XCTFail(error.localizedDescription) }
+                var mix = StemMixSettings(); mix.muted = [.vocals]
+                player.setStemMix(mix)
+                player.load(source, autoplay: true)
+                defer { player.stop() }
+                @MainActor func level() -> Float {
+                    var values = Array(repeating: Float(0), count: 8192)
+                    let frames = values.withUnsafeMutableBufferPointer { player.visualizerAudio.drain(into: $0) }
+                    return values.prefix(frames * 2).map(abs).max() ?? 0
+                }
+                try await Task.sleep(for: .milliseconds(700))
+                let drums = level()
+                XCTAssertGreaterThan(drums, 0)
+                let before = player.currentTime
+                mix.muted = [.drums]
+                player.setStemMix(mix)
+                try await Task.sleep(for: .milliseconds(150))
+                _ = level() // discard the transition in the tap ring
+                try await Task.sleep(for: .milliseconds(150))
+                XCTAssertEqual(level(), drums * 2, accuracy: max(0.0001, drums * 0.05))
+                player.synchronize()
+                XCTAssertGreaterThan(player.currentTime, before)
+                player.pause()
+                player.seek(to: 1.5)
+                try await Task.sleep(for: .milliseconds(200))
+                XCTAssertFalse(player.isPlaying)
+                XCTAssertEqual(player.currentTime, 1.5, accuracy: 0.001)
+                player.play()
+                try await Task.sleep(for: .milliseconds(350))
+                XCTAssertEqual(level(), drums * 2, accuracy: max(0.0001, drums * 0.05))
+                XCTAssertTrue(player.isPlaying)
+            } catch { XCTFail(error.localizedDescription) }
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 15)
+    }
+
+    func testStemNodesRemainPhaseAlignedAfterPauseAndSeek() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Phase-aligned stems")
+        Task { @MainActor in
+            do {
+                let positive = try fixture("positive", seconds: 4, value: 0.2, frequency: 440)
+                let negative = try fixture("negative", seconds: 4, value: -0.2, frequency: 440)
+                let player = GaplessAudioPlayer(); player.volume = 0.01
+                player.visualizerAudio.setEnabled(true)
+                player.onFailure = { _, error in XCTFail(error.localizedDescription) }
+                player.load(AudioSource(index: 0, trackID: UUID(), url: positive,
+                                        stemFiles: [.drums: positive, .bass: negative]), autoplay: true)
+                defer { player.stop() }
+                @MainActor func checkCancellation() {
+                    var values = Array(repeating: Float(0), count: 8192)
+                    let frames = values.withUnsafeMutableBufferPointer { player.visualizerAudio.drain(into: $0) }
+                    XCTAssertGreaterThan(frames, 0)
+                    XCTAssertLessThan(values.prefix(frames * 2).map(abs).max() ?? 0, 0.000001,
+                                      "Opposite stems must cancel; misaligned nodes create a tone.")
+                }
+                try await Task.sleep(for: .milliseconds(600)); checkCancellation()
+                player.pause()
+                try await Task.sleep(for: .milliseconds(80)); player.play()
+                try await Task.sleep(for: .milliseconds(300)); checkCancellation()
+                player.seek(to: 1.5)
+                try await Task.sleep(for: .milliseconds(400)); checkCancellation()
+            } catch { XCTFail(error.localizedDescription) }
+            completed.fulfill()
+        }
+        wait(for: [completed], timeout: 15)
     }
 
     func testRenderedTrackBoundariesHaveNoInsertedSilence() async throws {

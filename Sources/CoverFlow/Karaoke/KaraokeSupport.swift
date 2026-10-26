@@ -4,26 +4,39 @@ import CryptoKit
 import CoreFoundation
 import Darwin
 
-enum KaraokePlayback: String, CaseIterable, Identifiable {
-    case original, instrumental, vocals
-    var id: String { rawValue }
-    var title: String {
-        switch self { case .original: return "Original"; case .instrumental: return "Karaoke"; case .vocals: return "Vocals" }
-    }
-}
-
 enum KaraokeModelKind: String, Codable {
     case melBandRoformer = "mel-band-roformer"
-    case mdx
-    var title: String { self == .mdx ? "UVR MDX · Core ML GPU preferred · CPU fallback" : "Mel-Band RoFormer · automatic device" }
+    case mdx, demucs
+    var title: String { self == .demucs ? "Demucs · Apple GPU with CPU fallback · all model stems" : self == .mdx ? "UVR MDX · Core ML GPU preferred · CPU fallback" : "Mel-Band RoFormer · automatic device" }
 }
 
 struct KaraokeModel: Equatable, Codable, Identifiable {
     let checkpoint: URL
     let configuration: URL
-    var kind: KaraokeModelKind { checkpoint.pathExtension.lowercased() == "onnx" ? .mdx : .melBandRoformer }
+    var kind: KaraokeModelKind { ["demucs", "safetensors"].contains(checkpoint.pathExtension.lowercased()) ? .demucs : checkpoint.pathExtension.lowercased() == "onnx" ? .mdx : .melBandRoformer }
     var id: String { checkpoint.standardizedFileURL.path + "\n" + configuration.standardizedFileURL.path }
-    var title: String { checkpoint.deletingPathExtension().lastPathComponent }
+    var title: String {
+        if checkpoint.pathExtension == "demucs", let data = try? Data(contentsOf: checkpoint),
+           let profile = try? JSONDecoder().decode(DemucsProfile.self, from: data) { return profile.title }
+        return checkpoint.deletingPathExtension().lastPathComponent
+    }
+    struct DemucsProfile: Codable { let name: String; let title: String }
+    static func demucsModels(in directory: URL) throws -> [KaraokeModel] {
+        let profiles = [DemucsProfile(name: "htdemucs_6s", title: "Demucs · 6 stems (guitar + piano)"),
+                        DemucsProfile(name: "htdemucs", title: "Demucs · 4 stems"),
+                        DemucsProfile(name: "htdemucs_ft", title: "Demucs · 4 stems, fine-tuned"),
+                        DemucsProfile(name: "hdemucs_mmi", title: "Demucs Hybrid · 4 stems"),
+                        DemucsProfile(name: "mdx_extra", title: "Demucs MDX Extra · 4 stems")]
+        let folder = directory.appendingPathComponent("ModelSettings")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try profiles.map { profile in
+            let url = folder.appendingPathComponent(profile.name + ".demucs")
+            let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+            let data = try encoder.encode(profile)
+            if (try? Data(contentsOf: url)) != data { try data.write(to: url, options: .atomic) }
+            return try KaraokeModel(checkpoint: url, configuration: url)
+        }
+    }
     static var bundledMDXCatalog: URL? { Bundle.main.resourceURL?.appendingPathComponent("Karaoke/mdx-model-data.json") }
 
     init(checkpoint: URL, configuration: URL) throws {
@@ -36,8 +49,8 @@ struct KaraokeModel: Equatable, Codable, Identifiable {
             }
         }
         let ext = checkpoint.pathExtension.lowercased(), configExt = configuration.pathExtension.lowercased()
-        guard (ext == "ckpt" && ["yaml", "yml"].contains(configExt)) || (ext == "onnx" && configExt == "json") else {
-            throw KaraokeError.message("Choose a Mel-Band RoFormer checkpoint with YAML, or a UVR MDX ONNX model with matching JSON settings.")
+        guard (["demucs", "safetensors"].contains(ext) && checkpoint.standardizedFileURL == configuration.standardizedFileURL) || (ext == "ckpt" && ["yaml", "yml"].contains(configExt)) || (ext == "onnx" && configExt == "json") else {
+            throw KaraokeError.message("Choose a Demucs safetensors file, a Mel-Band RoFormer checkpoint with YAML, or a UVR MDX ONNX model with matching JSON settings.")
         }
         self.checkpoint = checkpoint.resolvingSymlinksInPath(); self.configuration = configuration.resolvingSymlinksInPath()
         if kind == .mdx { try Self.validateMDX(checkpoint: checkpoint, configuration: configuration) }
@@ -99,6 +112,7 @@ struct KaraokeModel: Equatable, Codable, Identifiable {
 
     static func configuration(for checkpoint: URL, mdxCatalog: URL? = bundledMDXCatalog) -> URL? {
         let base = checkpoint.deletingPathExtension(), folder = checkpoint.deletingLastPathComponent()
+        if ["demucs", "safetensors"].contains(checkpoint.pathExtension.lowercased()) { return checkpoint }
         if checkpoint.pathExtension.lowercased() == "onnx" {
             for candidate in [base.appendingPathExtension("json"), mdxCatalog].compactMap({ $0 }) {
                 if (try? KaraokeModel(checkpoint: checkpoint, configuration: candidate)) != nil { return candidate }
@@ -131,9 +145,9 @@ struct KaraokeModel: Equatable, Codable, Identifiable {
     }
 
     func cacheKey(trackID: UUID, source: URL) throws -> String {
-        let config = try Data(contentsOf: configuration)
+        let config = checkpoint.pathExtension == "safetensors" ? Data() : try Data(contentsOf: configuration)
         // Preserve existing Becruily caches; MDX output uses its own processing version.
-        let version = kind == .mdx ? "uvr-mdx-overlap-v1" : "becruily-deux-overlap-v1"
+        let version = kind == .demucs ? "demucs-4.1-six-stems-v1" : kind == .mdx ? "uvr-mdx-overlap-v1" : "becruily-deux-overlap-v1"
         let parts = [version, trackID.uuidString, try Self.identity(source),
                      try Self.identity(checkpoint), configuration.path,
                      SHA256.hash(data: config).map { String(format: "%02x", $0) }.joined()]
@@ -162,16 +176,26 @@ struct KaraokeAudio: Codable, Equatable {
     let sampleRate: Double
     let modelSHA256: String
     var directory: URL
+    var stemNames: [String]? = nil
     var instrumental: URL { directory.appendingPathComponent("instrumental.wav") }
     var vocals: URL { directory.appendingPathComponent("vocals.wav") }
 
+    var availableStems: [AudioStem] {
+        (stemNames ?? ["vocals", "instrumental"]).compactMap(AudioStem.init(rawValue:))
+    }
+    var stemFiles: [AudioStem: URL] {
+        Dictionary(uniqueKeysWithValues: availableStems.map { ($0, directory.appendingPathComponent($0.rawValue + ".wav")) })
+    }
     func url(for mode: KaraokePlayback) -> URL? {
-        switch mode { case .original: return nil; case .instrumental: return instrumental; case .vocals: return vocals }
+        if mode == .mix { return instrumental }
+        guard let stem = mode.stem else { return nil }
+        if stem == .instrumental { return instrumental }
+        return stemFiles[stem]
     }
 
     func validate() throws {
-        guard sampleRate == 44_100, frames > 0 else { throw KaraokeError.message("The saved karaoke audio is incomplete. Prepare it again.") }
-        for file in [instrumental, vocals] {
+        guard sampleRate == 44_100, frames > 0, Set(stemNames ?? []).count == (stemNames ?? []).count, (stemNames ?? []).allSatisfy({ AudioStem(rawValue: $0) != nil }) else { throw KaraokeError.message("The saved karaoke audio is incomplete. Prepare it again.") }
+        for file in Set([instrumental, vocals] + Array(stemFiles.values)) {
             let reader = try AVAudioFile(forReading: file)
             guard reader.length == frames, reader.fileFormat.sampleRate == sampleRate,
                   reader.fileFormat.channelCount == 2 else {
@@ -216,6 +240,7 @@ struct KaraokeProgress: Decodable, Sendable {
     var frames: Int64?
     var sample_rate: Double?
     var model_sha256: String?
+    var stems: [String]?
 }
 
 /// A cancellable worker process; pipe reads and waiting happen off the main thread.

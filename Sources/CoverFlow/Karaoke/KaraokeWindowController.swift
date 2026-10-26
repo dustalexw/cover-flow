@@ -23,11 +23,15 @@ final class KaraokeWindowController: NSObject, NSWindowDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Karaoke"
         window.identifier = NSUserInterfaceItemIdentifier("karaoke")
-        window.minSize = NSSize(width: 540, height: 580)
+        window.minSize = NSSize(width: 600, height: 740)
         window.isReleasedWhenClosed = false; window.delegate = self
-        window.contentView = NSHostingView(rootView: KaraokeView()
+        let content = NSHostingView(rootView: KaraokeView()
             .environmentObject(env.library).environmentObject(env.player)
             .environmentObject(env.state).environmentObject(env.karaoke))
+        // Lyrics and the mixer scroll within the window instead of expanding its
+        // intrinsic size beyond the screen when preparation finishes.
+        content.sizingOptions = []
+        window.contentView = content
         if !window.setFrameUsingName("CoverFlow.Karaoke.Frame") { window.center() }
         window.setFrameAutosaveName("CoverFlow.Karaoke.Frame")
         self.window = window; applyTheme()

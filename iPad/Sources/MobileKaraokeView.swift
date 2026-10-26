@@ -171,7 +171,7 @@ struct MobileKaraokeView: View {
   }
   private var modes: some View {
     HStack(spacing: 6) {
-      ForEach(Array(KaraokePlayback.allCases.enumerated()), id: \.element.id) { index, mode in
+      ForEach(Array([KaraokePlayback.original, .instrumental, .vocals].enumerated()), id: \.element.id) { index, mode in
         Button {
           guard let track = player.currentTrack else { return }
           let engine = player

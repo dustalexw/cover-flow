@@ -1,0 +1,134 @@
+[
+  {
+    "name": "htdemucs_6s",
+    "title": "Demucs \u00b7 6 stems (guitar + piano)",
+    "repo": "adefossez/HTDemucs-6s",
+    "revision": "3c5ee475be622df764938de97e4281a7b07ffa58",
+    "files": [
+      {
+        "name": "5c90dfd2.safetensors",
+        "sha256": "d2a1745f0744721f6b8ca5bf469b67c651ea5ed1b52998cab033b2158609d411",
+        "size": 54885744
+      }
+    ],
+    "bag": "models: ['5c90dfd2']\n",
+    "stems": [
+      "drums",
+      "bass",
+      "other",
+      "vocals",
+      "guitar",
+      "piano"
+    ]
+  },
+  {
+    "name": "htdemucs",
+    "title": "Demucs \u00b7 4 stems",
+    "repo": "adefossez/HTDemucs",
+    "revision": "cbc8a9b1a87023b7fd74e7b3412e6321c0eab003",
+    "files": [
+      {
+        "name": "955717e8.safetensors",
+        "sha256": "d9fa14133cfcc034a6758923bb3a8ca9f8dfd0b582134643bbf83f72c17576dd",
+        "size": 84025440
+      }
+    ],
+    "bag": "models: ['955717e8']\n",
+    "stems": [
+      "drums",
+      "bass",
+      "other",
+      "vocals"
+    ]
+  },
+  {
+    "name": "htdemucs_ft",
+    "title": "Demucs \u00b7 4 stems, fine-tuned",
+    "repo": "adefossez/HTDemucs-ft",
+    "revision": "d74ac89c3a1e874fc78f152555cf4d8533f06cd4",
+    "files": [
+      {
+        "name": "04573f0d.safetensors",
+        "sha256": "68854b0d7c2b3274723b5761f6fd9f5aec5f1bcd3f0de7c1669546fdb7871b7c",
+        "size": 84025440
+      },
+      {
+        "name": "92cfc3b6.safetensors",
+        "sha256": "a241863551f30d01c42bd7b97da40839922ead3acb0f1fcab25682f55b4eeb59",
+        "size": 84025440
+      },
+      {
+        "name": "d12395a8.safetensors",
+        "sha256": "5b01a97567ae9a3178a6236fb520251045c03eb8834bc8c24a4eec11d6c8fb56",
+        "size": 84025440
+      },
+      {
+        "name": "f7e0c4bc.safetensors",
+        "sha256": "2c85ab3c62dd6edd8e0b965e38b16fd1cdde357cc25de6b6bc9ce7c83f60925f",
+        "size": 84025440
+      }
+    ],
+    "bag": "models: ['f7e0c4bc', 'd12395a8', '92cfc3b6', '04573f0d']\nweights: [\n  [1., 0., 0., 0.],\n  [0., 1., 0., 0.],\n  [0., 0., 1., 0.],\n  [0., 0., 0., 1.],\n]",
+    "stems": [
+      "drums",
+      "bass",
+      "other",
+      "vocals"
+    ]
+  },
+  {
+    "name": "hdemucs_mmi",
+    "title": "Demucs Hybrid \u00b7 4 stems",
+    "repo": "adefossez/Demucs-hdemucs_mmi",
+    "revision": "53a9296ecfbdda7729cefb53c8616388ee67e5b2",
+    "files": [
+      {
+        "name": "75fc33f5.safetensors",
+        "sha256": "c6e881004aca0f7572a50fda722620d98ea331ecc6c18abd0214e67fcca3c4ba",
+        "size": 167317416
+      }
+    ],
+    "bag": "models: ['75fc33f5']\nsegment: 44\n",
+    "stems": [
+      "drums",
+      "bass",
+      "other",
+      "vocals"
+    ]
+  },
+  {
+    "name": "mdx_extra",
+    "title": "Demucs MDX Extra \u00b7 4 stems",
+    "repo": "adefossez/Demucs-mdx_extra",
+    "revision": "00ac3ed0c71708a0c388a957d39f49dc2af65f63",
+    "files": [
+      {
+        "name": "5d2d6c55.safetensors",
+        "sha256": "ee6539eb64248fd482efd96a8e74c3c9ccda8474f3b005e4e813832c35445535",
+        "size": 167309720
+      },
+      {
+        "name": "a1d90b5c.safetensors",
+        "sha256": "2faecee4d300f34cace5538cdcd40c5171c2d62928a49e9abdb067aaba0e825b",
+        "size": 167309720
+      },
+      {
+        "name": "cfa93e08.safetensors",
+        "sha256": "c389cac09918b28bca083cecc295e925cee03cd25ee0ff9c8be4f62b7b70f739",
+        "size": 167317416
+      },
+      {
+        "name": "e51eebcc.safetensors",
+        "sha256": "ba0cbc87afe8aa82cbd76c2a30550ce5295c80de3b3c7a1de06bf08d1e895aea",
+        "size": 167317416
+      }
+    ],
+    "bag": "models: ['e51eebcc', 'a1d90b5c', '5d2d6c55', 'cfa93e08']\nsegment: 44",
+    "stems": [
+      "drums",
+      "bass",
+      "other",
+      "vocals"
+    ]
+  }
+]

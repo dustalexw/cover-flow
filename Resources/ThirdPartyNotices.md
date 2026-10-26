@@ -95,3 +95,15 @@ The app sends search metadata, never audio. Lyrics and artwork remain the works
 of their respective creators. No service library or downloaded lyrics/artwork
 is bundled with the app. The native Metal visualizer and shaders are part of
 Cover Flow; projectM remains an optional visualizer engine.
+
+# Demucs stem separation
+
+Demucs **4.1.0**, copyright Meta Platforms, Inc. and affiliates, is bundled under
+the MIT license (`Licenses/Demucs-MIT.txt`); https://github.com/facebookresearch/demucs
+and https://pypi.org/project/demucs/4.1.0/. Official pretrained weights are downloaded
+on demand from the maintainer's `adefossez` Hugging Face repositories (MIT).
+`Karaoke/demucs-models.json` records pinned revisions, sizes and SHA-256 hashes.
+The runtime includes inference dependencies julius (MIT), safetensors (Apache-2.0),
+and tqdm (MPL-2.0/MIT), whose license files accompany their distribution metadata.
+Optional Demucs CLI, audio codecs, training and quantization dependencies are not
+installed; Cover Flow uses its native decoder and a restricted safetensors loader.

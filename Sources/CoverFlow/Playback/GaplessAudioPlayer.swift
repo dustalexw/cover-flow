@@ -4,6 +4,7 @@ struct AudioSource: Equatable {
     var index: Int
     let trackID: UUID
     let url: URL
+    var stemFiles: [AudioStem: URL]? = nil
 }
 
 /// One continuous PCM stream, with eight seconds of bounded lookahead. Completion
@@ -13,6 +14,8 @@ final class GaplessAudioPlayer {
     let visualizerAudio = VisualizerAudioBuffer()
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
+    private let outputMixer = AVAudioMixerNode()
+    private var stemNodes: [AudioStem: AVAudioPlayerNode] = [:]
     private var pump: Task<Void, Never>?
     private var generation = UUID()
     private var segments: [Segment] = []
@@ -51,9 +54,16 @@ final class GaplessAudioPlayer {
 
     init() {
         engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: PCMDecoder.outputFormat)
+        engine.attach(outputMixer)
+        engine.connect(node, to: outputMixer, format: PCMDecoder.outputFormat)
+        for stem in AudioStem.allCases {
+            let stemNode = AVAudioPlayerNode()
+            stemNodes[stem] = stemNode; engine.attach(stemNode)
+            engine.connect(stemNode, to: outputMixer, format: PCMDecoder.outputFormat)
+        }
+        engine.connect(outputMixer, to: engine.mainMixerNode, format: PCMDecoder.outputFormat)
         let audio = visualizerAudio
-        node.installTap(onBus: 0, bufferSize: 512, format: PCMDecoder.outputFormat) { buffer, _ in
+        outputMixer.installTap(onBus: 0, bufferSize: 512, format: PCMDecoder.outputFormat) { buffer, _ in
             guard let channels = buffer.floatChannelData, buffer.format.channelCount >= 2 else { return }
             audio.append(left: channels[0], right: channels[1], frames: Int(buffer.frameLength))
         }
@@ -71,7 +81,11 @@ final class GaplessAudioPlayer {
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
     }
 
-    private func updateVolume() { node.volume = isMuted ? 0 : volume }
+    private func updateVolume() { outputMixer.outputVolume = isMuted ? 0 : volume }
+
+    func setStemMix(_ settings: StemMixSettings) {
+        for (stem, node) in stemNodes { node.volume = settings.gain(stem) }
+    }
 
     func load(_ source: AudioSource, autoplay: Bool, at start: Double = 0) {
         reset()
@@ -87,6 +101,7 @@ final class GaplessAudioPlayer {
             var tail = source
             var offset = start
             var decoder: PCMDecoder?
+            var stemDecoders: [AudioStem: PCMDecoder] = [:]
             while !Task.isCancelled && self.generation == token {
                 self.poll()
                 guard self.generation == token else { return }
@@ -98,12 +113,40 @@ final class GaplessAudioPlayer {
                             let opened = try await Task.detached { try PCMDecoder(url: tail.url, start: offset) }.value
                             guard self.generation == token else { return }
                             decoder = opened
+                            stemDecoders = [:]
+                            for (stem, url) in tail.stemFiles ?? [:] {
+                                let stemDecoder = try await Task.detached { try PCMDecoder(url: url, start: offset) }.value
+                                guard self.generation == token else { return }
+                                guard abs(stemDecoder.duration - opened.duration) < 1 / PCMDecoder.sampleRate else {
+                                    throw NSError(domain: "StemMix", code: 1, userInfo: [NSLocalizedDescriptionKey: "The stems have different lengths. Prepare the track again."])
+                                }
+                                stemDecoders[stem] = stemDecoder
+                            }
                             self.segments.append(Segment(source: tail, startFrame: self.scheduledFrames,
                                                          endFrame: self.scheduledFrames, offset: offset, duration: opened.duration))
                         }
                         let chunk = try await decoder!.read()
                         guard self.generation == token else { return }
                         if let chunk {
+                            var stemChunks: [(AudioStem, AVAudioPCMBuffer)] = []
+                            for (stem, decoder) in stemDecoders {
+                                guard let separated = try await decoder.read(), separated.buffer.frameLength == chunk.buffer.frameLength else {
+                                    throw NSError(domain: "StemMix", code: 2, userInfo: [NSLocalizedDescriptionKey: "A stem ended early. Prepare the track again."])
+                                }
+                                stemChunks.append((stem, separated.buffer))
+                            }
+                            guard self.generation == token else { return }
+                            if !stemChunks.isEmpty {
+                                // The primary stream remains the silent clock. Separated nodes
+                                // share its sample timeline and respond to gain changes immediately.
+                                if let channels = chunk.buffer.floatChannelData {
+                                    for channel in 0..<Int(chunk.buffer.format.channelCount) {
+                                        channels[channel].initialize(repeating: 0, count: Int(chunk.buffer.frameLength))
+                                    }
+                                }
+                                let time = AVAudioTime(sampleTime: self.scheduledFrames, atRate: PCMDecoder.sampleRate)
+                                for (stem, buffer) in stemChunks { self.stemNodes[stem]?.scheduleBuffer(buffer, at: time, options: [], completionHandler: nil) }
+                            }
                             self.scheduledFrames += AVAudioFramePosition(chunk.buffer.frameLength)
                             self.segments[self.segments.count - 1].endFrame = self.scheduledFrames
                             let endFrame = self.scheduledFrames
@@ -187,7 +230,9 @@ final class GaplessAudioPlayer {
         try AVAudioSession.sharedInstance().setActive(true)
         #endif
         if !engine.isRunning { try engine.start() }
-        node.play()
+        let time = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.03))
+        node.play(at: time)
+        for node in stemNodes.values { node.play(at: time) }
     }
 
     func play() {
@@ -206,6 +251,7 @@ final class GaplessAudioPlayer {
     func pause() {
         pausedFrames = renderedFrames
         node.pause()
+        for node in stemNodes.values { node.pause() }
         visualizerAudio.clear()
         wantsPlayback = false
         isPlaying = false
@@ -254,6 +300,7 @@ final class GaplessAudioPlayer {
         pump?.cancel()
         pump = nil
         node.stop()
+        for node in stemNodes.values { node.stop() }
         segments.removeAll()
         scheduledFrames = 0
         pausedFrames = 0

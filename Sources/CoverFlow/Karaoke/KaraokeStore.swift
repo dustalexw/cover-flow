@@ -36,6 +36,9 @@ final class KaraokeStore: ObservableObject {
         for discovered in [legacy].compactMap({ $0 }) + KaraokeModel.discoverAll() {
             if let candidate = try? discovered.persisted(in: directory), !available.contains(where: { $0.id == candidate.id }) { available.append(candidate) }
         }
+        for builtIn in (try? KaraokeModel.demucsModels(in: directory)) ?? [] {
+            if !available.contains(where: { $0.id == builtIn.id }) { available.append(builtIn) }
+        }
         self.models = available
         let selected = defaults.string(forKey: "karaoke.selectedModelID") ?? legacy?.id
         self.model = available.first(where: { $0.id == selected }) ?? available.first
@@ -77,7 +80,7 @@ final class KaraokeStore: ObservableObject {
         audio = saved
     }
 
-    /// Last click wins while both stems are prepared together. Original clears the
+    /// Last click wins while all stems are prepared together. Original clears the
     /// pending switch but leaves useful preparation running in the background.
     func requestPlayback(_ mode: KaraokePlayback, for track: Track,
                          apply: @escaping (KaraokePlayback, KaraokeAudio?) -> Void) {
@@ -89,13 +92,25 @@ final class KaraokeStore: ObservableObject {
             errorMessage = "Already preparing \(processingTitle ?? "another track"). Wait for it to finish, or cancel preparation first."
             return
         }
+        if [.drums, .bass, .guitar, .piano, .other].contains(mode),
+           model?.kind != .demucs || ([.guitar, .piano].contains(mode) && model?.checkpoint.pathExtension == "demucs" && model?.checkpoint.lastPathComponent != "htdemucs_6s.demucs") || (audio != nil && audio?.url(for: mode) == nil) {
+            guard !isProcessing else {
+                errorMessage = "Finish or cancel preparation before switching to the six-stem model."
+                return
+            }
+            if let six = models.first(where: { $0.checkpoint.lastPathComponent == "htdemucs_6s.demucs" }) { selectModel(id: six.id) }
+        }
         refresh(for: track)
-        if let audio {
+        if let audio, mode == .mix || audio.url(for: mode) != nil {
             clearPlaybackRequest(); apply(mode, audio); return
         }
         if model == nil { chooseModel() }
         guard model != nil else { return }
         if let audio {
+            guard mode == .mix || audio.url(for: mode) != nil else {
+                errorMessage = "This model does not separate \(mode.title.lowercased()). Select Demucs 6 stems."
+                return
+            }
             clearPlaybackRequest(); apply(mode, audio); return
         }
         playbackRequest = (track.id, apply); requestedPlayback = mode
@@ -110,8 +125,8 @@ final class KaraokeStore: ObservableObject {
         guard !isProcessing else { return }
         let panel = NSOpenPanel()
         panel.title = "Add karaoke model"
-        panel.message = "Choose a UVR MDX ONNX model or a Mel-Band RoFormer checkpoint such as Becruily Deux."
-        panel.allowedContentTypes = ["ckpt", "onnx"].map { UTType(filenameExtension: $0) ?? .data }
+        panel.message = "Choose a Demucs safetensors model, UVR MDX ONNX model, or Mel-Band RoFormer checkpoint. Built-in Demucs models are available in the model menu."
+        panel.allowedContentTypes = ["ckpt", "onnx", "safetensors"].map { UTType(filenameExtension: $0) ?? .data }
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let checkpoint = panel.url else { return }
         var configuration = KaraokeModel.configuration(for: checkpoint)
@@ -171,7 +186,7 @@ final class KaraokeStore: ObservableObject {
                         }
                         let finished = base.appendingPathComponent(key, isDirectory: true)
                         var audio = KaraokeAudio(key: key, trackID: track.id, frames: frames, sampleRate: 44_100,
-                                                 modelSHA256: modelHash, directory: job)
+                                                 modelSHA256: modelHash, directory: job, stemNames: event.stems)
                         try audio.validate()
                         try FileManager.default.removeItem(at: input)
                         if FileManager.default.fileExists(atPath: finished.path) { try FileManager.default.removeItem(at: finished) }
@@ -207,26 +222,45 @@ final class KaraokeStore: ObservableObject {
     }
 
     fileprivate func receive(_ event: KaraokeProgress, token: UUID) {
-        guard generation == token else { return }
+        guard generation == token, isProcessing else { return }
         stage = event.stage; progress = event.progress.clamped(0, 1)
     }
 
-    func exportInstrumental(title: String) {
+    func exportInstrumental(title: String) { exportStem(.instrumental, title: title) }
+
+    func exportAllStems(title: String) {
         guard let audio else { return }
+        let panel = NSOpenPanel(); panel.title = "Export all stems"
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let folder = destination.appendingPathComponent(title.replacingOccurrences(of: "/", with: "-") + " — Stems " + String(UUID().uuidString.prefix(8)))
+        do {
+            try audio.validate()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            do {
+                for file in Set(Array(audio.stemFiles.values) + [audio.instrumental]) {
+                    try FileManager.default.copyItem(at: file, to: folder.appendingPathComponent(file.lastPathComponent))
+                }
+            } catch { try? FileManager.default.removeItem(at: folder); throw error }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func exportStem(_ stem: AudioStem, title: String) {
+        guard let audio, let source = stem == .instrumental ? audio.instrumental : audio.stemFiles[stem] else { return }
         let panel = NSSavePanel()
-        panel.title = "Export karaoke instrumental"
+        panel.title = "Export " + stem.title
         panel.allowedContentTypes = [.wav]
-        panel.nameFieldStringValue = title.replacingOccurrences(of: "/", with: "-") + " — Karaoke.wav"
+        panel.nameFieldStringValue = title.replacingOccurrences(of: "/", with: "-") + " — " + stem.title + ".wav"
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         do {
             try audio.validate()
-            guard destination.standardizedFileURL != audio.instrumental.standardizedFileURL,
+            guard !Set(Array(audio.stemFiles.values) + [audio.instrumental]).contains(destination.standardizedFileURL),
                   destination.standardizedFileURL != track?.fileURL.standardizedFileURL else {
                 throw KaraokeError.message("Choose a different filename so the original audio stays unchanged.")
             }
             let temporary = destination.deletingLastPathComponent().appendingPathComponent(".karaoke-export-" + UUID().uuidString + ".wav")
             defer { try? FileManager.default.removeItem(at: temporary) }
-            try FileManager.default.copyItem(at: audio.instrumental, to: temporary)
+            try FileManager.default.copyItem(at: source, to: temporary)
             if FileManager.default.fileExists(atPath: destination.path) {
                 _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
             } else { try FileManager.default.moveItem(at: temporary, to: destination) }

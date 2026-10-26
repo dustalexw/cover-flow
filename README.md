@@ -48,7 +48,24 @@ Play or select a track, choose a **Model** in the Karaoke window, then click
 selector; your selection is remembered between launches. Compatible files in
 `Downloads/Otras` or `Downloads` are also discovered automatically.
 
+The instrument icons below the microphone buttons isolate **drums, bass, guitar,
+piano and other instruments**. Click one to select Demucs automatically, prepare
+all stems with progress, and switch at the current playback position. Guitar and
+piano use the six-stem model. The sliders icon opens **Stem Mix** in Karaoke:
+independent levels, mute, multi-solo, reset, and individual/all-stem WAV export.
+Moving a slider starts the mix; subsequent adjustments are immediate. Original,
+Karaoke and Vocals playback remain available, including Space and 1/2/3/P shortcuts.
+
 Supported model families:
+
+- **Demucs 4.1**: built-in six-stem HTDemucs (vocals, drums, bass, guitar, piano,
+  other), four-stem HTDemucs, fine-tuned HTDemucs, Hybrid Demucs and MDX Extra.
+  Model weights download on first preparation, are SHA-256 checked, and remain
+  cached for offline use. Apple GPU processing falls back to CPU when needed.
+  Guitar/piano separation is experimental and can contain bleed, especially piano.
+  **Add model…** also accepts unquantized Demucs/HDemucs/HTDemucs `.safetensors`
+  files with architecture metadata. Legacy pickle `.th` and quantized checkpoints
+  are not imported. Demucs processing and Stem Mix are currently Mac features.
 
 - **Becruily Deux and compatible Mel-Band RoFormer**: a `.ckpt` checkpoint and its
   matching `.yaml`/`.yml` configuration, with two stereo 44.1 kHz outputs in
@@ -57,8 +74,7 @@ Supported model families:
   models are recognized by their UVR fingerprint using the included parameter
   catalog. For another compatible vocal/instrumental MDX model, supply its matching
   UVR JSON settings when prompted. Processing prefers Core ML with GPU enabled,
-  and falls back to CPU if conversion or prediction fails. Demucs, VR, MDX23C and
-  multi-stem architectures require different processors and are not supported.
+  and falls back to CPU if conversion or prediction fails. VR and MDX23C architectures require different processors and are not supported.
 
 An MDX JSON can be a UVR fingerprint catalog or a single parameter object containing
 `mdx_dim_f_set`, `mdx_dim_t_set`, `mdx_n_fft_scale_set`, `compensate` and

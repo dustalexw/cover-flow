@@ -12,11 +12,15 @@ struct KaraokeView: View {
                 HStack {
                     Label("Karaoke", systemImage: "mic.fill").font(.system(size: 24, weight: .semibold))
                     Spacer()
-                    Button("Add model…") { karaoke.chooseModel() }
+                    Button("Add model…") {
+                        let previous = karaoke.model
+                        karaoke.chooseModel()
+                        if karaoke.model != previous { player.setKaraokePlayback(.original) }
+                    }
                         .disabled(karaoke.isProcessing)
                 }
                 if !karaoke.models.isEmpty {
-                    Picker("Model", selection: Binding(get: { karaoke.model?.id ?? "" }, set: { karaoke.selectModel(id: $0) })) {
+                    Picker("Model", selection: Binding(get: { karaoke.model?.id ?? "" }, set: { player.setKaraokePlayback(.original); player.setStemMix(StemMixSettings()); karaoke.selectModel(id: $0) })) {
                         ForEach(karaoke.models) { model in
                             Text(model.title).tag(model.id).help(model.checkpoint.path)
                         }
@@ -27,6 +31,10 @@ struct KaraokeView: View {
                 Text(karaoke.model?.kind.title ?? "Add a UVR MDX ONNX or Mel-Band RoFormer model to prepare karaoke.")
                     .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                     .help(karaoke.model?.checkpoint.path ?? "")
+                if karaoke.model?.checkpoint.lastPathComponent == "htdemucs_6s.demucs" {
+                    Text("Guitar and piano separation is experimental; some instruments may bleed into other stems.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 if karaoke.isProcessing {
                     Text("Finish or cancel preparation to switch models.").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
@@ -65,17 +73,19 @@ struct KaraokeView: View {
                 }
             }.padding(20)
             Divider()
+            StemMixView()
+            Divider()
             LyricsView(playbackActions: AnyView(playbackActions))
         }
         .background(Palette.base(scheme)).tint(Palette.accent(scheme))
         .preferredColorScheme(state.colorScheme)
         .onChange(of: player.currentTrackID, initial: true) { karaoke.refresh(for: player.currentTrack) }
-        .onChange(of: karaoke.model) { player.setKaraokePlayback(.original) }
+
     }
 
     private var playbackActions: some View {
         HStack(spacing: 6) {
-            ForEach(Array(KaraokePlayback.allCases.enumerated()), id: \.element.id) { index, mode in
+            ForEach(Array([KaraokePlayback.original, .instrumental, .vocals].enumerated()), id: \.element.id) { index, mode in
                 Button { selectPlayback(mode) } label: {
                     HStack(spacing: 4) {
                         Text(mode.title)

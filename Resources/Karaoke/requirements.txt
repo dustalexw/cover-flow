@@ -7,3 +7,9 @@ beartype==0.22.9
 rotary-embedding-torch==0.9.1
 packaging==26.3
 onnxruntime==1.31.0
+
+# Demucs inference dependencies (optional CLI/training packages are omitted).
+demucs==4.1.0
+julius==0.2.8
+safetensors==0.8.0
+tqdm==4.67.3

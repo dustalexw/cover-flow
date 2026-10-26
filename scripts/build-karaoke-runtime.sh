@@ -19,7 +19,7 @@ echo "$CHECKSUM  $ARCHIVE" | shasum -a 256 -c -
 tar -xzf "$ARCHIVE" -C "$OUT"
 "$OUT/python/bin/python3" -m ensurepip
 "$OUT/python/bin/python3" -m pip install --target "$OUT/site-packages" \
-  --cache-dir "$ROOT/.build/pip-cache" --only-binary=:all: -r "$LOCK"
+  --cache-dir "$ROOT/.build/pip-cache" --only-binary=:all: --no-deps --upgrade -r "$LOCK"
 cp "$LOCK" "$OUT/runtime-lock.txt"
 touch "$OUT/.complete"
 echo "Karaoke runtime prepared."
