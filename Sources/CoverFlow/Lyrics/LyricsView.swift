@@ -3,10 +3,12 @@ import AppKit
 
 struct LyricsView: View {
     var playbackActions: AnyView? = nil
+    @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @StateObject private var lyrics = LyricsStore(directory: AppPaths.root.appendingPathComponent("Lyrics", isDirectory: true))
     @State private var followPlayback = true
+    @State private var downloadTrack: Track?
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -34,12 +36,15 @@ struct LyricsView: View {
                         Text(player.hasTrack ? "No lyrics for this track" : "Choose a track to see its lyrics")
                             .font(.system(size: 20, weight: .semibold))
                         Text(player.hasTrack
-                             ? "Put an .lrc file with the same name beside the audio file, or import one below."
+                             ? "Search for synced or plain lyrics, or import a lyric file from your Mac."
                              : "Lyrics follow the track playing in Cover Flow.")
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center).frame(maxWidth: 340)
                         if let track = player.currentTrack {
-                            Button("Import LRC…") { lyrics.chooseFile(for: track) }.buttonStyle(.borderedProminent)
+                            HStack {
+                                Button("Find Lyrics…") { downloadTrack = track }.buttonStyle(.borderedProminent)
+                                Button("Import Lyrics…") { lyrics.chooseFile(for: track) }
+                            }
                         }
                     }
                     .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,7 +60,7 @@ struct LyricsView: View {
                     if lyrics.loaded?.document.isSynced == true {
                         Toggle("Follow playback", isOn: $followPlayback).toggleStyle(.checkbox).font(.system(size: 12))
                     } else {
-                        Text(lyrics.loaded == nil ? "Local lyric files" : "Untimed lyrics")
+                        Text(lyrics.loaded == nil ? "LRC and plain lyrics" : "Untimed lyrics")
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -79,6 +84,12 @@ struct LyricsView: View {
         .tint(Palette.accent(scheme))
         .preferredColorScheme(state.colorScheme)
         .task(id: player.currentTrackID) { await lyrics.load(track: player.currentTrack) }
+        .sheet(item: $downloadTrack) { track in
+            LyricsDownloadView(track: track) { match in
+                guard library.track(track.id) != nil else { throw MusicLookupError.itemRemoved }
+                try await lyrics.importDownloaded(match.text, for: track)
+            }
+        }
     }
 
     private var header: some View {
@@ -88,7 +99,7 @@ struct LyricsView: View {
                 ScrollingTrackTitle(player.currentTrack?.title ?? "Lyrics").font(.system(size: 18, weight: .semibold))
                 Text(player.currentTrack?.artist ?? "Cover Flow").font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 if let loaded = lyrics.loaded {
-                    Text(loaded.imported ? "Imported LRC" : loaded.source.lastPathComponent)
+                    Text(loaded.imported ? "Saved lyrics" : loaded.source.lastPathComponent)
                         .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                         .help(loaded.source.path)
                 }
@@ -97,10 +108,11 @@ struct LyricsView: View {
             Button { Task { await lyrics.load(track: player.currentTrack) } } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).help("Reload lyrics from disk").accessibilityLabel("Reload lyrics")
                 .disabled(!player.hasTrack || lyrics.loading)
-            Button("Import LRC…") {
-                if let track = player.currentTrack { lyrics.chooseFile(for: track) }
-            }
-            .disabled(!player.hasTrack).controlSize(.small)
+            Menu {
+                Button("Find Lyrics Online…") { downloadTrack = player.currentTrack }
+                Button("Import LRC or Text…") { if let track = player.currentTrack { lyrics.chooseFile(for: track) } }
+            } label: { Label("Add Lyrics", systemImage: "plus") }.disabled(!player.hasTrack).controlSize(.small)
+
         }
     }
 }

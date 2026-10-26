@@ -27,6 +27,14 @@ struct AlbumViewScreen: View {
                                 height: max(80, h - topInset - controlsHeight - (immersive ? 18 : 22)))
             ZStack {
                 TintBackground(tintHex: player.currentAlbum?.tintHex)
+                if immersive, controller.immersiveScenes, let album = player.currentAlbum, album.hasArtwork {
+                    let aspect = album.artworkAspect
+                    let coverWidth = min(artMax.width, artMax.height * aspect)
+                    let coverHeight = coverWidth / aspect
+                    ImmersiveArtworkScene(album: album, viewport: geo.size,
+                        cover: CGRect(x: (w - coverWidth) / 2, y: topInset + (artMax.height - coverHeight) / 2,
+                                      width: coverWidth, height: coverHeight))
+                }
                 if !immersive {
                     // Lets the window be dragged by its background without fighting the controls.
                     WindowDragArea(onDoubleClick: nil)
@@ -88,6 +96,7 @@ struct AlbumViewScreen: View {
                 }
             }
             .frame(width: w, height: h)
+            .environment(\.colorScheme, immersive ? .dark : scheme)
         }
         .ignoresSafeArea()
         .onContinuousHover { phase in
@@ -353,6 +362,15 @@ struct AlbumViewTopBar: View {
                 .buttonStyle(IconButtonStyle(size: 26))
                 .help("Open Lyrics (⌘4)").accessibilityLabel("Lyrics")
 
+            if controller.preset == .immersive {
+                Button { controller.immersiveScenes.toggle() } label: {
+                    Image(systemName: controller.immersiveScenes ? "photo.artframe" : "photo")
+                }
+                .buttonStyle(IconButtonStyle(size: 26, active: controller.immersiveScenes))
+                .help("Extend album artwork across the immersive view")
+                .accessibilityLabel("Immersive artwork scene")
+                .accessibilityValue(controller.immersiveScenes ? "On" : "Off")
+            }
             Button { controller.focusMode.toggle() } label: {
                 Image(systemName: controller.focusMode ? "eye.slash" : "eye")
             }

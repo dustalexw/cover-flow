@@ -7,6 +7,7 @@ struct MobileAlbumView: View {
   @EnvironmentObject private var player: PlayerEngine
   @Environment(\.dismiss) private var dismiss
   @State private var editing = false
+  @State private var downloadArtwork = false
   @State private var appearance = false
   @State private var remove = false
   @State private var photo: PhotosPickerItem?
@@ -80,6 +81,7 @@ struct MobileAlbumView: View {
                 }
                 Button("Edit Album", systemImage: "pencil") { editing = true }
                 Button("Colors & Scene", systemImage: "paintpalette") { appearance = true }
+                Button("Find Artwork Online…", systemImage: "photo.badge.magnifyingglass") { downloadArtwork = true }
                 PhotosPicker(selection: $photo, matching: .images) {
                   Label("Replace Artwork", systemImage: "photo")
                 }
@@ -93,6 +95,12 @@ struct MobileAlbumView: View {
               } label: {
                 Image(systemName: "ellipsis.circle").frame(width: 32, height: 32)
               }.accessibilityLabel("Album actions")
+            }
+          }
+          .sheet(isPresented: $downloadArtwork) {
+            ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to this iPad’s collection.") { data in
+              guard library.album(album.id) != nil else { throw MusicLookupError.itemRemoved }
+              try library.setArtwork(album.id, data: data)
             }
           }
           .sheet(isPresented: $editing) { MobileAlbumEditor(album: album) }

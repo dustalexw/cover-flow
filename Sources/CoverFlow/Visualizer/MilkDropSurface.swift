@@ -21,6 +21,7 @@ final class MilkDropGLView: NSOpenGLView {
     private var loadedRevision = -1
     private var audio = Array(repeating: Float(0), count: 8192)
     private var lastSize = NSSize.zero
+    private var lastAudioAt = Date.distantPast
 
     init?(controller: VisualizerController) {
         self.controller = controller
@@ -56,7 +57,7 @@ final class MilkDropGLView: NSOpenGLView {
         super.viewDidMoveToWindow()
         timer?.invalidate()
         guard window != nil else { timer = nil; return }
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.renderFrame() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -97,7 +98,8 @@ final class MilkDropGLView: NSOpenGLView {
         updatePreset()
         audio.withUnsafeMutableBufferPointer { samples in
             var frames = controller.player.visualizerAudio.drain(into: samples)
-            if !controller.player.isPlaying || controller.player.isBuffering || frames == 0 {
+            if frames > 0 { lastAudioAt = Date() }
+            if !controller.player.isPlaying || controller.player.isBuffering || Date().timeIntervalSince(lastAudioAt) > 0.12 {
                 frames = 1024
                 for i in 0..<(frames * 2) { samples[i] = 0 }
             }

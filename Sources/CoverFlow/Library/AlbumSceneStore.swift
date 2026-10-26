@@ -106,9 +106,48 @@ actor AlbumSceneStore {
         // switching refinement off and on again doesn't discard them.
         let siblings = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         for old in siblings where old.lastPathComponent.hasPrefix(album.id.uuidString + "-") && old != destination
+            && !old.lastPathComponent.contains("-immersive-")
             && old.lastPathComponent.contains(Self.refinedMarker) == (refinement != nil) {
             try? FileManager.default.removeItem(at: old)
         }
+        return image
+    }
+
+    func immersiveScene(for album: Album, layout: ImmersiveSceneLayout) async -> CGImage? {
+        guard let file = album.artworkFile else { return nil }
+        let settings = album.panelAppearance
+        let key = "\(album.artworkKey)-immersive-v2-\(layout.key)-\(settings.key.stableHash)"
+        if let image = images[key] { remember(image, key: key); return image }
+        if let work = pending[key], case .refined(let image) = await work.value { return image }
+        let destination = directory.appendingPathComponent(key + ".png")
+        if let source = CGImageSourceCreateWithURL(destination as CFURL, nil),
+           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+            remember(image, key: key); return image
+        }
+        let sourceURL = artworkDirectory.appendingPathComponent(file)
+        let work = Task.detached(priority: .userInitiated) { () -> SceneRefinementOutcome in
+            guard let cover = Self.thumbnail(sourceURL),
+                  let base = AlbumSceneGenerator.generate(from: cover, seed: key.stableHash,
+                    size: layout.size, coverFrame: layout.cover, extensionTexture: 0.28) else { return .failed("The artwork scene couldn’t be prepared.") }
+            if !Task.isCancelled, settings.refinesScene, AlbumSceneRefiner.isAvailable {
+                let result = await AlbumSceneRefiner.shared.refine(base, cover: layout.cover,
+                    seed: key.stableHash, style: .extend)
+                if case .refined = result { return result }
+            }
+            return .refined(base)
+        }
+        pending[key] = work
+        let outcome = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+        pending[key] = nil
+        guard !Task.isCancelled, !work.isCancelled, case .refined(let image) = outcome else { return nil }
+        remember(image, key: key)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let destinationImage = CGImageDestinationCreateWithURL(destination as CFURL, UTType.png.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(destinationImage, image, nil); CGImageDestinationFinalize(destinationImage)
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for old in files where old.lastPathComponent.hasPrefix(album.id.uuidString + "-")
+            && old.lastPathComponent.contains("-immersive-") && old != destination { try? FileManager.default.removeItem(at: old) }
         return image
     }
 
@@ -159,12 +198,14 @@ enum AlbumSceneGenerator {
     }
 
     static func generate(from image: CGImage, seed: UInt64, analyzeText: Bool = true,
-                         size: CGSize = canvasSize) -> CGImage? {
+                         size: CGSize = canvasSize, coverFrame: CGRect? = nil, extensionTexture: Double = 1) -> CGImage? {
         guard size.width.isFinite, size.height.isFinite,
               size.width >= 128, size.height >= 128,
               size.width <= 2160, size.height <= 1320 else { return nil }
         let width = Int(size.width), height = Int(size.height)
-        let layout = coverRect(imageWidth: image.width, imageHeight: image.height, size: size)
+        let layout = coverFrame ?? coverRect(imageWidth: image.width, imageHeight: image.height, size: size)
+        guard layout.minX.isFinite, layout.minY.isFinite, layout.width.isFinite, layout.height.isFinite,
+              layout.width >= 32, layout.height >= 32, CGRect(origin: .zero, size: size).contains(layout) else { return nil }
         let sw = Int(layout.width), sh = Int(layout.height)
         guard var source = ScenePixels(image: image, width: sw, height: sh) else { return nil }
         let patch = min(128, max(16, min(sw, sh) / 3)), overlap = max(4, patch / 3)
@@ -209,7 +250,7 @@ enum AlbumSceneGenerator {
             let dx = max(anchorX - x, x - (anchorX + sw - 1), 0)
             let dy = max(anchorY - y, y - (anchorY + sh - 1), 0)
             let t = (Double(dx * dx + dy * dy).squareRoot() / (Double(width) * 0.6)).clamped(0, 1)
-            return 0.75 * (1 - 0.45 * t * t * (3 - 2 * t))
+            return 0.75 * extensionTexture.clamped(0, 1) * (1 - 0.45 * t * t * (3 - 2 * t))
         }
         var output = field
         for y in 0..<sh { for x in 0..<sw {

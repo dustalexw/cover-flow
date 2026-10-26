@@ -54,8 +54,8 @@ CFVisualizer *cf_visualizer_create(const char *path) {
         if (!v->instance) { v->error = "Unable to start the visualizer on this display."; return v; }
         v->lock(v->instance, true); // The app manages preset timing and selection.
         v->duration(v->instance, 2.5);
-        v->fps(v->instance, 30);
-        v->mesh(v->instance, 48, 36);
+        v->fps(v->instance, 60);
+        v->mesh(v->instance, 96, 72);
         v->failed(v->instance, presetFailed, v);
     } catch (const std::exception &e) { v->error = e.what(); }
     return v;

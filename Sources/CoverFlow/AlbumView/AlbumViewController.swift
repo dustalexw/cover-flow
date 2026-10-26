@@ -33,6 +33,9 @@ final class AlbumViewController: NSObject, ObservableObject, NSWindowDelegate {
     @Published var focusMode: Bool {
         didSet { UserDefaults.standard.set(focusMode, forKey: "albumView.focusMode") }
     }
+    @Published var immersiveScenes = UserDefaults.standard.object(forKey: "albumView.immersiveScenes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(immersiveScenes, forKey: "albumView.immersiveScenes") }
+    }
     @Published var chromeVisible = true
 
     private var window: NSWindow?

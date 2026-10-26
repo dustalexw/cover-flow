@@ -38,7 +38,7 @@ struct AboutView: View {
             VStack(alignment: .leading, spacing: 15) {
                 feature("Browse by cover", "Cover Flow, Grid, and Album View — from a mini-player to immersive artwork.", icon: "rectangle.stack")
                 feature("Listen without gaps", "Continuous playback, an editable queue, and optional Last.fm scrobbling.", icon: "waveform")
-                feature("Keep your music yours", "Play files where they are. Your original audio stays untouched.", icon: "music.note.house")
+                feature("See and discover", "Metal visuals, immersive artwork scenes, and in-app lyric and cover searches.", icon: "sparkles")
             }
             .padding(17)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,8 +56,8 @@ struct AboutView: View {
             VStack(spacing: 5) {
                 Text("Made by dustalexw")
                     .font(.system(size: 12, weight: .medium))
-                Text("Powered by SwiftUI · AppKit · AVFoundation")
-                Link("MilkDrop visuals by projectM · LGPL 2.1+", destination: URL(string: "https://github.com/projectM-visualizer/projectm")!)
+                Text("Powered by SwiftUI · AppKit · AVFoundation · Metal")
+                Link("Optional MilkDrop visuals by projectM · LGPL 2.1+", destination: URL(string: "https://github.com/projectM-visualizer/projectm")!)
                 Text("macOS 14 or later · Apple silicon + Intel")
             }
             .font(.system(size: 11))

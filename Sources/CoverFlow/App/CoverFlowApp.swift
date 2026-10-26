@@ -211,7 +211,7 @@ struct AppCommands: Commands {
                 .keyboardShortcut("1")
             Button("Grid") { state.browseMode = .grid }
                 .keyboardShortcut("2")
-            Button("MilkDrop Visualizer") { AppEnvironment.shared.visualizer.show() }
+            Button("Music Visualizer") { AppEnvironment.shared.visualizer.show() }
                 .keyboardShortcut("3")
             Button("Lyrics") { AppEnvironment.shared.lyricsWindow.show() }
                 .keyboardShortcut("4")

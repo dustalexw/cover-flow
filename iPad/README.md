@@ -32,14 +32,14 @@ an iPad. Signing and installing through Xcode uses your own developer account.
 | Playback | Shared gapless engine, queue ordering, shuffle, repeat, seek, volume, mute and upcoming-track editing |
 | System audio | Background audio capability, lock-screen/Control Center commands, AirPlay routing and interruption/headphone handling |
 | Album View | Full Now Playing sheet, large artwork and artwork focus; long titles wrap or scroll in the compact bar |
-| Artwork | Embedded/folder covers, photo-picker replacement, library artwork removal and bounded thumbnail cache |
+| Artwork | Embedded/folder covers, photo-picker replacement, MusicBrainz/Cover Art Archive search and download, removal and bounded thumbnail cache |
 | Album customization | Title/artist/year/genre and track edits in the library; calm artwork scenes, background color, strength and variations |
-| Lyrics | Shared UTF-8/UTF-16 LRC parser, offsets, repeated timestamps/translations, line seeking, follow toggle, import and reload |
+| Lyrics | UTF-8/UTF-16 LRC and plain text imports; LRCLIB search, preview and download; offsets, translations, line seeking, follow and reload |
 | Karaoke | Native MDX ONNX processing, including Inst_HQ_5; Core ML GPU preference and CPU fallback; saved model selector |
 | Karaoke controls | Original/Karaoke/Vocals Only, automatic preparation, progress, cancellation, per-model saved stems, instrumental/vocal export |
 | Becruily audio | Import the Mac app's prepared stereo 44.1 kHz `vocals.wav` and `instrumental.wav` for a matching track |
 | Converted models | Native Core ML waveform-model support with the contract below |
-| Visualizer | Three audio-reactive native spectrum/orbit/ribbon styles, automatic switching and reduced-motion handling |
+| Visualizer | Four native Metal styles, stereo spectral analysis, response control, 60/30 fps settings and reduced-motion handling |
 | Last.fm | Setup, browser authorization, Keychain credentials, Now Playing, listening-based scrobbles and pending retries; off until connected |
 | Demos | Three original generated demo albums with artwork and timed lyrics |
 

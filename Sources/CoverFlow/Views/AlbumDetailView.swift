@@ -8,6 +8,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var downloadArtwork = false
     @State private var trackToRemove: Track?
     @State private var confirmingTrackRemoval = false
 
@@ -23,13 +24,21 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
-        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil && !confirmingTrackRemoval,
+        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil && !confirmingTrackRemoval && !downloadArtwork,
                                      onDismiss: { dismiss() }, onTogglePlayback: { player.togglePlayPause() }))
         .sheet(item: $state.editAlbum) { ref in
             AlbumEditView(albumID: ref.id).environmentObject(library)
         }
         .sheet(item: $state.appearanceAlbum) { ref in
             AlbumAppearanceView(albumID: ref.id).environmentObject(library)
+        }
+        .sheet(isPresented: $downloadArtwork) {
+            if let album = library.album(albumID) {
+                ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to the collection and embedded in supported audio files.") { data in
+                    guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+                    library.replaceArtwork(albumID, with: data)
+                }
+            }
         }
         .modifier(RemoveAlbumConfirmation(active: true))
         .alert("Remove Track from Collection?", isPresented: $confirmingTrackRemoval, presenting: trackToRemove) { track in
@@ -141,6 +150,7 @@ struct AlbumDetailView: View {
                 Divider()
                 Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
                 Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
+                Button("Find Artwork Online…") { downloadArtwork = true }
                 Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
                 Divider()

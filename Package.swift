@@ -22,7 +22,7 @@ let package = Package(
             dependencies: ["CProjectM", "CArtworkTags",
                            .product(name: "StableDiffusion", package: "ml-stable-diffusion")],
             path: "Sources/CoverFlow",
-            resources: [.copy("Visualizer/Presets")]
+            resources: [.copy("Visualizer/Presets"), .copy("Visualizer/Shaders")]
         ),
         .testTarget(name: "CoverFlowTests", dependencies: ["CoverFlow"], resources: [.copy("Fixtures")])
     ],

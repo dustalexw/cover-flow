@@ -437,6 +437,14 @@ final class LibraryStore: ObservableObject {
     }
 
     func replaceArtwork(_ id: UUID, with url: URL) {
+        replaceArtwork(id, load: { try Data(contentsOf: url) })
+    }
+
+    func replaceArtwork(_ id: UUID, with data: Data) {
+        replaceArtwork(id, load: { data })
+    }
+
+    private func replaceArtwork(_ id: UUID, load: @escaping @Sendable () throws -> Data) {
         guard let album = album(id), artworkReplacements.insert(id).inserted else { return }
         let files = tracks(of: album).map(\.fileURL)
         artworkWriteReport = nil
@@ -446,7 +454,7 @@ final class LibraryStore: ObservableObject {
             let store = artwork
             let result: Result<(SavedArtwork, EmbeddedArtwork), Error> = await Task.detached(priority: .userInitiated) {
                 do {
-                    let data = try Data(contentsOf: url)
+                    let data = try load()
                     let embedded = try EmbeddedArtwork.prepare(data)
                     return .success((try store.save(data: data, albumID: id), embedded))
                 } catch {

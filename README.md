@@ -247,21 +247,64 @@ Use `./build.command --no-launch` to assemble the app without launching it.
 The app, TagLib, and projectM are built for `arm64` and `x86_64`; the build verifies
 that both architectures are present before signing the package.
 
-## MilkDrop visualizer
+## Music visualizer
 
-Click the waveform button in the top bar or press **⌘3** to open MilkDrop.
-The resizable window uses projectM to render real MilkDrop presets from the
-audio currently playing. Eight original presets are included. Use **← / →**
-to switch presets, **Space** to pause or resume, and the full-screen button to
-fill the display. **Escape** leaves full screen or closes the visualizer.
-Turn **Auto** off to hold a preset; otherwise it changes every 25 seconds.
+Click the waveform button or press **⌘3**. The default native Metal renderer has
+four styles: **Pulse**, **Aurora**, **Spectrum** and **Nebula**. It renders at the
+window’s backing resolution, with antialiased lines, layered glow and color
+mapping that preserves highlights. The High setting targets 60 fps; Balanced
+uses 30 fps. Actual performance depends on the Mac and window size.
 
-Choose **Add MilkDrop Presets…** from the preset menu to import `.milk` files.
-Imported presets are stored in Application Support/CoverFlow/Visualizer/Presets.
-Rendering stops when the window closes or is hidden, and opening or resizing it
-does not restart music. The visualizer uses the player's audio directly.
-See [third-party notices](Resources/ThirdPartyNotices.md) for licenses, included
-engine source, and instructions for replacing the projectM library.
+Bass, midrange, treble and transients drive separate visual elements. The analyser
+combines stereo power after the FFT, keeps quiet recordings visible, and avoids
+inserting silent frames between audio callbacks. Use the settings button to
+adjust **Response**; it affects the picture, never playback volume. Reduce Motion
+limits animation and disables automatic style changes.
+
+Use **← / →** to change styles, **Space** to play/pause and the full-screen button
+to fill the display. **Escape** leaves full screen or closes the visualizer.
+**Auto** changes styles every 25 seconds while playing.
+
+Choose **MilkDrop** in visualizer settings to use the projectM renderer and your
+existing `.milk` presets. Its render target is now 60 fps with a denser warp mesh.
+Choose **Add MilkDrop Presets…** from its preset menu to import more presets.
+See [third-party notices](Resources/ThirdPartyNotices.md) for the engine license.
+
+## Download lyrics and artwork
+
+In **Lyrics** or **Karaoke**, choose **Add Lyrics → Find Lyrics Online…**. Search
+LRCLIB using editable title and artist fields, choose a recording and inspect its
+preview, then use its synced LRC or plain lyrics. Matches are ordered by duration
+and timing availability. Saved lyrics stay with that track across app restarts.
+**Import LRC or Text…** also accepts `.lrc`, `.txt`, `.lyric` and `.lyrics` files.
+
+Open an album and choose **More actions → Find Artwork Online…**. Search by album
+and artist, select a MusicBrainz result to preview its Cover Art Archive cover,
+then choose **Use Artwork**. The image is saved to the library and embedded in
+supported Mac audio files, using the same process as local artwork replacement.
+The iPad app saves covers to its collection without rewriting audio tags.
+
+Searches happen when you request them. No API keys are needed. Requests identify
+the app, are serialized and spaced, honor Retry-After, and limit download sizes.
+Search metadata goes to [LRCLIB](https://lrclib.net/docs) or
+[MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API); images come from the
+[Cover Art Archive](https://musicbrainz.org/doc/Cover_Art_Archive/API). Audio files
+are not uploaded. Coverage and lyric timing depend on the selected recording.
+
+## Immersive artwork scenes
+
+In **Album View → Immersive**, artwork now extends across the viewing area.
+The scene generator uses the foreground cover’s actual rectangle and fills its
+surroundings with cover-derived colors and texture. The original cover stays
+sharp, centered and fully visible. Text and prominent subjects are excluded from
+texture sampling. The scene is a still image; playback does not animate it.
+
+The scene button in the immersive toolbar turns the extension on or off. Scenes
+are cached separately from album-panel scenes and adapt to wide or portrait
+windows. Resizing cancels stale scene work; a blurred cover fills the background
+while the new scene is generated. If **Refine with Stable Diffusion** is enabled
+for the album and available on this Mac, the immersive scene uses the extension
+style and falls back to the generated scene if refinement fails.
 
 ## Gapless playback
 
@@ -345,7 +388,7 @@ Last.fm is optional: connecting sends track metadata and listening timestamps to
 | ⌘↑ / ⌘↓ / ⌥⌘↓ | Volume up / down / mute |
 | ⌃⌘S / ⌃⌘R | Shuffle / repeat |
 | ⌘1 / ⌘2 | Cover Flow / Grid |
-| ⌘3 / ⌘4 / ⌘F | MilkDrop visualizer / lyrics / search music |
+| ⌘3 / ⌘4 / ⌘F | Music visualizer / lyrics / search music |
 | ⌘U / ⌘L | Queue / show playing album |
 | ⇧⌘A | Album View; ⌥⌘1/2/3 Compact / Large / Immersive |
 | In Album View | Space, ←/→, 1/2/3 sizes, F artwork focus, Esc exit Immersive / close |

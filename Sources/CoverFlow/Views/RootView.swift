@@ -170,7 +170,7 @@ struct RootView: View {
                 Button { AppEnvironment.shared.visualizer.show() } label: {
                     Image(systemName: "waveform.path")
                 }
-                .accessibilityLabel("MilkDrop Visualizer").help("Open MilkDrop Visualizer (⌘3)")
+                .accessibilityLabel("Music Visualizer").help("Open Music Visualizer (⌘3)")
 
                 Button { AppEnvironment.shared.lyricsWindow.show() } label: { Image(systemName: "text.quote") }
                     .accessibilityLabel("Lyrics").help("Open Lyrics (⌘4)")

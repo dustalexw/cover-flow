@@ -9,6 +9,7 @@ struct MobileLyricsView: View {
   @State private var follow = true
   @State private var importing = false
   @State private var importTrack: Track?
+  @State private var downloadTrack: Track?
   var active: Int? { lyrics.loaded?.document.activeIndex(at: player.currentTime) }
   var body: some View {
     VStack(spacing: 0) {
@@ -24,7 +25,8 @@ struct MobileLyricsView: View {
         }
         Spacer()
         Menu {
-          Button("Import LRC…") {
+          Button("Find Lyrics Online…") { downloadTrack = player.currentTrack }.disabled(!player.hasTrack)
+          Button("Import Lyrics…") {
             importTrack = player.currentTrack
             importing = true
           }.disabled(!player.hasTrack)
@@ -99,9 +101,15 @@ struct MobileLyricsView: View {
       }
     }
     .task(id: player.currentTrackID) { await lyrics.load(track: player.currentTrack) }
+    .sheet(item: $downloadTrack) { track in
+      LyricsDownloadView(track: track) { match in
+        guard library.track(track.id) != nil else { throw MusicLookupError.itemRemoved }
+        try await lyrics.importDownloaded(match.text, for: track)
+      }
+    }
     .fileImporter(
       isPresented: $importing,
-      allowedContentTypes: [UTType(filenameExtension: "lrc") ?? .plainText, .plainText]
+      allowedContentTypes: ["lrc", "txt", "lyric", "lyrics"].compactMap { UTType(filenameExtension: $0) } + [.plainText]
     ) { result in
       guard case .success(let url) = result, let track = importTrack else {
         if case .failure(let error) = result { lyrics.errorMessage = error.localizedDescription }

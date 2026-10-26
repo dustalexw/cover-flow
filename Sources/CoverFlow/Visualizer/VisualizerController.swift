@@ -12,6 +12,18 @@ final class VisualizerController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var isOpen = false
     @Published private(set) var presets: [MilkDropPreset] = []
     @Published private(set) var selected: MilkDropPreset?
+    @Published var useMilkDrop = UserDefaults.standard.bool(forKey: "visualizer.useMilkDrop") {
+        didSet { UserDefaults.standard.set(useMilkDrop, forKey: "visualizer.useMilkDrop"); error = nil; player.visualizerAudio.clear() }
+    }
+    @Published var style = VisualizerStyle(rawValue: UserDefaults.standard.integer(forKey: "visualizer.style")) ?? .pulse {
+        didSet { UserDefaults.standard.set(style.rawValue, forKey: "visualizer.style") }
+    }
+    @Published var response: Double = UserDefaults.standard.object(forKey: "visualizer.response") as? Double ?? 1.25 {
+        didSet { UserDefaults.standard.set(response, forKey: "visualizer.response") }
+    }
+    @Published var highQuality = UserDefaults.standard.object(forKey: "visualizer.highQuality") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(highQuality, forKey: "visualizer.highQuality") }
+    }
     @Published var automatic = true
     @Published var error: String?
     private(set) var revision = 0
@@ -31,8 +43,8 @@ final class VisualizerController: NSObject, ObservableObject, NSWindowDelegate {
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            w.title = "MilkDrop Visualizer"
-            w.minSize = NSSize(width: 660, height: 420)
+            w.title = "Cover Flow Visualizer"
+            w.minSize = NSSize(width: 720, height: 420)
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.appearance = NSAppearance(named: .darkAqua)
@@ -81,12 +93,19 @@ final class VisualizerController: NSObject, ObservableObject, NSWindowDelegate {
         lastChange = Date()
     }
     func step(_ offset: Int) {
+        if !useMilkDrop {
+            let count = VisualizerStyle.allCases.count
+            style = VisualizerStyle(rawValue: (style.rawValue + offset % count + count) % count) ?? .pulse
+            lastChange = Date(); return
+        }
         guard !presets.isEmpty else { return }
         let index = selected.flatMap { presets.firstIndex(of: $0) } ?? 0
         choose(presets[(index + offset % presets.count + presets.count) % presets.count])
     }
     func tick() {
         guard automatic, player.isPlaying, !player.isBuffering, Date().timeIntervalSince(lastChange) >= 25 else { return }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        if !useMilkDrop { step(1); return }
         let candidates = presets.filter { $0 != selected }
         if let next = candidates.randomElement() { choose(next) }
     }
@@ -135,15 +154,21 @@ final class VisualizerController: NSObject, ObservableObject, NSWindowDelegate {
 struct VisualizerView: View {
     @ObservedObject var controller: VisualizerController
     @ObservedObject var player: PlayerEngine
+    @State private var settings = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Label("MilkDrop", systemImage: "waveform.path").font(.system(size: 13, weight: .semibold))
+                Label(controller.useMilkDrop ? "MilkDrop" : "Cover Flow", systemImage: "waveform.path").font(.system(size: 13, weight: .semibold))
                 Divider().frame(height: 18)
                 Button { controller.step(-1) } label: { Image(systemName: "chevron.left") }
                     .help("Previous preset (←)").accessibilityLabel("Previous preset")
                 Menu {
+                    if !controller.useMilkDrop {
+                        ForEach(VisualizerStyle.allCases) { style in
+                            Button(style.title) { controller.style = style }
+                        }
+                    } else {
                     ForEach(controller.presets) { preset in
                         Button { controller.choose(preset) } label: {
                             if preset == controller.selected { Label(preset.name, systemImage: "checkmark") }
@@ -152,11 +177,35 @@ struct VisualizerView: View {
                     }
                     Divider()
                     Button("Add MilkDrop Presets…") { controller.importPresets() }
-                } label: { Text(controller.selected?.name ?? "Choose a preset").lineLimit(1) }
+                    }
+                    Divider()
+                    Button(controller.useMilkDrop ? "Use Metal Visualizer" : "Use MilkDrop Presets") { controller.useMilkDrop.toggle() }
+                } label: { Text(controller.useMilkDrop ? (controller.selected?.name ?? "Choose a preset") : controller.style.title).lineLimit(1) }
                 .frame(maxWidth: 280)
                 Button { controller.step(1) } label: { Image(systemName: "chevron.right") }
                     .help("Next preset (→)").accessibilityLabel("Next preset")
                 Spacer(minLength: 8)
+                Button { settings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                    .accessibilityLabel("Visualizer settings")
+                    .popover(isPresented: $settings) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Visualizer").font(.headline)
+                            Picker("Engine", selection: $controller.useMilkDrop) {
+                                Text("Metal").tag(false); Text("MilkDrop").tag(true)
+                            }
+                            if !controller.useMilkDrop {
+                                HStack {
+                                    Text("Response")
+                                    Slider(value: $controller.response, in: 0.5...2.5).accessibilityLabel("Music response")
+                                }
+                                Picker("Quality", selection: $controller.highQuality) {
+                                    Text("High · 60 fps").tag(true); Text("Balanced · 30 fps").tag(false)
+                                }
+                                Text("Response changes the animation, never your playback volume.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.padding(20).frame(width: 320)
+                    }
                 Toggle("Auto", isOn: $controller.automatic).toggleStyle(.switch).controlSize(.small)
                     .help("Change presets every 25 seconds while music plays")
                 Button { controller.toggleFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
@@ -166,11 +215,20 @@ struct VisualizerView: View {
             .padding(.horizontal, 18).padding(.vertical, 12)
             Divider()
             ZStack {
-                MilkDropSurface(controller: controller)
+                if controller.useMilkDrop {
+                    MilkDropSurface(controller: controller)
+                } else {
+                    NativeVisualizerSurface(audio: player.visualizerAudio,
+                        playing: player.isPlaying && !player.isBuffering, style: controller.style,
+                        response: Float(controller.response), highQuality: controller.highQuality,
+                        onError: { controller.error = $0 })
+                        .accessibilityLabel("Music visualizer reacting to bass, mids and treble")
+                }
                 if let error = controller.error {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle").font(.title2)
                         Text(error).font(.callout).multilineTextAlignment(.center)
+                        if !controller.useMilkDrop { Button("Use MilkDrop") { controller.useMilkDrop = true } }
                     }
                     .padding(24).frame(maxWidth: 480).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 }
@@ -182,7 +240,7 @@ struct VisualizerView: View {
                     .accessibilityLabel(player.isPlaying ? "Pause" : "Play").help("Play or pause (Space)")
                 Button { player.next() } label: { Image(systemName: "forward.fill") }.accessibilityLabel("Next track")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(player.currentTrack?.title ?? "Play some music to bring MilkDrop to life")
+                    Text(player.currentTrack?.title ?? "Play some music to bring the visualizer to life")
                         .font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     if let track = player.currentTrack { Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1) }
                 }
@@ -192,5 +250,11 @@ struct VisualizerView: View {
             .buttonStyle(.borderless).padding(.horizontal, 20).padding(.vertical, 12)
         }
         .background(Color.black).preferredColorScheme(.dark)
+        .task {
+            while !Task.isCancelled {
+                controller.tick()
+                do { try await Task.sleep(for: .seconds(1)) } catch { break }
+            }
+        }
     }
 }

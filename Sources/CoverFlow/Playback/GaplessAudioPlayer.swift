@@ -53,7 +53,7 @@ final class GaplessAudioPlayer {
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: PCMDecoder.outputFormat)
         let audio = visualizerAudio
-        node.installTap(onBus: 0, bufferSize: 1024, format: PCMDecoder.outputFormat) { buffer, _ in
+        node.installTap(onBus: 0, bufferSize: 512, format: PCMDecoder.outputFormat) { buffer, _ in
             guard let channels = buffer.floatChannelData, buffer.format.channelCount >= 2 else { return }
             audio.append(left: channels[0], right: channels[1], frames: Int(buffer.frameLength))
         }

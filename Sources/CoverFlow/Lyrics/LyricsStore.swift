@@ -16,10 +16,10 @@ enum LyricsError: LocalizedError {
     case tooLarge, unreadable, empty, wrongType
     var errorDescription: String? {
         switch self {
-        case .tooLarge: return "That lyric file is too large. Choose an LRC file smaller than 2 MB."
+        case .tooLarge: return "That lyric file is too large. Choose a lyric file smaller than 2 MB."
         case .unreadable: return "That lyric file could not be read. Save it as UTF-8 or UTF-16 and try again."
         case .empty: return "That file has no readable lyrics. Check its text and timestamps, then try again."
-        case .wrongType: return "Choose a file with the .lrc extension."
+        case .wrongType: return "Choose an .lrc, .txt, .lyric or .lyrics file."
         }
     }
 }
@@ -54,12 +54,29 @@ final class LyricsStore: ObservableObject {
         }
     }
 
+    func importDownloaded(_ text: String, for track: Track) async throws {
+        let directory = directory
+        _ = try await Task.detached(priority: .userInitiated) {
+            try Self.importText(text, trackID: track.id, directory: directory)
+        }.value
+        if trackID == track.id { await load(track: track) }
+    }
+
+    nonisolated static func importText(_ text: String, trackID: UUID, directory: URL) throws -> LyricsDocument {
+        let data = Data(text.utf8)
+        guard data.count <= 2 * 1024 * 1024 else { throw LyricsError.tooLarge }
+        let document = try parse(data: data)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: directory.appendingPathComponent(trackID.uuidString + ".lrc"), options: .atomic)
+        return document
+    }
+
     #if os(macOS)
     func chooseFile(for track: Track) {
         let panel = NSOpenPanel()
         panel.title = "Import Lyrics for \(track.title)"
-        panel.message = "Choose a timed .lrc file. A copy will be saved for this track."
-        panel.allowedContentTypes = [UTType(filenameExtension: "lrc") ?? .plainText]
+        panel.message = "Choose synced LRC or plain lyrics. A copy will be saved for this track."
+        panel.allowedContentTypes = ["lrc", "txt", "lyric", "lyrics"].compactMap { UTType(filenameExtension: $0) } + [.plainText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.directoryURL = track.fileURL.deletingLastPathComponent()
@@ -108,7 +125,7 @@ final class LyricsStore: ObservableObject {
     }
 
     nonisolated static func importFile(_ source: URL, trackID: UUID, directory: URL) throws -> LyricsDocument {
-        guard source.pathExtension.lowercased() == "lrc" else { throw LyricsError.wrongType }
+        guard ["lrc", "txt", "lyric", "lyrics"].contains(source.pathExtension.lowercased()) else { throw LyricsError.wrongType }
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         let data = try data(from: source)

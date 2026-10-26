@@ -84,3 +84,14 @@ which includes use-based restrictions that apply to anyone using the model:
 https://huggingface.co/apple/coreml-stable-diffusion-v1-5-palettized
 The model's built-in safety checker is enabled; flagged results are discarded
 and the quilted scene is used instead.
+
+# Online lyric and artwork services
+
+User-initiated lyric searches use LRCLIB: https://lrclib.net/docs
+Album metadata searches use MusicBrainz: https://musicbrainz.org/doc/MusicBrainz_API
+Cover images are retrieved through the Cover Art Archive:
+https://musicbrainz.org/doc/Cover_Art_Archive/API
+The app sends search metadata, never audio. Lyrics and artwork remain the works
+of their respective creators. No service library or downloaded lyrics/artwork
+is bundled with the app. The native Metal visualizer and shaders are part of
+Cover Flow; projectM remains an optional visualizer engine.
