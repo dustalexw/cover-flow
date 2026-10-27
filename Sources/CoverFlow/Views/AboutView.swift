@@ -58,6 +58,7 @@ struct AboutView: View {
                     .font(.system(size: 12, weight: .medium))
                 Text("Powered by SwiftUI · AppKit · AVFoundation · Metal")
                 Link("Optional MilkDrop visuals by projectM · LGPL 2.1+", destination: URL(string: "https://github.com/projectM-visualizer/projectm")!)
+                Link("More audio formats by FFmpeg · LGPL 2.1+", destination: URL(string: "https://ffmpeg.org/")!)
                 Text("macOS 14 or later · Apple silicon + Intel")
             }
             .font(.system(size: 11))

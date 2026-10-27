@@ -17,20 +17,35 @@ final class ImmersiveSceneTests: XCTestCase {
         XCTAssertNil(ImmersiveSceneLayout.make(viewport: CGSize(width:CGFloat.infinity,height:400),cover:.zero))
     }
     func testCenteredExtensionFillsCanvasWithoutMovingPreservedCover() throws {
-        let color = NSColor(red:0.1,green:0.5,blue:0.8,alpha:1)
-        let source = NSImage(size:NSSize(width:64,height:64),flipped:false) { bounds in color.setFill(); bounds.fill(); return true }
-        let image = try XCTUnwrap(source.cgImage(forProposedRect:nil,context:nil,hints:nil))
+        // An explicit sRGB fixture avoids NSImage's display-dependent drawing
+        // profile and checks two distinct areas of the preserved artwork.
+        var bytes = [UInt8](repeating: 255, count: 64 * 64 * 4)
+        for y in 0..<64 { for x in 0..<64 {
+            let i = (y * 64 + x) * 4
+            bytes[i] = x < 32 ? 26 : 204
+            bytes[i + 1] = 128
+            bytes[i + 2] = x < 32 ? 204 : 26
+        } }
+        let provider = try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+        let image = try XCTUnwrap(CGImage(width: 64, height: 64, bitsPerComponent: 8,
+            bitsPerPixel: 32, bytesPerRow: 256, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
         let frame = CGRect(x:80,y:24,width:96,height:96)
         let scene = try XCTUnwrap(AlbumSceneGenerator.generate(from:image,seed:42,analyzeText:false,
                                                               size:CGSize(width:256,height:144),coverFrame:frame))
         XCTAssertEqual(scene.width,256); XCTAssertEqual(scene.height,144)
-        let pixels = NSBitmapImageRep(cgImage:scene)
-        let center = try XCTUnwrap(pixels.colorAt(x:128,y:72)?.usingColorSpace(.sRGB))
-        let expected = try XCTUnwrap(NSBitmapImageRep(cgImage: image).colorAt(x:32,y:32)?.usingColorSpace(.sRGB))
-        XCTAssertEqual(center.blueComponent,expected.blueComponent,accuracy:0.01)
-        XCTAssertEqual(center.redComponent,expected.redComponent,accuracy:0.01)
-        XCTAssertEqual(center.greenComponent,expected.greenComponent,accuracy:0.01)
-        XCTAssertGreaterThan(try XCTUnwrap(pixels.colorAt(x:0,y:0)).alphaComponent,0.99)
+        XCTAssertEqual(scene.colorSpace?.name, CGColorSpace.sRGB)
+        let data = try XCTUnwrap(scene.dataProvider?.data)
+        let pixels = try XCTUnwrap(CFDataGetBytePtr(data))
+        for (x, red, blue) in [(104, 26.0, 204.0), (152, 204.0, 26.0)] {
+            let offset = 72 * scene.bytesPerRow + x * 4
+            XCTAssertEqual(Double(pixels[offset]), red, accuracy: 1)
+            XCTAssertEqual(Double(pixels[offset + 1]), 128, accuracy: 1)
+            XCTAssertEqual(Double(pixels[offset + 2]), blue, accuracy: 1)
+            XCTAssertEqual(pixels[offset + 3], 255)
+        }
+        XCTAssertEqual(pixels[3], 255)
         XCTAssertNil(AlbumSceneGenerator.generate(from:image,seed:42,analyzeText:false,
                        size:CGSize(width:256,height:144),coverFrame:CGRect(x:-10,y:0,width:96,height:96)))
     }

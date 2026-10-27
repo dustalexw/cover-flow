@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2"><img src="docs/badge-release.svg" alt="Release v1.6.2"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.6.2/Cover-Flow-1.6.2-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.8.0"><img src="docs/badge-release.svg" alt="Release v1.8.0"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.8.0/Cover-Flow-1.8.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -112,12 +112,37 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.6.2-macOS.zip** from the
-[1.6.2 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.6.2), unzip it, and move
+Download **Cover-Flow-1.8.0-macOS.zip** from the
+[1.8.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.8.0), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
-supported model files (see Karaoke above). The app is
+supported model files for Becruily/UVR; Demucs models download automatically (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
+
+## What’s new in 1.8.0
+
+**Demucs and Stem Mix.** Separate vocals, drums, bass, guitar, piano and other
+instruments with the six-stem model, or choose one of four four-stem models.
+Playback-row instrument icons prepare automatically and isolate the selected
+stem. Karaoke now includes live levels, mute, multi-solo, reset, and stem export.
+Weights download once and are verified and cached. Guitar/piano separation is
+experimental. Demucs inference and the new mixer are Mac features.
+
+**Music visuals and downloads.** Four native Metal visualizer styles respond to
+the mixed audio, with optional projectM presets. Find and import synced/plain
+lyrics and album artwork inside the app, and extend covers across immersive
+Album View scenes. The iPad project includes the shared visualizer and lookup
+improvements while retaining its native karaoke processing.
+
+## What’s new in 1.7.0
+
+**Many more audio formats.** Cover Flow now imports and plays Opus, Ogg Vorbis,
+Speex, Monkey's Audio (APE), WavPack, Windows Media Audio, DSD (DSF/DFF), Musepack,
+TTA, TAK, Shorten, DTS, Wave64 and Matroska/WebM audio, gaplessly and with seeking,
+alongside the formats macOS already plays. Their tags and embedded cover art are
+read, and **Replace Artwork** can embed covers in them. Surround files are downmixed
+to stereo. Opus uses macOS's own decoder; the others use a decoder-only FFmpeg build
+(LGPL) bundled with the app. The iPad project adds Opus.
 
 ## What’s new in 1.6.2
 
@@ -255,7 +280,7 @@ Double-click **build.command** in Finder (or run `./build.command` in Terminal).
 universal release build with the Swift toolchain from Xcode, assembles **Cover Flow.app** next to the
 script, signs it for local use and launches it. Requires macOS 14 or later and Xcode (or the
 Command Line Tools). You can drag `Cover Flow.app` into /Applications.
-The first build downloads verified projectM 4.1.8 and TagLib 2.3.2 source, the Stable Diffusion
+The first build downloads verified projectM 4.1.8, TagLib 2.3.2 and FFmpeg 7.1.2 source, the Stable Diffusion
 model (about 1.6 GB, checksum-verified) and, if needed, a local CMake tool. Later builds reuse them.
 No Homebrew installation is required. Run `COVERFLOW_SKIP_SD=1 ./build.command` to build without
 the model; scene refinement is then hidden.
@@ -330,6 +355,16 @@ sample rates or channel counts are converted to a shared output format, and deco
 bounded buffer rather than loading entire songs into memory. Silence already present in a
 recording is preserved.
 
+Beyond what macOS plays itself (MP3, AAC/ALAC, FLAC, WAV, AIFF, CAF, AC-3), Cover Flow
+imports and plays **Opus**, **Ogg Vorbis**, **Speex**, **Monkey's Audio** (`.ape`),
+**WavPack**, **Windows Media Audio**, **DSD** (`.dsf`, `.dff`), **Musepack**, **TTA**,
+**TAK**, **Shorten**, **DTS**, Wave64 and Matroska/WebM audio (`.mka`, `.webm`,
+`.weba`), all gaplessly. Tags and embedded covers are read, and **Replace Artwork**
+can embed covers in the formats that have tags. Opus uses macOS's own decoder; the
+others use a decoder-only build of FFmpeg (LGPL) bundled with the app. Surround files
+are downmixed to stereo. MIDI and tracker modules are listed as unsupported in the
+import report. On iPad, Opus is supported; the other formats here are Mac only.
+
 Run the playback checks with `swift test`.
 
 ## Last.fm and album selection
@@ -374,7 +409,7 @@ for Cover Flow, AVFoundation for playback and tag/artwork reading, AppKit where 
 | Folder | Responsibility |
 | --- | --- |
 | `Model` | Track / Album values, sort and repeat modes, storage paths |
-| `Library` | Import, metadata (AVFoundation + a small FLAC reader), album grouping, artwork cache, persistence, demo collection |
+| `Library` | Import, metadata (AVFoundation, small FLAC and Ogg Opus readers, FFmpeg for other formats), album grouping, artwork cache, persistence, demo collection |
 | `Playback` | `PlayerEngine` — queue, shuffle/repeat, seeking, volume, errors, Now Playing + media keys |
 | `Scrobbling` | Last.fm authorization, Keychain credentials, listening progress and durable retry queue |
 | `Views` | Cover Flow, grid, album sheet, editor, queue, player bar, settings |

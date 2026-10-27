@@ -69,6 +69,24 @@ cmake -S taglib-2.3.2 -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build --parallel
 ```
 
+# Audio decoders (FFmpeg)
+
+Ogg Vorbis, Speex, Monkey's Audio, WavPack, Windows Media Audio, DSD, Musepack,
+TTA, TAK, Shorten, Matroska/WebM audio and DTS are decoded by unmodified
+**FFmpeg 7.1.2** libraries (libavformat, libavcodec, libavutil and libswresample),
+copyright the FFmpeg developers, under the GNU LGPL 2.1 or later
+(`Licenses/FFmpeg-LGPL-2.1.txt`). FFmpeg is configured as LGPL only, without
+`--enable-gpl` or `--enable-nonfree`. Source and documentation: https://ffmpeg.org/
+
+The complete corresponding source is included at
+`Contents/Resources/ThirdPartySources/ffmpeg-7.1.2.tar.xz` (SHA-256
+`089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304`), with
+`build-ffmpeg.sh`, the exact configuration used. The libraries are dynamically
+linked from `Contents/Frameworks` (for example `libavcodec.61.dylib`). You may
+replace them with your own build of a compatible FFmpeg 7.1 release; modification,
+debugging, and reverse engineering of the app to debug changes to these LGPL
+components are permitted. Re-sign the replaced libraries and app for local use.
+
 # Scene refinement (Stable Diffusion)
 
 Optional scene refinement uses Apple's **ml-stable-diffusion 1.1.1** Swift

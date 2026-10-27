@@ -1,4 +1,4 @@
-# Demucs and Stem Mix — local 1.8.0 build
+# Demucs and Stem Mix — 1.8.0 validation
 
 Implemented on macOS: six-stem HTDemucs, four-stem HTDemucs, HTDemucs fine-tuned,
 Hybrid Demucs and Demucs MDX Extra; local unquantized safetensors import;
@@ -44,5 +44,12 @@ bundled Apple silicon Python runtime. The iPad retains its existing native MDX
 and Core ML workflows. Six-stem guitar/piano separation is experimental, with
 possible instrument bleed. Legacy pickle and quantized Demucs checkpoints are
 not imported. Tests establish processing and synchronization, not subjective
-separation quality for every recording. This is a local build, not a published
-GitHub release.
+separation quality for every recording. Before release, current main's 1.7.0 Opus/FFmpeg decoder updates were merged,
+then the universal Mac app and both iPad device/simulator targets were rebuilt.
+The merged full Swift suite passed: 110 tests, three optional external-model
+integration checks skipped, zero failures. Python inference tests also passed
+(13 tests). The artwork preservation test now uses explicit sRGB pixels and
+compares stored bytes, avoiding AppKit's display-profile-dependent NSColor
+conversion while checking two distinct preserved artwork regions. The release
+app's bundled shared decoder libraries, LGPL source, version 1.8.0/build 27,
+code signature and ZIP contents were verified.
