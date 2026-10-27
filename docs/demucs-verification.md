@@ -53,3 +53,9 @@ compares stored bytes, avoiding AppKit's display-profile-dependent NSColor
 conversion while checking two distinct preserved artwork regions. The release
 app's bundled shared decoder libraries, LGPL source, version 1.8.0/build 27,
 code signature and ZIP contents were verified.
+
+The standalone iPad Swift package also passed (10 tests, one optional model test
+skipped). Its shared stem types now live in Core and are linked into the Mac
+target, so both the package and Xcode project compile the same definitions.
+The Mac target and both iPad app targets were rebuilt after this configuration
+fix; the shared type contents and Mac runtime behavior are unchanged.
