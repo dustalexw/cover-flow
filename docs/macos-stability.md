@@ -119,8 +119,23 @@ Existing mono/stereo Opus waveform and seek tests cover buffer reuse. Native
 ASan/UBSan stress now exercises both cold and cached opens, discarded metadata,
 and mismatched-rate hints in addition to the existing error/ownership cases.
 
-Follow-up validation: the full 125-test Mac suite passes on Apple silicon and
+Follow-up validation: the full 133-test Mac suite passes on Apple silicon and
 Intel/Rosetta (three optional external-model integrations skipped). The native
 stress run passes 1,200 cold/cached cycles (2,400 opens) and 6,000 seeks under
 ASan/UBSan; macOS leaks reports zero leaks. The universal Mac app passes strict
 signature validation, and the shared code builds for iPad devices.
+
+Immersive Album View now has independent per-album Extend/Subtle/Ornate choices.
+Saved scenes retain at most one layout for each style; artwork replacement clears
+older versions. Cache pruning compares filenames, avoiding URL spelling differences
+that could delete a newly generated scene. Older saved choices keep their behavior.
+Cover browsing keeps raw trackpad displacement separate from edge resistance,
+observes gesture/momentum phases and uses transforms with continuous speed at the
+front/side-stack boundary. Tests cover edge stability, momentum handoff, idle
+settling, transform continuity, saved choices and per-style disk eviction.
+
+Final Intel verification exposed a cold multi-stem start timing failure. Shared
+start lead is now 150 ms for stem playback (ordinary playback remains 30 ms),
+giving all nodes time to be armed before rendering reaches their common deadline.
+The phase-cancellation test labels startup, resume and seek separately; its
+sample-alignment tolerance is unchanged.
