@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.8.0"><img src="docs/badge-release.svg" alt="Release v1.8.0"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.8.0/Cover-Flow-1.8.0-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.8.1"><img src="docs/badge-release.svg" alt="Release v1.8.1"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.8.1/Cover-Flow-1.8.1-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -112,12 +112,24 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.8.0-macOS.zip** from the
-[1.8.0 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.8.0), unzip it, and move
+Download **Cover-Flow-1.8.1-macOS.zip** from the
+[1.8.1 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.8.1), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
 supported model files for Becruily/UVR; Demucs models download automatically (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
+
+## What’s new in 1.8.1
+
+**macOS stability.** Pause commits the stopped audio position immediately, discarded
+players release their decode tasks, and rapid track changes cancel obsolete native
+decoding. FFmpeg reuses conversion storage and handles packet ownership and errors
+more carefully. Artwork decoding runs on a dedicated actor with bounded caching.
+
+**Reliable builds.** Fix the visualizer compiler timeout, pin the CI toolchain,
+validate both decoder architectures and stage dependency updates before installation.
+The Mac and iPad CI checks pass. Local checks cover Apple silicon and Intel/Rosetta,
+high-rate surround audio, native sanitizer stress and leak detection.
 
 ## What’s new in 1.8.0
 
