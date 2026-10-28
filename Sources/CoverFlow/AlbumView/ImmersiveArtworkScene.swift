@@ -30,7 +30,7 @@ struct ImmersiveArtworkScene: View {
     @State private var image: CGImage?
     @State private var shownKey = ""
     private var layout: ImmersiveSceneLayout? { .make(viewport: viewport, cover: cover) }
-    private var key: String { album.artworkKey + "|" + album.panelAppearance.key + "|" + (layout?.key ?? "none") }
+    private var key: String { album.artworkKey + "|" + album.panelAppearance.immersiveKey + "|" + (layout?.key ?? "none") }
     var body: some View {
         ZStack {
             Color.black

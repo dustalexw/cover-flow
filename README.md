@@ -121,6 +121,15 @@ ad-hoc signed rather than notarized, so the first time, right-click it and choos
 
 ## What’s new in 1.8.2
 
+**Immersive scene choices.** Choose Extend, Subtle or Ornate from the Scene menu
+in immersive Album View. The choice is remembered per album independently of the
+album-panel style. Refined scenes require Apple silicon and the bundled scene
+model; first preparation takes about 10–40 seconds, then the scene is saved.
+
+**Smoother cover browsing.** Trackpad scrolling waits for gesture and momentum
+completion before snapping, with gentler edge resistance and smooth transitions
+between the front cover and side stack.
+
 **Faster repeat playback.** Reuse verified duration scans for unchanged files such
 as Musepack, avoiding a full decode on every subsequent open or seek. Changed
 files are scanned again, preserving accurate duration and seeking.

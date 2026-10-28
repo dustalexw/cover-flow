@@ -69,6 +69,14 @@ struct AlbumAppearance: Codable, Hashable {
     var sceneRefinement: Bool?
     /// Optional for the same reason; nil means the default, `.extend`.
     var refinementStyle: SceneRefinementStyle?
+    /// Immersive choices are independent of the album panel. Nil preserves the
+    /// previous lightweight extension unless panel refinement was already enabled.
+    var immersiveRefinementStyle: SceneRefinementStyle?
+    var immersiveStyle: SceneRefinementStyle { immersiveRefinementStyle ?? .extend }
+    var immersiveRequestedRefinement: SceneRefinementStyle? {
+        immersiveRefinementStyle ?? (refinesScene ? .extend : nil)
+    }
+    var immersiveKey: String { key + "|immersive-" + (immersiveRequestedRefinement?.rawValue ?? "none") }
 
     var strength: Double { sceneStrength.isFinite ? min(1, max(0, sceneStrength)) : 0.55 }
     var refinesScene: Bool { sceneRefinement ?? false }

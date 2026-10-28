@@ -113,10 +113,15 @@ actor AlbumSceneStore {
         return image
     }
 
+    static func immersiveKey(for album: Album, layout: ImmersiveSceneLayout) -> String {
+        let style = album.panelAppearance.immersiveRequestedRefinement?.rawValue ?? "base"
+        return "\(album.artworkKey)-immersive-v3-\(style)-\(layout.key)-\(album.panelAppearance.immersiveKey.stableHash)"
+    }
+
     func immersiveScene(for album: Album, layout: ImmersiveSceneLayout) async -> CGImage? {
         guard let file = album.artworkFile else { return nil }
         let settings = album.panelAppearance
-        let key = "\(album.artworkKey)-immersive-v2-\(layout.key)-\(settings.key.stableHash)"
+        let key = Self.immersiveKey(for: album, layout: layout)
         if let image = images[key] { remember(image, key: key); return image }
         if let work = pending[key], case .refined(let image) = await work.value { return image }
         let destination = directory.appendingPathComponent(key + ".png")
@@ -129,9 +134,9 @@ actor AlbumSceneStore {
             guard let cover = Self.thumbnail(sourceURL),
                   let base = AlbumSceneGenerator.generate(from: cover, seed: key.stableHash,
                     size: layout.size, coverFrame: layout.cover, extensionTexture: 0.28) else { return .failed("The artwork scene couldn’t be prepared.") }
-            if !Task.isCancelled, settings.refinesScene, AlbumSceneRefiner.isAvailable {
+            if !Task.isCancelled, let style = settings.immersiveRequestedRefinement, AlbumSceneRefiner.isAvailable {
                 let result = await AlbumSceneRefiner.shared.refine(base, cover: layout.cover,
-                    seed: key.stableHash, style: .extend)
+                    seed: key.stableHash, style: style)
                 if case .refined = result { return result }
             }
             return .refined(base)
@@ -146,8 +151,16 @@ actor AlbumSceneStore {
             CGImageDestinationAddImage(destinationImage, image, nil); CGImageDestinationFinalize(destinationImage)
         }
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        // Keep one layout per style, so switching styles reuses saved scenes
+        // while resizing or replacing artwork cannot grow the cache indefinitely.
+        let styleMarker = "-immersive-v3-" + (settings.immersiveRequestedRefinement?.rawValue ?? "base") + "-"
         for old in files where old.lastPathComponent.hasPrefix(album.id.uuidString + "-")
-            && old.lastPathComponent.contains("-immersive-") && old != destination { try? FileManager.default.removeItem(at: old) }
+            && old.lastPathComponent.contains("-immersive-") && old.lastPathComponent != destination.lastPathComponent {
+            let name = old.lastPathComponent
+            if !name.hasPrefix(album.artworkKey + "-") || !name.contains("-immersive-v3-") || name.contains(styleMarker) {
+                try? FileManager.default.removeItem(at: old)
+            }
+        }
         return image
     }
 

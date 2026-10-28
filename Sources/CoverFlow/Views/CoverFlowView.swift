@@ -10,6 +10,8 @@ final class CoverFlowController: ObservableObject {
     private var dragStart: Double?
     private var snapWork: DispatchWorkItem?
     private var wheelAccumulator: CGFloat = 0
+    /// Unresisted gesture position: never feed rubber-banded output back as input.
+    private var scrollPosition: Double?
     private(set) var target: Int = 0
 
     var index: Int { count == 0 ? 0 : Int(position.rounded()).clamped(0, count - 1) }
@@ -22,6 +24,8 @@ final class CoverFlowController: ObservableObject {
         guard count > 0 else { return }
         let t = i.clamped(0, count - 1)
         target = t
+        snapWork?.cancel(); snapWork = nil
+        scrollPosition = nil
         if animated {
             withAnimation(spring) { position = Double(t) }
         } else {
@@ -39,8 +43,10 @@ final class CoverFlowController: ObservableObject {
 
     private func rubberBand(_ p: Double) -> Double {
         let maxP = Double(max(count - 1, 0))
-        if p < 0 { return -pow(-p, 0.7) * 0.35 }
-        if p > maxP { return maxP + pow(p - maxP, 0.7) * 0.35 }
+        // Finite slope at the edge and bounded travel prevent tiny wheel deltas
+        // from being amplified into visible oscillation.
+        if p < 0 { return -0.25 * (-p) / (1 - p) }
+        if p > maxP { let distance = p - maxP; return maxP + 0.25 * distance / (1 + distance) }
         return p
     }
 
@@ -52,6 +58,7 @@ final class CoverFlowController: ObservableObject {
 
     func dragChanged(_ translation: CGFloat, unit: CGFloat) {
         snapWork?.cancel()
+        scrollPosition = nil
         if dragStart == nil { dragStart = position }
         setLive((dragStart ?? 0) - Double(translation / unit))
     }
@@ -69,13 +76,7 @@ final class CoverFlowController: ObservableObject {
         if event.hasPreciseScrollingDeltas {
             // Trackpad / Magic Mouse: glide continuously, then settle.
             let dx = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
-            setLive(position - Double(dx / unit))
-            snapWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                MainActor.assumeIsolated { guard let self else { return }; self.go(to: self.index) }
-            }
-            snapWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.11, execute: work)
+            scrollPrecise(delta: dx, unit: unit, phase: event.phase, momentumPhase: event.momentumPhase)
         } else {
             // Mouse wheel: one album per notch.
             let d = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
@@ -86,6 +87,30 @@ final class CoverFlowController: ObservableObject {
             }
         }
     }
+    /// Gesture phases keep a pause under the fingers from starting a competing
+    /// snap. Phase-less devices still settle after a short idle interval.
+    func scrollPrecise(delta: CGFloat, unit: CGFloat, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) {
+        guard count > 0, unit.isFinite, unit > 0, delta.isFinite else { return }
+        snapWork?.cancel(); snapWork = nil
+        if phase.contains(.began) || scrollPosition == nil { scrollPosition = position }
+        if delta != 0 {
+            let raw = (scrollPosition ?? position) - Double(delta / unit)
+            let next = raw.clamped(-2, Double(count - 1) + 2)
+            scrollPosition = next
+            setLive(next)
+        }
+        if momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled) || phase.contains(.cancelled) {
+            go(to: index)
+        } else if momentumPhase.isEmpty && (phase.contains(.ended) || phase.isEmpty) {
+            // Give macOS time to hand off finger scrolling to momentum.
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { guard let self else { return }; self.go(to: self.index) }
+            }
+            snapWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+        }
+    }
+
 }
 
 private enum CoverFlowLayout {
@@ -301,26 +326,37 @@ struct CoverFlowStage: View, Animatable {
     }
 }
 
+/// Smooth position and rotation through the center/side-stack boundary. Endpoints
+/// match the original arrangement, with continuous speed at one album's distance.
+struct CoverFlowGeometry {
+    let offset: Double
+    let angle: Double
+    let scale: Double
+    let opacity: Double
+    init(distance: Double, size: CGFloat, reduceMotion: Bool) {
+        let a = abs(distance), sign: Double = distance < 0 ? -1 : 1
+        let t = min(a, 1), eased = t * t * (3 - 2 * t)
+        let gap = Double(size) * 0.68
+        let spacing = Double(size) * (reduceMotion ? 0.3 : 0.18)
+        offset = sign * (a * spacing + (gap - spacing) * eased)
+        angle = -sign * (reduceMotion ? 0 : 62) * eased
+        scale = 1 - (reduceMotion ? 0.22 : 0.1) * eased
+        opacity = (8 - a).clamped(0, 1)
+    }
+}
+
 struct CoverTransform: ViewModifier {
     let d: Double
     let size: CGFloat
     let reduceMotion: Bool
 
     func body(content: Content) -> some View {
-        let a = abs(d)
-        let s: Double = d < 0 ? -1 : 1
-        let t = min(a, 1)
-        let gap = Double(size) * 0.68
-        let spacing = Double(size) * (reduceMotion ? 0.3 : 0.18)
-        let x = a <= 1 ? s * a * gap : s * (gap + (a - 1) * spacing)
-        let angle = (reduceMotion ? 0 : 62) * t
-        let scale = 1 - (reduceMotion ? 0.22 : 0.1) * t
-        let fade = (8.0 - a).clamped(0, 1)
+        let geometry = CoverFlowGeometry(distance: d, size: size, reduceMotion: reduceMotion)
         content
-            .rotation3DEffect(.degrees(-s * angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.42)
-            .scaleEffect(scale)
-            .offset(x: x)
-            .opacity(fade)
+            .rotation3DEffect(.degrees(geometry.angle), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.42)
+            .scaleEffect(geometry.scale)
+            .offset(x: geometry.offset)
+            .opacity(geometry.opacity)
     }
 }
 
