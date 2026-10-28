@@ -26,8 +26,8 @@ enum ArtworkError: LocalizedError {
 final class ArtworkStore: @unchecked Sendable {
     let directory: URL
     let scenes: AlbumSceneStore
-    private let cache = NSCache<NSString, NSImage>()
-    private let fullCache = NSCache<NSString, NSImage>()
+    private let rasters: ArtworkRasterCache
+    private let decoder: ArtworkDecoder
     private final class PaletteBox {
         let colors: AlbumDetailPalette
         init(_ colors: AlbumDetailPalette) { self.colors = colors }
@@ -42,8 +42,8 @@ final class ArtworkStore: @unchecked Sendable {
     init(directory: URL) {
         self.directory = directory
         scenes = AlbumSceneStore(artworkDirectory: directory)
-        cache.totalCostLimit = 320 * 1024 * 1024
-        fullCache.countLimit = 3
+        let rasters = ArtworkRasterCache()
+        self.rasters = rasters; decoder = ArtworkDecoder(cache: rasters)
         detailPaletteCache.countLimit = 512
         panelStyleCache.totalCostLimit = 32 * 1024 * 1024
     }
@@ -91,60 +91,42 @@ final class ArtworkStore: @unchecked Sendable {
         return 1100
     }
 
+    @MainActor
     func cachedThumbnail(_ album: Album, pixels: CGFloat) -> NSImage? {
-        guard album.hasArtwork else { return nil }
-        return cache.object(forKey: "\(album.artworkKey)@\(Self.bucket(for: pixels))" as NSString)
+        guard let file = album.artworkFile,
+              let cached = rasters.value(for: fileURL(file), pixels: Self.bucket(for: pixels)) else { return nil }
+        return Self.appKitImage(cached)
     }
 
+    @MainActor
     func thumbnail(_ album: Album, pixels: CGFloat) async -> NSImage? {
-        guard let file = album.artworkFile else { return nil }
-        let bucket = Self.bucket(for: pixels)
-        let key = "\(album.artworkKey)@\(bucket)" as NSString
-        if let hit = cache.object(forKey: key) { return hit }
-        let url = fileURL(file)
-        let image: NSImage? = await Task.detached(priority: .userInitiated) {
-            guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            let opts: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: bucket
-            ]
-            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        }.value
-        if let image {
-            let cost = Int(image.size.width * image.size.height * 4)
-            cache.setObject(image, forKey: key, cost: cost)
-        }
-        return image
+        await image(album, pixels: Self.bucket(for: pixels))
     }
 
-    /// The original, full-resolution artwork — used by Album View so large covers stay sharp.
-    func fullImage(_ album: Album) async -> NSImage? {
-        guard let file = album.artworkFile else { return nil }
-        let key = album.artworkKey as NSString
-        if let hit = fullCache.object(forKey: key) { return hit }
-        let url = fileURL(file)
-        let image: NSImage? = await Task.detached(priority: .userInitiated) {
-            guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            // Decode with orientation applied, capped at a generous size.
-            let opts: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: 4096
-            ]
-            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        }.value
-        if let image { fullCache.setObject(image, forKey: key) }
-        return image
-    }
+    /// Orientation-aware full artwork, bounded to 4096 pixels and a separate
+    /// raster budget so large covers cannot evict every browsing thumbnail.
+    @MainActor
+    func fullImage(_ album: Album) async -> NSImage? { await image(album, pixels: 4096) }
 
+    @MainActor
     func cachedFull(_ album: Album) -> NSImage? {
-        guard album.hasArtwork else { return nil }
-        return fullCache.object(forKey: album.artworkKey as NSString)
+        guard let file = album.artworkFile,
+              let cached = rasters.value(for: fileURL(file), pixels: 4096) else { return nil }
+        return Self.appKitImage(cached)
+    }
+
+    @MainActor
+    private func image(_ album: Album, pixels: Int) async -> NSImage? {
+        guard let file = album.artworkFile, !Task.isCancelled,
+              let result = await decoder.image(at: fileURL(file), pixels: pixels),
+              !Task.isCancelled else { return nil }
+        return Self.appKitImage(result)
+    }
+
+    @MainActor
+    private static func appKitImage(_ artwork: DecodedArtwork) -> NSImage {
+        let cg = artwork.image
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 
     // MARK: Colour

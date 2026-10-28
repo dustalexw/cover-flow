@@ -18,15 +18,25 @@ final class FFmpegAudioFile {
         var errorDescription: String? { message }
     }
 
+    private let cancellation: PlaybackCancellation?
     private let handle: OpaquePointer
     let channels: Int
     let sampleRate: Double
     /// Frames, from the container; decoding may end slightly sooner.
     let length: Int64
 
-    init(url: URL) throws {
+    init(url: URL, cancellation: PlaybackCancellation? = nil) throws {
+        self.cancellation = cancellation
+        try cancellation?.check()
         var message = [CChar](repeating: 0, count: 512)
-        guard let handle = cf_audio_open(url.path, &message, message.count) else {
+        let opened = withExtendedLifetime(cancellation) {
+            cf_audio_open_interruptible(url.path, { context in
+                guard let context else { return false }
+                return Unmanaged<PlaybackCancellation>.fromOpaque(context).takeUnretainedValue().isCancelled
+            }, cancellation.map { Unmanaged.passUnretained($0).toOpaque() }, &message, message.count)
+        }
+        guard let handle = opened else {
+            try cancellation?.check()
             throw Failure(message: String(cString: message))
         }
         self.handle = handle
@@ -44,13 +54,16 @@ final class FFmpegAudioFile {
         var message = [CChar](repeating: 0, count: 512)
         let channels = UnsafeRawPointer(data).assumingMemoryBound(to: UnsafeMutablePointer<Float>?.self)
         let count = cf_audio_read(handle, channels, frames, &message, message.count)
+        try cancellation?.check()
         guard count >= 0 else { throw Failure(message: String(cString: message)) }
         return count
     }
 
     func seek(to frame: Int64) throws {
         var message = [CChar](repeating: 0, count: 512)
-        guard cf_audio_seek(handle, frame, &message, message.count) else {
+        let succeeded = cf_audio_seek(handle, frame, &message, message.count)
+        try cancellation?.check()
+        guard succeeded else {
             throw Failure(message: String(cString: message))
         }
     }

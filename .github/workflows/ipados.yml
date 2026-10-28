@@ -15,6 +15,13 @@ on:
       - 'build-ipad.command'
       - '.github/workflows/ipados.yml'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
 permissions:
   contents: read
 jobs:
@@ -23,12 +30,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Verify pinned Xcode
+        run: |
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun swift --version
       - uses: actions/cache@v4
         with:
           path: |
             .build/vendor/ipados
             iPad/Vendor
-          key: ipad-runtime-${{ hashFiles('scripts/fetch-ipad-runtime.sh') }}
+          key: ipad-runtime-xcode16.4-${{ runner.arch }}-${{ hashFiles('scripts/fetch-ipad-runtime.sh') }}
       - name: Prepare native runtime
         run: bash scripts/fetch-ipad-runtime.sh
       - name: Verify processing core

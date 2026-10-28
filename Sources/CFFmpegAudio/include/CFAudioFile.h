@@ -13,6 +13,11 @@ typedef struct CFAudioFile CFAudioFile;
 
 /// Opens the file's main audio stream. Returns NULL and fills `error` on failure.
 CFAudioFile *cf_audio_open(const char *path, char *error, size_t errorSize);
+/// The callback may run on the decoding thread. Its context must outlive the file.
+/// Returning true interrupts open/read/seek; it is never called on the render thread.
+typedef bool (*CFAudioInterrupt)(void *context);
+CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt interrupt,
+                                        void *context, char *error, size_t errorSize);
 void cf_audio_close(CFAudioFile *file);
 
 /// 1 or 2.

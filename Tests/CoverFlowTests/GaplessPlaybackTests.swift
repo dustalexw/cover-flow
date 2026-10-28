@@ -109,6 +109,28 @@ final class GaplessPlaybackTests: XCTestCase {
         wait(for: [completed], timeout: 15)
     }
 
+    func testRapidLoadsAndSeeksDoNotReportCanceledDecodersAsFailures() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Last playback request wins")
+        Task { @MainActor in
+            let player = GaplessAudioPlayer(); player.volume = 0
+            defer { player.stop(); completed.fulfill() }
+            let url = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/tone.wv")
+            var latest = UUID()
+            player.onFailure = { _, error in XCTFail(error.localizedDescription) }
+            for index in 0..<40 {
+                latest = UUID()
+                player.load(AudioSource(index: index, trackID: latest, url: url), autoplay: false, at: 0.25)
+                try? await Task.sleep(for: .milliseconds(2))
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(player.source?.trackID, latest)
+            XCTAssertEqual(player.currentTime, 0.25, accuracy: 0.001)
+            XCTAssertFalse(player.isPlaying)
+        }
+        wait(for: [completed], timeout: 15)
+    }
+
     func testRenderedTrackBoundariesHaveNoInsertedSilence() async throws {
         try requireAudioComponents()
         let urls = try [fixture("first"), fixture("mono44100", rate: 44_100, channels: 1),

@@ -1,6 +1,6 @@
 import AVFoundation
 
-struct AudioSource: Equatable {
+struct AudioSource: Equatable, Sendable {
     var index: Int
     let trackID: UUID
     let url: URL
@@ -17,6 +17,7 @@ final class GaplessAudioPlayer {
     private let outputMixer = AVAudioMixerNode()
     private var stemNodes: [AudioStem: AVAudioPlayerNode] = [:]
     private var pump: Task<Void, Never>?
+    private var decodingCancellation: PlaybackCancellation?
     private var generation = UUID()
     private var segments: [Segment] = []
     private var scheduledFrames: AVAudioFramePosition = 0
@@ -77,6 +78,7 @@ final class GaplessAudioPlayer {
     }
 
     deinit {
+        decodingCancellation?.cancel()
         pump?.cancel()
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
     }
@@ -96,6 +98,8 @@ final class GaplessAudioPlayer {
         isBuffering = autoplay
         onStateChanged?()
         let token = generation
+        let cancellation = PlaybackCancellation()
+        decodingCancellation = cancellation
         pump = Task { [weak self] in
             guard let self else { return }
             var tail = source
@@ -110,12 +114,12 @@ final class GaplessAudioPlayer {
                     do {
                         if decoder == nil {
                             self.decodingSource = tail
-                            let opened = try await Task.detached { try PCMDecoder(url: tail.url, start: offset) }.value
+                            let opened = try await Task.detached { [url = tail.url, offset] in try PCMDecoder(url: url, start: offset, cancellation: cancellation) }.value
                             guard self.generation == token else { return }
                             decoder = opened
                             stemDecoders = [:]
                             for (stem, url) in tail.stemFiles ?? [:] {
-                                let stemDecoder = try await Task.detached { try PCMDecoder(url: url, start: offset) }.value
+                                let stemDecoder = try await Task.detached { [offset] in try PCMDecoder(url: url, start: offset, cancellation: cancellation) }.value
                                 guard self.generation == token else { return }
                                 guard abs(stemDecoder.duration - opened.duration) < 1 / PCMDecoder.sampleRate else {
                                     throw NSError(domain: "StemMix", code: 1, userInfo: [NSLocalizedDescriptionKey: "The stems have different lengths. Prepare the track again."])
@@ -297,6 +301,7 @@ final class GaplessAudioPlayer {
     private func reset() {
         visualizerAudio.clear()
         generation = UUID()
+        decodingCancellation?.cancel()
         pump?.cancel()
         pump = nil
         node.stop()
