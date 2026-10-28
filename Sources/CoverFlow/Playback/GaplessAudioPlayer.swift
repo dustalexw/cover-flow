@@ -101,12 +101,14 @@ final class GaplessAudioPlayer {
         let cancellation = PlaybackCancellation()
         decodingCancellation = cancellation
         pump = Task { [weak self] in
-            guard let self else { return }
             var tail = source
             var offset = start
             var decoder: PCMDecoder?
             var stemDecoders: [AudioStem: PCMDecoder] = [:]
-            while !Task.isCancelled && self.generation == token {
+            while !Task.isCancelled {
+                // Keep the player alive for one operation, not for the lifetime
+                // of this task (which the player itself owns).
+                guard let self, self.generation == token else { return }
                 self.poll()
                 guard self.generation == token else { return }
                 let rendered = self.renderedFrames
@@ -200,7 +202,8 @@ final class GaplessAudioPlayer {
         return max(0, position.sampleTime)
     }
 
-    private func poll(completedThrough: AVAudioFramePosition = 0) {
+    private func poll(completedThrough: AVAudioFramePosition = 0, forceTime: Bool = false) {
+        let token = generation
         let frame = max(renderedFrames, wantsPlayback ? completedThrough : 0)
         if let segment = segments.last(where: { $0.startFrame <= frame && $0.endFrame > $0.startFrame }) {
             source = segment.source
@@ -209,10 +212,12 @@ final class GaplessAudioPlayer {
                 let transitioned = reportedSegment != nil
                 reportedSegment = segment.id
                 onTrackChanged?(segment.source, segment.duration, transitioned)
+                guard generation == token else { return }
             }
-            if lastReportedTime == nil || abs(currentTime - lastReportedTime!) >= 0.25 {
+            if forceTime || lastReportedTime == nil || abs(currentTime - lastReportedTime!) >= 0.25 {
                 lastReportedTime = currentTime
                 onTimeChanged?(currentTime)
+                guard generation == token else { return }
             }
             // Retain only the active track and future tracks, even on Repeat One.
             segments.removeAll { $0.endFrame <= segment.startFrame && $0.id != segment.id }
@@ -253,6 +258,7 @@ final class GaplessAudioPlayer {
     }
 
     func pause() {
+        let token = generation
         pausedFrames = renderedFrames
         node.pause()
         for node in stemNodes.values { node.pause() }
@@ -260,6 +266,10 @@ final class GaplessAudioPlayer {
         wantsPlayback = false
         isPlaying = false
         isBuffering = false
+        // Commit the frozen render position before returning. The UI/pump may
+        // have been delayed while the audio thread continued playing.
+        poll(forceTime: true)
+        guard generation == token else { return }
         onStateChanged?()
     }
 
@@ -268,7 +278,7 @@ final class GaplessAudioPlayer {
         load(source, autoplay: wantsPlayback, at: seconds)
     }
 
-    func synchronize() { poll() }
+    func synchronize() { poll(forceTime: true) }
 
     /// Queue edits must invalidate every prepared successor, including a decode
     /// currently in flight. An unchanged prepared sequence keeps playing.

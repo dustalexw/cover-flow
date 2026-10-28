@@ -41,8 +41,9 @@ jobs:
           sw_vers
           xcrun swift --version
 
-      - name: Cache downloaded dependencies and model
-        uses: actions/cache@v4
+      - name: Restore downloaded dependencies and model
+        id: vendor-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             .build/vendor/*.tar.gz
@@ -60,6 +61,20 @@ jobs:
 
       - name: Verify decoder runtime
         run: bash scripts/verify-audio-runtime.sh .build/vendor/ffmpeg-install-universal
+
+      # Successful dependency builds survive a later test failure; retrying a
+      # product regression should not rebuild the verified native libraries.
+      - name: Save verified dependencies
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .build/vendor/*.tar.gz
+            .build/vendor/*.tar.xz
+            .build/vendor/ffmpeg-install-universal
+            .build/vendor/stable-diffusion-model
+            .build/vendor/karaoke-runtime
+          key: ${{ steps.vendor-cache.outputs.cache-primary-key }}
 
       - name: Run tests
         env:

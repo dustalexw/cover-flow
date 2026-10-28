@@ -12,9 +12,13 @@ VisualizerSignal, not missing FFmpeg architecture slices. The FFT expression is
 now split into explicitly typed intermediate values. Both workflows select Xcode
 16.4 on macos-15, report the toolchain, and cancel superseded branch/PR jobs.
 The Mac workflow fails on a test failure rather than retrying the whole suite.
+Verified dependencies are saved before tests, so a product-test failure does not
+throw away a successful native build.
 
 ## Playback and native ownership
 
+- The decode pump holds its player only for one iteration, avoiding a retain
+  cycle between a discarded player and its own long-running task.
 - Each player load owns a cancellation token. Seek, replacement, stop and teardown
   cancel obsolete work, including a FFmpeg open that has not returned a PCM actor.
   FFmpeg's I/O interrupt callback and decode loops observe this token. The Swift
@@ -30,6 +34,11 @@ The Mac workflow fails on a test failure rather than retrying the whole suite.
   worker count is bounded at two per instance. Invalid native buffer arguments and
   non-finite seeks are rejected; extreme finite positions are bounded before
   integer conversion instead of trapping Swift.
+
+Pause and explicit synchronization publish the exact stopped/render position,
+rather than waiting for the next UI poll. This prevents a delayed clock jump after
+pausing during UI load and makes source switches use the current audio position.
+Callback generation checks protect against observers replacing the source.
 
 ## Artwork
 
@@ -56,7 +65,8 @@ runtime. Build parallelism has a bounded default and a COVERFLOW_BUILD_JOBS over
 
 ## Validation
 
-- Full local Mac suite with Core Audio/GPU access: **118 tests, zero failures**;
+- Full local Mac suite on Apple silicon and Intel/Rosetta with Core Audio/GPU
+  access: **120 tests, zero failures**;
   three optional external-model integrations skipped. Includes real gapless/stem
   playback, rapid load/seek replacement, cancellation, invalid seeks, artwork
   concurrency/deduplication, off-main decoding and hard cache-budget eviction.
