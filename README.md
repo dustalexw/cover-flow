@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/readme-header.png" alt="Cover Flow — Only on macOS; browse your music by its covers" width="100%"></p>
 
 <p align="center">
-  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.8.1"><img src="docs/badge-release.svg" alt="Release v1.8.1"></a>
-  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.8.1/Cover-Flow-1.8.1-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/tag/v1.8.2"><img src="docs/badge-release.svg" alt="Release v1.8.2"></a>
+  <a href="https://github.com/dustalexw/cover-flow/releases/download/v1.8.2/Cover-Flow-1.8.2-macOS.zip"><img src="docs/badge-download.svg" alt="Download the macOS app"></a>
   <a href="#download-the-macos-app"><img src="docs/badge-platform.svg" alt="Platform: macOS 14 or later, Apple silicon and Intel"></a>
 </p>
 
@@ -112,12 +112,24 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
 ## Download the macOS app
 
-Download **Cover-Flow-1.8.1-macOS.zip** from the
-[1.8.1 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.8.1), unzip it, and move
+Download **Cover-Flow-1.8.2-macOS.zip** from the
+[1.8.2 release](https://github.com/dustalexw/cover-flow/releases/tag/v1.8.2), unzip it, and move
 **Cover Flow.app** to Applications. The universal app runs on Apple silicon and Intel Macs
 with macOS 14 or later. Karaoke processing requires Apple silicon and your own
 supported model files for Becruily/UVR; Demucs models download automatically (see Karaoke above). The app is
 ad-hoc signed rather than notarized, so the first time, right-click it and choose **Open**.
+
+## What’s new in 1.8.2
+
+**Faster repeat playback.** Reuse verified duration scans for unchanged files such
+as Musepack, avoiding a full decode on every subsequent open or seek. Changed
+files are scanned again, preserving accurate duration and seeking.
+
+**Lower playback overhead.** Opus skips copying embedded comment/artwork payloads
+and reuses audio buffers. FFmpeg playback releases display metadata after opening.
+Imports keep their tags and artwork on a separate background worker, with reliable
+cancellation. Verified with both Mac architectures, native sanitizer stress and
+leak checks.
 
 ## What’s new in 1.8.1
 
