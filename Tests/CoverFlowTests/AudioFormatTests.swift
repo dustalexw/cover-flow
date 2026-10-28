@@ -10,6 +10,8 @@ import XCTest
 /// amplitude 1/8, and ffmpeg's mono-to-stereo upmix lowered it by 3 dB, to an RMS of 0.0625.
 /// tone.spx is mono, so not upmixed, but Speex's low-bitrate coding brings it to about the
 /// same level.
+/// high-rate-surround.wv is 0.5 seconds of 24-bit/192 kHz, six-channel WavPack,
+/// generated from ffmpeg's 440 Hz sine (-ac 6 -sample_fmt s32p -bits_per_raw_sample 24).
 /// tags.* carry the same tags as the other tag fixtures; tags.ogg also has a PNG cover.
 final class AudioFormatTests: XCTestCase {
     private var directory: URL!
@@ -65,6 +67,46 @@ final class AudioFormatTests: XCTestCase {
             let measured = (body.reduce(0) { $0 + $1 * $1 } / Float(max(1, body.count))).squareRoot()
             XCTAssertEqual(measured, rms, accuracy: rms * 0.2, name)
         }
+    }
+
+    func testNativeCancellationInterruptsBufferedReadsAndSeek() throws {
+        let cancellation = PlaybackCancellation()
+        let file = try FFmpegAudioFile(url: fixture("tone.wv"), cancellation: cancellation)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: file.sampleRate, channels: 2))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        cancellation.cancel()
+        XCTAssertThrowsError(try file.read(into: buffer.floatChannelData!, frames: 4096)) {
+            XCTAssertTrue($0 is CancellationError)
+        }
+        XCTAssertThrowsError(try file.seek(to: 0)) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertThrowsError(try FFmpegAudioFile(url: fixture("tone.wv"), cancellation: cancellation)) {
+            XCTAssertTrue($0 is CancellationError)
+        }
+    }
+
+    func testInvalidAndExtremeSeekInputsCannotTrapTheDecoder() async throws {
+        for time in [Double.nan, Double.infinity, -Double.infinity] {
+            XCTAssertThrowsError(try PCMDecoder(url: fixture("tone.wv"), start: time))
+        }
+        let decoder = try PCMDecoder(url: fixture("tone.wv"), start: Double.greatestFiniteMagnitude)
+        let chunk = try await decoder.read()
+        XCTAssertNil(chunk)
+    }
+
+    func testHighRateSurroundWavPackDownmixesAndSeeksWithoutLosingFrames() async throws {
+        let url = fixture("high-rate-surround.wv")
+        let native = try FFmpegAudioFile(url: url)
+        XCTAssertEqual(native.sampleRate, 192_000)
+        XCTAssertEqual(native.channels, 2)
+        let full = try await decode(url)
+        XCTAssertEqual(full.count, 24_000)
+        XCTAssertTrue(full.allSatisfy(\.isFinite))
+        XCTAssertGreaterThan(full.map(abs).max() ?? 0, 0.01)
+        XCTAssertLessThanOrEqual(full.map(abs).max() ?? 2, 1)
+        let part = try await decode(url, start: 0.25)
+        XCTAssertEqual(part.count, 12_000)
+        let differences = zip(part.dropFirst(512), full.dropFirst(12_512)).map { abs($0 - $1) }
+        XCTAssertLessThan(differences.max() ?? 1, 0.002)
     }
 
     func testTagsAndCoverAreRead() async throws {

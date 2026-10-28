@@ -75,7 +75,7 @@ install_name_tool -delete_rpath "$PWD/.build/vendor/ffmpeg-install-universal/lib
 cp -R Resources/Licenses "$APP/Contents/Resources/"
 cp .build/vendor/projectm.tar.gz "$APP/Contents/Resources/ThirdPartySources/projectm-4.1.8.tar.gz"
 cp .build/vendor/taglib-2.3.2.tar.gz "$APP/Contents/Resources/ThirdPartySources/"
-cp .build/vendor/ffmpeg-7.1.2.tar.xz scripts/build-ffmpeg.sh "$APP/Contents/Resources/ThirdPartySources/"
+cp .build/vendor/ffmpeg-7.1.2.tar.xz scripts/build-ffmpeg.sh scripts/verify-audio-runtime.sh scripts/verify-universal.sh "$APP/Contents/Resources/ThirdPartySources/"
 cp Resources/ThirdPartyNotices.md "$APP/Contents/Resources/"
 if [ "${COVERFLOW_SKIP_KARAOKE:-0}" != "1" ]; then
   ditto Resources/Karaoke "$APP/Contents/Resources/Karaoke"

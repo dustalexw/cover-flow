@@ -109,6 +109,83 @@ final class GaplessPlaybackTests: XCTestCase {
         wait(for: [completed], timeout: 15)
     }
 
+    func testRapidLoadsAndSeeksDoNotReportCanceledDecodersAsFailures() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Last playback request wins")
+        Task { @MainActor in
+            let player = GaplessAudioPlayer(); player.volume = 0
+            defer { player.stop(); completed.fulfill() }
+            let url = Bundle.module.resourceURL!.appendingPathComponent("Fixtures/tone.wv")
+            var latest = UUID()
+            player.onFailure = { _, error in XCTFail(error.localizedDescription) }
+            for index in 0..<40 {
+                latest = UUID()
+                player.load(AudioSource(index: index, trackID: latest, url: url), autoplay: false, at: 0.25)
+                try? await Task.sleep(for: .milliseconds(2))
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(player.source?.trackID, latest)
+            XCTAssertEqual(player.currentTime, 0.25, accuracy: 0.001)
+            XCTAssertFalse(player.isPlaying)
+        }
+        wait(for: [completed], timeout: 15)
+    }
+
+    func testPauseCommitsTheClockAfterTheMainActorWasBusy() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Pause freezes the actual render clock")
+        Task { @MainActor in
+            let player = GaplessAudioPlayer(); player.volume = 0
+            defer { player.stop(); completed.fulfill() }
+            do {
+                let source = AudioSource(index: 0, trackID: UUID(), url: try fixture("pause-clock", seconds: 2))
+                var observedTime = 0.0
+                player.onTimeChanged = { observedTime = $0 }
+                player.onFailure = { _, error in XCTFail(error.localizedDescription) }
+                player.load(source, autoplay: true)
+                for _ in 0..<100 {
+                    if !player.isBuffering { break }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                XCTAssertFalse(player.isBuffering)
+                // Simulate UI work without stopping the real-time audio thread.
+                @MainActor func simulateUIWork() { Thread.sleep(forTimeInterval: 0.14) }
+                simulateUIWork()
+                player.pause()
+                let stopped = player.currentTime
+                XCTAssertEqual(observedTime, stopped, accuracy: 0.00001)
+                try await Task.sleep(for: .milliseconds(200))
+                XCTAssertEqual(player.currentTime, stopped, accuracy: 0.00001)
+                XCTAssertFalse(player.isPlaying)
+            } catch { XCTFail(error.localizedDescription) }
+        }
+        wait(for: [completed], timeout: 15)
+    }
+
+    func testDiscardingAPausedPlayerReleasesItsDecodingTask() throws {
+        try requireAudioComponents()
+        let completed = expectation(description: "Player has no task retain cycle")
+        Task { @MainActor in
+            defer { completed.fulfill() }
+            do {
+                var player: GaplessAudioPlayer? = GaplessAudioPlayer()
+                weak var released = player
+                let source = AudioSource(index: 0, trackID: UUID(), url: try fixture("release-player", seconds: 2))
+                player?.load(source, autoplay: false)
+                // Let the decode pump start before discarding its owner.
+                try await Task.sleep(for: .milliseconds(150))
+                player = nil
+                for _ in 0..<100 {
+                    if released == nil { break }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                XCTAssertNil(released, "The player's own long-running task must not retain it.")
+                released?.stop()
+            } catch { XCTFail(error.localizedDescription) }
+        }
+        wait(for: [completed], timeout: 15)
+    }
+
     func testRenderedTrackBoundariesHaveNoInsertedSilence() async throws {
         try requireAudioComponents()
         let urls = try [fixture("first"), fixture("mono44100", rate: 44_100, channels: 1),

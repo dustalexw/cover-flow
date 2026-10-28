@@ -7,6 +7,8 @@
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
 #include <libswresample/swresample.h>
+#include <limits.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -19,6 +21,8 @@
 /// above zero (Vorbis after its first packet, WMA after its delay).
 struct CFAudioFile {
     char *path;
+    CFAudioInterrupt interrupt;
+    void *interruptContext;
     AVFormatContext *format;
     AVCodecContext *codec;
     AVStream *stream;
@@ -33,6 +37,10 @@ struct CFAudioFile {
 
     /// Converted samples waiting to be read; `position` is the frame index of the first.
     AVAudioFifo *fifo;
+    uint8_t **conversionBuffer;
+    int conversionCapacity;
+    bool packetPending;
+    bool drainSent;
     int64_t position;
     /// Decoded samples before this frame are dropped (after a seek).
     int64_t discardUntil;
@@ -48,6 +56,9 @@ struct CFAudioFile {
     bool packetsDone;
     bool decoderDone;
 };
+
+static pthread_once_t loggingOnce = PTHREAD_ONCE_INIT;
+static void configureLogging(void) { av_log_set_level(AV_LOG_ERROR); }
 
 static void fail(char *error, size_t size, const char *message, int code) {
     if (!error || !size) return;
@@ -72,6 +83,8 @@ void cf_audio_close(CFAudioFile *file) {
     swr_free(&file->resampler);
     av_channel_layout_uninit(&file->resamplerLayout);
     if (file->fifo) av_audio_fifo_free(file->fifo);
+    if (file->conversionBuffer) av_freep(&file->conversionBuffer[0]);
+    av_freep(&file->conversionBuffer);
     av_packet_free(&file->packet);
     av_frame_free(&file->frame);
     closeStream(file);
@@ -79,8 +92,18 @@ void cf_audio_close(CFAudioFile *file) {
     av_free(file);
 }
 
+static bool interrupted(const CFAudioFile *file) {
+    return file->interrupt && file->interrupt(file->interruptContext);
+}
+
+static int interruptIO(void *context) { return interrupted(context); }
+
 /// Opens the container and the decoder for its main audio stream.
 static bool openStream(CFAudioFile *file, char *error, size_t errorSize) {
+    if (interrupted(file)) { fail(error, errorSize, "Audio decoding cancelled", AVERROR_EXIT); return false; }
+    file->format = avformat_alloc_context();
+    if (!file->format) { fail(error, errorSize, "Out of memory", AVERROR(ENOMEM)); return false; }
+    file->format->interrupt_callback = (AVIOInterruptCB){interruptIO, file};
     int result = avformat_open_input(&file->format, file->path, NULL, NULL);
     if (result < 0) {
         fail(error, errorSize, "The file couldn’t be opened as audio", result);
@@ -114,6 +137,8 @@ static bool openStream(CFAudioFile *file, char *error, size_t errorSize) {
         fail(error, errorSize, "The audio stream couldn’t be read", result);
         return false;
     }
+    // Keep decoder workers bounded when several stems or rapid seeks overlap.
+    file->codec->thread_count = 2;
     file->codec->pkt_timebase = file->stream->time_base;
     if ((result = avcodec_open2(file->codec, decoder, NULL)) < 0) {
         fail(error, errorSize, "The audio decoder couldn’t start", result);
@@ -126,6 +151,10 @@ static void resetDecoding(CFAudioFile *file) {
     av_audio_fifo_reset(file->fifo);
     swr_free(&file->resampler);
     av_channel_layout_uninit(&file->resamplerLayout);
+    av_packet_unref(file->packet);
+    av_frame_unref(file->frame);
+    file->packetPending = false;
+    file->drainSent = false;
     file->packetsDone = false;
     file->decoderDone = false;
 }
@@ -176,15 +205,21 @@ static int prepareResampler(CFAudioFile *file, const AVFrame *frame) {
 
 static int convert(CFAudioFile *file, const uint8_t **input, int count) {
     int capacity = swr_get_out_samples(file->resampler, count);
-    if (capacity <= 0) return 0;
-    uint8_t **output = NULL;
-    int result = av_samples_alloc_array_and_samples(&output, NULL, file->channels, capacity, AV_SAMPLE_FMT_FLTP, 0);
-    if (result < 0) return result;
-    int converted = swr_convert(file->resampler, output, capacity, input, count);
-    result = converted > 0 ? av_audio_fifo_write(file->fifo, (void **)output, converted) : converted;
-    av_freep(&output[0]);
-    av_freep(&output);
-    return result < 0 ? result : 0;
+    if (capacity <= 0) return capacity < 0 ? capacity : 0;
+    if (capacity > file->conversionCapacity) {
+        uint8_t **buffer = NULL;
+        int result = av_samples_alloc_array_and_samples(&buffer, NULL, file->channels,
+                                                       capacity, AV_SAMPLE_FMT_FLTP, 0);
+        if (result < 0) return result;
+        if (file->conversionBuffer) av_freep(&file->conversionBuffer[0]);
+        av_freep(&file->conversionBuffer);
+        file->conversionBuffer = buffer;
+        file->conversionCapacity = capacity;
+    }
+    int converted = swr_convert(file->resampler, file->conversionBuffer, capacity, input, count);
+    if (converted <= 0) return converted < 0 ? converted : 0;
+    int written = av_audio_fifo_write(file->fifo, (void **)file->conversionBuffer, converted);
+    return written == converted ? 0 : written < 0 ? written : AVERROR(ENOMEM);
 }
 
 static void discard(CFAudioFile *file) {
@@ -226,6 +261,7 @@ static int acceptFrame(CFAudioFile *file, AVFrame *frame) {
 /// Decodes one more frame into the FIFO. Returns 0, AVERROR_EOF at the end, or an error.
 static int decodeMore(CFAudioFile *file) {
     for (int damaged = 0;;) {
+        if (interrupted(file)) return AVERROR_EXIT;
         int result = avcodec_receive_frame(file->codec, file->frame);
         if (result == 0) {
             result = acceptFrame(file, file->frame);
@@ -243,22 +279,34 @@ static int decodeMore(CFAudioFile *file) {
         // A frame that fails to decode is skipped rather than ending playback.
         if (result == AVERROR_INVALIDDATA && ++damaged < 1000) continue;
         if (result != AVERROR(EAGAIN)) return result;
-        if (file->packetsDone) return AVERROR_EOF;
-        result = av_read_frame(file->format, file->packet);
-        if (result < 0) {
-            // The end of the file, or damage that ends it: drain what the decoder holds.
-            file->packetsDone = true;
-            avcodec_send_packet(file->codec, NULL);
+        if (file->packetPending) {
+            result = avcodec_send_packet(file->codec, file->packet);
+            // Both send and receive returning EAGAIN violates FFmpeg's contract.
+            // Keep the packet owned until success or close; never silently drop it.
+            if (result == AVERROR(EAGAIN)) return AVERROR_BUG;
+            av_packet_unref(file->packet);
+            file->packetPending = false;
+            if (result < 0 && result != AVERROR_INVALIDDATA) return result;
+            if (result == AVERROR_INVALIDDATA && ++damaged >= 1000) return result;
             continue;
         }
-        if (file->packet->stream_index == file->streamIndex) {
-            result = avcodec_send_packet(file->codec, file->packet);
-            av_packet_unref(file->packet);
-            // A damaged packet is skipped rather than ending playback.
-            if (result < 0 && result != AVERROR_INVALIDDATA && result != AVERROR(EAGAIN)) return result;
-        } else {
-            av_packet_unref(file->packet);
+        if (file->packetsDone) {
+            if (file->drainSent) return AVERROR_BUG;
+            result = avcodec_send_packet(file->codec, NULL);
+            if (result < 0 && result != AVERROR_EOF) return result;
+            file->drainSent = true;
+            continue;
         }
+        result = av_read_frame(file->format, file->packet);
+        if (result < 0) {
+            av_packet_unref(file->packet);
+            if (result == AVERROR_INVALIDDATA && ++damaged < 1000) continue;
+            if (result != AVERROR_EOF) return result;
+            file->packetsDone = true;
+            continue;
+        }
+        if (file->packet->stream_index == file->streamIndex) file->packetPending = true;
+        else av_packet_unref(file->packet);
     }
 }
 
@@ -279,14 +327,22 @@ static int prime(CFAudioFile *file) {
 }
 
 CFAudioFile *cf_audio_open(const char *path, char *error, size_t errorSize) {
+    return cf_audio_open_interruptible(path, NULL, NULL, error, errorSize);
+}
+
+CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt interrupt,
+                                        void *context, char *error, size_t errorSize) {
     // FFmpeg's warnings about unusual but readable files would only fill the console.
-    av_log_set_level(AV_LOG_ERROR);
+    pthread_once(&loggingOnce, configureLogging);
+    if (!path || !path[0]) { fail(error, errorSize, "Missing audio filename", AVERROR(EINVAL)); return NULL; }
     CFAudioFile *file = av_mallocz(sizeof *file);
     if (!file || !(file->path = av_strdup(path))) {
         av_free(file);
         fail(error, errorSize, "Out of memory", 0);
         return NULL;
     }
+    file->interrupt = interrupt;
+    file->interruptContext = context;
     file->streamIndex = -1;
     file->length = -1;
     if (!openStream(file, error, errorSize)) goto failed;
@@ -347,7 +403,14 @@ double cf_audio_sample_rate(const CFAudioFile *file) { return file->rate; }
 int64_t cf_audio_length(const CFAudioFile *file) { return file->length; }
 
 long cf_audio_read(CFAudioFile *file, float *const *channels, long frames, char *error, size_t errorSize) {
-    if (frames <= 0) return 0;
+    if (!file || !file->codec || frames > INT_MAX || frames < 0 || !channels) {
+        fail(error, errorSize, "Invalid audio read", AVERROR(EINVAL)); return -1;
+    }
+    for (int c = 0; c < file->channels; c++) {
+        if (!channels[c]) { fail(error, errorSize, "Missing audio channel", AVERROR(EINVAL)); return -1; }
+    }
+    if (interrupted(file)) { fail(error, errorSize, "Audio decoding cancelled", AVERROR_EXIT); return -1; }
+    if (frames == 0) return 0;
     while (av_audio_fifo_size(file->fifo) < frames && !file->decoderDone) {
         int result = decodeMore(file);
         if (result == AVERROR_EOF) {
@@ -370,7 +433,11 @@ long cf_audio_read(CFAudioFile *file, float *const *channels, long frames, char 
 }
 
 bool cf_audio_seek(CFAudioFile *file, int64_t frame, char *error, size_t errorSize) {
+    if (!file || !file->stream || interrupted(file)) {
+        fail(error, errorSize, "Audio decoding cancelled or unavailable", AVERROR_EXIT); return false;
+    }
     if (frame < 0) frame = 0;
+    if (file->length >= 0 && frame > file->length) frame = file->length;
     int64_t start = file->stream->start_time != AV_NOPTS_VALUE ? file->stream->start_time : 0;
     AVRational frames = {1, file->rate};
     // Container indexes can land after the requested time; back off further until the

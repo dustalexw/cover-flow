@@ -1,5 +1,15 @@
 import AVFoundation
 
+/// Shared by an opening/reading decoder and the UI's seek/stop path. Native
+/// demuxing can observe cancellation even before the PCM actor has been created.
+final class PlaybackCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func check() throws { if isCancelled { throw CancellationError() } }
+}
+
 /// Decodes a bounded amount of audio off the main thread. Every track uses the same
 /// output format so the player node can join buffers without restarting the device.
 actor PCMDecoder {
@@ -14,6 +24,7 @@ actor PCMDecoder {
         let isLast: Bool
     }
 
+    private let cancellation: PlaybackCancellation?
     private let file: any PCMFrameSource
     private let targetFormat: AVAudioFormat
     private let converter: AVAudioConverter?
@@ -22,17 +33,21 @@ actor PCMDecoder {
     private var emittedFrames: AVAudioFramePosition = 0
     let duration: Double
 
-    init(url: URL, start: Double = 0, sampleRate: Double = PCMDecoder.sampleRate) throws {
-        guard sampleRate.isFinite, sampleRate > 0,
+    init(url: URL, start: Double = 0, sampleRate: Double = PCMDecoder.sampleRate,
+         cancellation: PlaybackCancellation? = nil) throws {
+        self.cancellation = cancellation
+        try cancellation?.check()
+        guard start.isFinite, sampleRate.isFinite, sampleRate > 0,
               let target = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
             throw CocoaError(.fileReadCorruptFile)
         }
         targetFormat = target
-        file = try Self.open(url)
+        file = try Self.open(url, cancellation: cancellation)
+        try cancellation?.check()
         guard file.length > 0 else { throw CocoaError(.fileReadCorruptFile) }
         let format = file.format
         duration = Double(file.length) / format.sampleRate
-        let startFrame = min(file.length, max(0, AVAudioFramePosition(start * format.sampleRate)))
+        let startFrame = start >= duration ? file.length : max(0, AVAudioFramePosition(max(0, start) * format.sampleRate))
         if startFrame > 0 { try file.seek(to: startFrame) }
         totalOutputFrames = AVAudioFramePosition((Double(file.length - startFrame) * sampleRate / format.sampleRate).rounded())
         input = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8_192)!
@@ -50,23 +65,23 @@ actor PCMDecoder {
         }
     }
 
-    private static func open(_ url: URL) throws -> any PCMFrameSource {
+    private static func open(_ url: URL, cancellation: PlaybackCancellation?) throws -> any PCMFrameSource {
         let isOgg = OggOpusStream.isOgg(url)
         #if canImport(CFFmpegAudio)
         if isOgg {
             // FFmpeg takes the other Ogg codecs, and surround Opus, which it downmixes.
             do { return try OpusFileReader(url: url) }
             catch OggOpusError.notOpus, OggOpusError.unsupportedChannels, OggOpusError.decoderUnavailable {}
-            return try FFmpegFileReader(url: url)
+            return try FFmpegFileReader(url: url, cancellation: cancellation)
         }
         if FFmpegAudioFile.extensions.contains(url.pathExtension.lowercased()) {
-            return try FFmpegFileReader(url: url)
+            return try FFmpegFileReader(url: url, cancellation: cancellation)
         }
         do {
             return try PCMFileReader(url: url)
         } catch {
             // A file whose extension doesn't match its contents may still be readable.
-            if let reader = try? FFmpegFileReader(url: url) { return reader }
+            if let reader = try? FFmpegFileReader(url: url, cancellation: cancellation) { return reader }
             throw error
         }
         #else
@@ -80,6 +95,8 @@ actor PCMDecoder {
     }
 
     func read() throws -> Chunk? {
+        try Task.checkCancellation()
+        try cancellation?.check()
         let remaining = totalOutputFrames - emittedFrames
         guard remaining > 0 else { return nil }
         let count = AVAudioFrameCount(min(AVAudioFramePosition(Self.chunkFrames), remaining))
@@ -104,6 +121,7 @@ actor PCMDecoder {
         } else {
             try file.read(into: output, frameCount: count)
         }
+        try cancellation?.check()
         guard output.frameLength > 0 else { return nil }
         emittedFrames += AVAudioFramePosition(output.frameLength)
         return Chunk(buffer: output, isLast: emittedFrames >= totalOutputFrames)
@@ -303,8 +321,8 @@ private final class FFmpegFileReader: PCMFrameSource {
     let length: AVAudioFramePosition
     private let file: FFmpegAudioFile
 
-    init(url: URL) throws {
-        file = try FFmpegAudioFile(url: url)
+    init(url: URL, cancellation: PlaybackCancellation?) throws {
+        file = try FFmpegAudioFile(url: url, cancellation: cancellation)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: file.sampleRate,
                                          channels: AVAudioChannelCount(file.channels)) else {
             throw CocoaError(.fileReadCorruptFile)

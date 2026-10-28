@@ -1,6 +1,6 @@
 import AVFoundation
 
-struct AudioSource: Equatable {
+struct AudioSource: Equatable, Sendable {
     var index: Int
     let trackID: UUID
     let url: URL
@@ -17,6 +17,7 @@ final class GaplessAudioPlayer {
     private let outputMixer = AVAudioMixerNode()
     private var stemNodes: [AudioStem: AVAudioPlayerNode] = [:]
     private var pump: Task<Void, Never>?
+    private var decodingCancellation: PlaybackCancellation?
     private var generation = UUID()
     private var segments: [Segment] = []
     private var scheduledFrames: AVAudioFramePosition = 0
@@ -77,6 +78,7 @@ final class GaplessAudioPlayer {
     }
 
     deinit {
+        decodingCancellation?.cancel()
         pump?.cancel()
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
     }
@@ -96,13 +98,17 @@ final class GaplessAudioPlayer {
         isBuffering = autoplay
         onStateChanged?()
         let token = generation
+        let cancellation = PlaybackCancellation()
+        decodingCancellation = cancellation
         pump = Task { [weak self] in
-            guard let self else { return }
             var tail = source
             var offset = start
             var decoder: PCMDecoder?
             var stemDecoders: [AudioStem: PCMDecoder] = [:]
-            while !Task.isCancelled && self.generation == token {
+            while !Task.isCancelled {
+                // Keep the player alive for one operation, not for the lifetime
+                // of this task (which the player itself owns).
+                guard let self, self.generation == token else { return }
                 self.poll()
                 guard self.generation == token else { return }
                 let rendered = self.renderedFrames
@@ -110,12 +116,12 @@ final class GaplessAudioPlayer {
                     do {
                         if decoder == nil {
                             self.decodingSource = tail
-                            let opened = try await Task.detached { try PCMDecoder(url: tail.url, start: offset) }.value
+                            let opened = try await Task.detached { [url = tail.url, offset] in try PCMDecoder(url: url, start: offset, cancellation: cancellation) }.value
                             guard self.generation == token else { return }
                             decoder = opened
                             stemDecoders = [:]
                             for (stem, url) in tail.stemFiles ?? [:] {
-                                let stemDecoder = try await Task.detached { try PCMDecoder(url: url, start: offset) }.value
+                                let stemDecoder = try await Task.detached { [offset] in try PCMDecoder(url: url, start: offset, cancellation: cancellation) }.value
                                 guard self.generation == token else { return }
                                 guard abs(stemDecoder.duration - opened.duration) < 1 / PCMDecoder.sampleRate else {
                                     throw NSError(domain: "StemMix", code: 1, userInfo: [NSLocalizedDescriptionKey: "The stems have different lengths. Prepare the track again."])
@@ -196,7 +202,8 @@ final class GaplessAudioPlayer {
         return max(0, position.sampleTime)
     }
 
-    private func poll(completedThrough: AVAudioFramePosition = 0) {
+    private func poll(completedThrough: AVAudioFramePosition = 0, forceTime: Bool = false) {
+        let token = generation
         let frame = max(renderedFrames, wantsPlayback ? completedThrough : 0)
         if let segment = segments.last(where: { $0.startFrame <= frame && $0.endFrame > $0.startFrame }) {
             source = segment.source
@@ -205,10 +212,12 @@ final class GaplessAudioPlayer {
                 let transitioned = reportedSegment != nil
                 reportedSegment = segment.id
                 onTrackChanged?(segment.source, segment.duration, transitioned)
+                guard generation == token else { return }
             }
-            if lastReportedTime == nil || abs(currentTime - lastReportedTime!) >= 0.25 {
+            if forceTime || lastReportedTime == nil || abs(currentTime - lastReportedTime!) >= 0.25 {
                 lastReportedTime = currentTime
                 onTimeChanged?(currentTime)
+                guard generation == token else { return }
             }
             // Retain only the active track and future tracks, even on Repeat One.
             segments.removeAll { $0.endFrame <= segment.startFrame && $0.id != segment.id }
@@ -249,6 +258,7 @@ final class GaplessAudioPlayer {
     }
 
     func pause() {
+        let token = generation
         pausedFrames = renderedFrames
         node.pause()
         for node in stemNodes.values { node.pause() }
@@ -256,6 +266,10 @@ final class GaplessAudioPlayer {
         wantsPlayback = false
         isPlaying = false
         isBuffering = false
+        // Commit the frozen render position before returning. The UI/pump may
+        // have been delayed while the audio thread continued playing.
+        poll(forceTime: true)
+        guard generation == token else { return }
         onStateChanged?()
     }
 
@@ -264,7 +278,7 @@ final class GaplessAudioPlayer {
         load(source, autoplay: wantsPlayback, at: seconds)
     }
 
-    func synchronize() { poll() }
+    func synchronize() { poll(forceTime: true) }
 
     /// Queue edits must invalidate every prepared successor, including a decode
     /// currently in flight. An unchanged prepared sequence keeps playing.
@@ -297,6 +311,7 @@ final class GaplessAudioPlayer {
     private func reset() {
         visualizerAudio.clear()
         generation = UUID()
+        decodingCancellation?.cancel()
         pump?.cancel()
         pump = nil
         node.stop()

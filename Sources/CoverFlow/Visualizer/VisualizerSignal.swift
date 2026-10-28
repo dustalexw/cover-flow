@@ -61,10 +61,13 @@ final class VisualizerSignal {
         let scale = gain * sensitivity * audible
         let lSpectrum = spectrum(left)
         let rSpectrum = spectrum(right)
-        let magnitude = (0..<Self.fftSize / 2).map { index in
-            sqrt((lSpectrum.real[index] * lSpectrum.real[index] + lSpectrum.imaginary[index] * lSpectrum.imaginary[index]
-                + rSpectrum.real[index] * rSpectrum.real[index] + rSpectrum.imaginary[index] * rSpectrum.imaginary[index]) * 0.5)
-                * (4 / Float(Self.fftSize)) * scale
+        var magnitude = [Float](repeating: 0, count: Self.fftSize / 2)
+        let normalization: Float = 4 / Float(Self.fftSize)
+        for index in magnitude.indices {
+            let lr = lSpectrum.real[index], li = lSpectrum.imaginary[index]
+            let rr = rSpectrum.real[index], ri = rSpectrum.imaginary[index]
+            let energy: Float = lr * lr + li * li + rr * rr + ri * ri
+            magnitude[index] = sqrt(energy * 0.5) * normalization * scale
         }
         var targets = [Float](repeating: 0, count: Self.bandCount)
         for band in targets.indices {
