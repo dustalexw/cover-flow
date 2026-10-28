@@ -53,6 +53,8 @@ struct CFAudioFile {
     int channels;
     int rate;
     int64_t length;
+    bool readMetadata;
+    bool scannedDuration;
     bool packetsDone;
     bool decoderDone;
 };
@@ -143,6 +145,16 @@ static bool openStream(CFAudioFile *file, char *error, size_t errorSize) {
     if ((result = avcodec_open2(file->codec, decoder, NULL)) < 0) {
         fail(error, errorSize, "The audio decoder couldn’t start", result);
         return false;
+    }
+    if (!file->readMetadata) {
+        // Codec extradata and side data stay intact. Only display tags/pictures
+        // are released; the metadata worker reads those using a separate handle.
+        av_dict_free(&file->format->metadata);
+        for (unsigned i = 0; i < file->format->nb_streams; i++) {
+            AVStream *stream = file->format->streams[i];
+            av_packet_unref(&stream->attached_pic);
+            av_dict_free(&stream->metadata);
+        }
     }
     return true;
 }
@@ -332,6 +344,12 @@ CFAudioFile *cf_audio_open(const char *path, char *error, size_t errorSize) {
 
 CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt interrupt,
                                         void *context, char *error, size_t errorSize) {
+    return cf_audio_open_cached(path, -1, 0, true, interrupt, context, error, errorSize);
+}
+
+CFAudioFile *cf_audio_open_cached(const char *path, int64_t cachedFrames, int cachedRate,
+                                bool readMetadata, CFAudioInterrupt interrupt, void *context,
+                                char *error, size_t errorSize) {
     // FFmpeg's warnings about unusual but readable files would only fill the console.
     pthread_once(&loggingOnce, configureLogging);
     if (!path || !path[0]) { fail(error, errorSize, "Missing audio filename", AVERROR(EINVAL)); return NULL; }
@@ -341,6 +359,7 @@ CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt inte
         fail(error, errorSize, "Out of memory", 0);
         return NULL;
     }
+    file->readMetadata = readMetadata;
     file->interrupt = interrupt;
     file->interruptContext = context;
     file->streamIndex = -1;
@@ -375,7 +394,9 @@ CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt inte
         fail(error, errorSize, "The audio couldn’t be decoded", result);
         goto failed;
     }
+    if (file->length < 0 && cachedFrames > 0 && cachedRate == file->rate) file->length = cachedFrames;
     if (file->length < 0) {
+        file->scannedDuration = true;
         // Some containers (Musepack) record no duration: count the decoded samples.
         int64_t count = 0;
         do {
@@ -397,6 +418,8 @@ failed:
     cf_audio_close(file);
     return NULL;
 }
+
+bool cf_audio_scanned_duration(const CFAudioFile *file) { return file->scannedDuration; }
 
 int cf_audio_channels(const CFAudioFile *file) { return file->channels; }
 double cf_audio_sample_rate(const CFAudioFile *file) { return file->rate; }

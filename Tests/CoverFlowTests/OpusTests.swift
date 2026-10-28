@@ -49,6 +49,51 @@ final class OpusTests: XCTestCase {
         XCTAssertNil(OpusPacket.sampleCount([0x1B, 0x03]))           // 180 ms exceeds the limit
     }
 
+    func testPlaybackSkipsLargeMultiPageCommentPacketWithoutChangingAudio() throws {
+        let original = try OggOpusStream(url: fixture("tags.opus"))
+        // Assemble a large continued OpusTags packet across Ogg pages. The parser
+        // does not use checksums, so synthetic pages can leave that field zero.
+        let bytes = try Data(contentsOf: fixture("tags.opus"))
+        let headPageLength = 27 + Int(bytes[26]) + bytes[27..<(27 + Int(bytes[26]))].reduce(0) { $0 + Int($1) }
+        var data = bytes.prefix(headPageLength)
+        func page(_ payload: Data, segments: [UInt8], granule: Int64, flags: UInt8) -> Data {
+            var header = Data("OggS".utf8) + Data([0, flags])
+            var granule = granule.littleEndian
+            withUnsafeBytes(of: &granule) { header.append(contentsOf: $0) }
+            header.append(contentsOf: bytes[14..<18])
+            header.append(Data(count: 8))
+            header.append(UInt8(segments.count)); header.append(contentsOf: segments)
+            return header + payload
+        }
+        let comments = Data("OpusTags".utf8) + Data(repeating: 65, count: 1_000_000)
+        var offset = 0
+        while offset < comments.count {
+            let count = min(65_025, comments.count - offset)
+            var segments = [UInt8](repeating: 255, count: count / 255)
+            if count < 65_025 { segments.append(UInt8(count % 255)) }
+            data.append(page(comments.subdata(in: offset..<(offset + count)), segments: segments,
+                             granule: -1, flags: offset == 0 ? 0 : 1))
+            offset += count
+        }
+        // Retain the original audio pages, with their exact granule positions.
+        let audioOffset = original.pages[original.audioStart.page].bodyOffset - 27
+            - original.pages[original.audioStart.page].segments.count
+        data.append(bytes.suffix(from: audioOffset))
+        let metadata = try OggOpusStream(data: data)
+        let playback = try OggOpusStream(data: data, readComments: false)
+        XCTAssertEqual(metadata.comments.count, comments.count - 8)
+        XCTAssertTrue(playback.comments.isEmpty)
+        XCTAssertEqual(playback.length, original.length)
+        var expected = original.packets(), actual = playback.packets()
+        var packet: [UInt8] = []
+        while let next = expected.next() {
+            XCTAssertTrue(actual.next(into: &packet))
+            XCTAssertEqual(packet, next)
+        }
+        XCTAssertFalse(actual.next(into: &packet))
+        XCTAssertTrue(packet.isEmpty)
+    }
+
     func testMetadataComesFromOpusTags() async throws {
         let meta = try await MetadataReader.read(fixture("tags.opus"))
         XCTAssertEqual(meta.title, "Tag Preservation")

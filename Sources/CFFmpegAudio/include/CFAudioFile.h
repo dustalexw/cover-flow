@@ -18,6 +18,12 @@ CFAudioFile *cf_audio_open(const char *path, char *error, size_t errorSize);
 typedef bool (*CFAudioInterrupt)(void *context);
 CFAudioFile *cf_audio_open_interruptible(const char *path, CFAudioInterrupt interrupt,
                                         void *context, char *error, size_t errorSize);
+/// A verified same-file duration avoids re-counting unknown-length streams.
+/// Playback can discard display metadata after opening; importers keep it.
+CFAudioFile *cf_audio_open_cached(const char *path, int64_t cachedFrames, int cachedRate,
+                                bool readMetadata, CFAudioInterrupt interrupt, void *context,
+                                char *error, size_t errorSize);
+bool cf_audio_scanned_duration(const CFAudioFile *file);
 void cf_audio_close(CFAudioFile *file);
 
 /// 1 or 2.

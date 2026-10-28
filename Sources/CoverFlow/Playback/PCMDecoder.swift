@@ -193,12 +193,20 @@ private final class OpusFileReader: PCMFrameSource {
     private var position: Int64
     /// Granule position of the next sample to return.
     private var next: Int64
-    private var decoder: (converter: AVAudioConverter, input: AVAudioFormat, samples: Int)?
+    private struct Conversion {
+        let converter: AVAudioConverter
+        let input: AVAudioFormat
+        let samples: Int
+        let output: AVAudioPCMBuffer
+        var compressed: AVAudioCompressedBuffer
+    }
+    private var decoder: Conversion?
+    private var packet: [UInt8] = []
     private var pending: AVAudioPCMBuffer?
     private var pendingRange = 0..<0
 
     init(url: URL) throws {
-        stream = try OggOpusStream(url: url)
+        stream = try OggOpusStream(url: url, readComments: false)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: Double(OpusPacket.sampleRate),
                                          channels: AVAudioChannelCount(stream.head.channels)) else {
             throw OggOpusError.damaged
@@ -250,7 +258,7 @@ private final class OpusFileReader: PCMFrameSource {
     /// Decodes one packet and keeps its samples from `next` up to the end of the stream.
     /// Every packet is decoded, even one that is skipped, so the decoder state stays continuous.
     private func decodeNextPacket() throws -> Bool {
-        guard let packet = packets.next() else { return false }
+        guard packets.next(into: &packet) else { return false }
         guard let samples = OpusPacket.sampleCount(packet) else { throw OggOpusError.damaged }
         let start = position
         position += Int64(samples)
@@ -275,12 +283,20 @@ private final class OpusFileReader: PCMFrameSource {
                   let converter = AVAudioConverter(from: input, to: format) else {
                 throw OggOpusError.decoderUnavailable
             }
-            decoder = (converter, input, samples)
+            guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples)) else {
+                throw OggOpusError.decoderUnavailable
+            }
+            decoder = Conversion(converter: converter, input: input, samples: samples, output: output,
+                compressed: AVAudioCompressedBuffer(format: input, packetCapacity: 1, maximumPacketSize: max(256, packet.count)))
         }
-        guard let decoder, let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples)) else {
-            throw OggOpusError.decoderUnavailable
+        guard var decoder else { throw OggOpusError.decoderUnavailable }
+        if packet.count > Int(decoder.compressed.byteCapacity) {
+            decoder.compressed = AVAudioCompressedBuffer(format: decoder.input, packetCapacity: 1,
+                maximumPacketSize: max(packet.count, Int(decoder.compressed.byteCapacity) * 2))
+            self.decoder = decoder
         }
-        let compressed = AVAudioCompressedBuffer(format: decoder.input, packetCapacity: 1, maximumPacketSize: packet.count)
+        let compressed = decoder.compressed, output = decoder.output
+        output.frameLength = 0
         packet.withUnsafeBytes { compressed.data.copyMemory(from: $0.baseAddress!, byteCount: packet.count) }
         compressed.byteLength = UInt32(packet.count)
         compressed.packetCount = 1
@@ -322,7 +338,7 @@ private final class FFmpegFileReader: PCMFrameSource {
     private let file: FFmpegAudioFile
 
     init(url: URL, cancellation: PlaybackCancellation?) throws {
-        file = try FFmpegAudioFile(url: url, cancellation: cancellation)
+        file = try FFmpegAudioFile(url: url, cancellation: cancellation, readMetadata: false)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: file.sampleRate,
                                          channels: AVAudioChannelCount(file.channels)) else {
             throw CocoaError(.fileReadCorruptFile)

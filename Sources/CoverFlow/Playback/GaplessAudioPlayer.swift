@@ -239,7 +239,10 @@ final class GaplessAudioPlayer {
         try AVAudioSession.sharedInstance().setActive(true)
         #endif
         if !engine.isRunning { try engine.start() }
-        let time = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.03))
+        // Every stem must be armed before the shared start time reaches the
+        // render thread. Cold multi-node starts need more headroom on slower Macs.
+        let lead = source?.stemFiles?.isEmpty == false ? 0.15 : 0.03
+        let time = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: lead))
         node.play(at: time)
         for node in stemNodes.values { node.play(at: time) }
     }

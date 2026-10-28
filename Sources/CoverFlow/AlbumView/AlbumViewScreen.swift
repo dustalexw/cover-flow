@@ -363,6 +363,7 @@ struct AlbumViewTopBar: View {
                 .help("Open Lyrics (⌘4)").accessibilityLabel("Lyrics")
 
             if controller.preset == .immersive {
+                ImmersiveSceneStyleMenu()
                 Button { controller.immersiveScenes.toggle() } label: {
                     Image(systemName: controller.immersiveScenes ? "photo.artframe" : "photo")
                 }
@@ -503,5 +504,46 @@ struct WindowDragArea: NSViewRepresentable {
                 window?.performDrag(with: event)
             }
         }
+    }
+}
+
+/// A per-album choice; changing immersive scenes never changes the panel style.
+private struct ImmersiveSceneStyleMenu: View {
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var player: PlayerEngine
+    @EnvironmentObject private var controller: AlbumViewController
+    private var album: Album? { player.currentAlbum }
+    private var selected: SceneRefinementStyle { album?.panelAppearance.immersiveStyle ?? .extend }
+
+    var body: some View {
+        Menu {
+            ForEach(SceneRefinementStyle.allCases) { style in
+                Button {
+                    guard let album else { return }
+                    var appearance = album.panelAppearance
+                    appearance.immersiveRefinementStyle = style
+                    library.updateAppearance(album.id, appearance: appearance)
+                    controller.immersiveScenes = true
+                } label: {
+                    if selected == style {
+                        Label(style.label, systemImage: "checkmark")
+                    } else {
+                        Text(style.label)
+                    }
+                }
+                .help(style.summary)
+            }
+        } label: {
+            Text("Scene: \(selected.label)")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(album?.hasArtwork != true || !AlbumSceneRefiner.isAvailable)
+        .help(AlbumSceneRefiner.isAvailable
+              ? "Choose an immersive scene style for this album. First preparation takes about 10–40 seconds, then it is saved."
+              : AlbumSceneRefiner.unavailableReason)
+        .accessibilityLabel("Immersive scene style")
+        .accessibilityValue(selected.label)
     }
 }

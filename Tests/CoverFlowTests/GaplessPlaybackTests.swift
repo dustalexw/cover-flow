@@ -90,19 +90,19 @@ final class GaplessPlaybackTests: XCTestCase {
                 player.load(AudioSource(index: 0, trackID: UUID(), url: positive,
                                         stemFiles: [.drums: positive, .bass: negative]), autoplay: true)
                 defer { player.stop() }
-                @MainActor func checkCancellation() {
+                @MainActor func checkCancellation(_ stage: String) {
                     var values = Array(repeating: Float(0), count: 8192)
                     let frames = values.withUnsafeMutableBufferPointer { player.visualizerAudio.drain(into: $0) }
                     XCTAssertGreaterThan(frames, 0)
                     XCTAssertLessThan(values.prefix(frames * 2).map(abs).max() ?? 0, 0.000001,
-                                      "Opposite stems must cancel; misaligned nodes create a tone.")
+                                      "Opposite stems must cancel at \(stage); misaligned nodes create a tone.")
                 }
-                try await Task.sleep(for: .milliseconds(600)); checkCancellation()
+                try await Task.sleep(for: .milliseconds(600)); checkCancellation("initial start")
                 player.pause()
                 try await Task.sleep(for: .milliseconds(80)); player.play()
-                try await Task.sleep(for: .milliseconds(300)); checkCancellation()
+                try await Task.sleep(for: .milliseconds(300)); checkCancellation("resume")
                 player.seek(to: 1.5)
-                try await Task.sleep(for: .milliseconds(400)); checkCancellation()
+                try await Task.sleep(for: .milliseconds(400)); checkCancellation("seek")
             } catch { XCTFail(error.localizedDescription) }
             completed.fulfill()
         }

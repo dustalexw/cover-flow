@@ -24,6 +24,13 @@ int main(int argc, char **argv) {
             if (!file) { fprintf(stderr, "%s: %s\n", path, error); return 1; }
             int64_t length = cf_audio_length(file);
             assert(length > 0 && cf_audio_channels(file) > 0 && cf_audio_channels(file) <= 2);
+            // Exercise cached startup and discarded metadata through reads, seek,
+            // cancellation and cleanup as well as the legacy metadata API.
+            int rate = (int)cf_audio_sample_rate(file);
+            cf_audio_close(file);
+            file = cf_audio_open_cached(path, length, rate, false, cancelled, &interrupt, error, sizeof error);
+            assert(file && !cf_audio_scanned_duration(file));
+            assert(cf_audio_length(file) == length);
             for (int seek = 0; seek < 4; seek++) {
                 assert(cf_audio_seek(file, length * seek / 5, error, sizeof error));
                 long count = cf_audio_read(file, channels, 4096, error, sizeof error);
@@ -40,6 +47,11 @@ int main(int argc, char **argv) {
             iterations++;
         }
     }
+    // An incompatible duration hint must never bypass the exact sample count.
+    snprintf(path, sizeof path, "%s/tone.mpc", argv[1]);
+    CFAudioFile *mismatch = cf_audio_open_cached(path, 1, 1, false, NULL, NULL, error, sizeof error);
+    assert(mismatch && cf_audio_scanned_duration(mismatch) && cf_audio_length(mismatch) > 1);
+    cf_audio_close(mismatch);
     char damaged[] = "/tmp/cover-flow-corrupt-XXXXXX";
     int descriptor = mkstemp(damaged);
     assert(descriptor >= 0);
@@ -53,6 +65,6 @@ int main(int argc, char **argv) {
         assert(!cf_audio_open(NULL, error, sizeof error));
     }
     unlink(damaged);
-    printf("Passed %d decoder lifecycles, 6000 seeks, cancellation, and malformed-input cleanup.\n", iterations);
+    printf("Passed %d cold/cached decoder cycles, 6000 seeks, cancellation, and malformed-input cleanup.\n", iterations);
     return 0;
 }
