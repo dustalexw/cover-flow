@@ -24,16 +24,27 @@ final class FFmpegAudioFile {
     let sampleRate: Double
     /// Frames, from the container; decoding may end slightly sooner.
     let length: Int64
+    let scannedDuration: Bool
 
-    init(url: URL, cancellation: PlaybackCancellation? = nil) throws {
+    init(url: URL, cancellation: PlaybackCancellation? = nil, readMetadata: Bool = true,
+         durationCache: FFmpegDurationCache = .shared) throws {
         self.cancellation = cancellation
         try cancellation?.check()
         var message = [CChar](repeating: 0, count: 512)
-        let opened = withExtendedLifetime(cancellation) {
-            cf_audio_open_interruptible(url.path, { context in
-                guard let context else { return false }
-                return Unmanaged<PlaybackCancellation>.fromOpaque(context).takeUnretainedValue().isCancelled
-            }, cancellation.map { Unmanaged.passUnretained($0).toOpaque() }, &message, message.count)
+        let revision = FFmpegDurationCache.Revision.read(url)
+        let cached = durationCache.value(for: revision)
+        func open(_ info: FFmpegDurationCache.Info?) -> OpaquePointer? {
+            withExtendedLifetime(cancellation) {
+                cf_audio_open_cached(url.path, info?.frames ?? -1, info?.rate ?? 0, readMetadata, { context in
+                    guard let context else { return false }
+                    return Unmanaged<PlaybackCancellation>.fromOpaque(context).takeUnretainedValue().isCancelled
+                }, cancellation.map { Unmanaged.passUnretained($0).toOpaque() }, &message, message.count)
+            }
+        }
+        var opened = open(cached)
+        // A file replaced during probing must not use a cached length.
+        if cached != nil, let candidate = opened, FFmpegDurationCache.Revision.read(url) != revision {
+            cf_audio_close(candidate); opened = open(nil)
         }
         guard let handle = opened else {
             try cancellation?.check()
@@ -43,6 +54,10 @@ final class FFmpegAudioFile {
         channels = Int(cf_audio_channels(handle))
         sampleRate = cf_audio_sample_rate(handle)
         length = cf_audio_length(handle)
+        scannedDuration = cf_audio_scanned_duration(handle)
+        if FFmpegDurationCache.Revision.read(url) == revision {
+            durationCache.insert(.init(frames: length, rate: Int32(sampleRate)), for: revision)
+        }
     }
 
     deinit { cf_audio_close(handle) }

@@ -108,11 +108,11 @@ final class OggOpusStream {
         return (try? handle.read(upToCount: 4)) == Data("OggS".utf8)
     }
 
-    convenience init(url: URL) throws {
-        try self.init(data: Data(contentsOf: url, options: .alwaysMapped))
+    convenience init(url: URL, readComments: Bool = true) throws {
+        try self.init(data: Data(contentsOf: url, options: .alwaysMapped), readComments: readComments)
     }
 
-    init(data: Data) throws {
+    init(data: Data, readComments: Bool = true) throws {
         self.data = data
         let all = Self.scanPages(data)
         // An Ogg file can multiplex streams; use the first whose first packet is OpusHead.
@@ -131,7 +131,7 @@ final class OggOpusStream {
         // Family 0 is mono or stereo. Other families carry surround channel mappings.
         guard head.mappingFamily == 0, head.channels <= 2 else { throw OggOpusError.unsupportedChannels(head.channels) }
         self.head = head
-        guard let tags = reader.next() else { throw OggOpusError.damaged }
+        guard let tags = reader.next(retainingPayload: readComments) else { throw OggOpusError.damaged }
         comments = tags.starts(with: Array("OpusTags".utf8)) ? Array(tags.dropFirst(8)) : []
         reader.normalize()
         let audioStart = reader.cursor
@@ -190,8 +190,15 @@ final class OggOpusStream {
         }
 
         /// The next complete packet. A packet cut off by the end of the file is dropped.
-        mutating func next() -> [UInt8]? {
+        mutating func next(retainingPayload: Bool = true) -> [UInt8]? {
             var packet: [UInt8] = []
+            return next(into: &packet, retainingPayload: retainingPayload) ? packet : nil
+        }
+
+        /// Reuse packet storage for audio; large comment packets can be traversed
+        /// from their lacing table without copying or touching their payload.
+        mutating func next(into packet: inout [UInt8], retainingPayload: Bool = true) -> Bool {
+            packet.removeAll(keepingCapacity: true)
             while cursor.page < pages.count {
                 let page = pages[cursor.page]
                 guard cursor.segment < page.segments.count else {
@@ -201,13 +208,13 @@ final class OggOpusStream {
                     continue
                 }
                 let length = Int(page.segments[cursor.segment])
-                guard cursor.offset + length <= data.count else { return nil }
-                packet.append(contentsOf: data[cursor.offset..<(cursor.offset + length)])
+                guard cursor.offset + length <= data.count else { return false }
+                if retainingPayload { packet.append(contentsOf: data[cursor.offset..<(cursor.offset + length)]) }
                 cursor.segment += 1
                 cursor.offset += length
-                if length < 255 { return packet }
+                if length < 255 { return true }
             }
-            return nil
+            return false
         }
 
         /// Moves a cursor left at the end of a page to the start of the next one.

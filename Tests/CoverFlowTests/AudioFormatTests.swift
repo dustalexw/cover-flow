@@ -84,6 +84,71 @@ final class AudioFormatTests: XCTestCase {
         }
     }
 
+    func testUnknownDurationIsScannedOncePerUnchangedFile() throws {
+        let url = try copy("tone.mpc")
+        let cache = FFmpegDurationCache()
+        let cold = try FFmpegAudioFile(url: url, durationCache: cache)
+        XCTAssertTrue(cold.scannedDuration)
+        let warm = try FFmpegAudioFile(url: url, durationCache: cache)
+        XCTAssertFalse(warm.scannedDuration)
+        XCTAssertEqual(warm.length, cold.length)
+        XCTAssertEqual(warm.sampleRate, cold.sampleRate)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: cold.sampleRate, channels: 2))
+        let a = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        let b = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        for frame in [Int64(0), cold.length / 2] {
+            try cold.seek(to: frame); try warm.seek(to: frame)
+            let count = try cold.read(into: a.floatChannelData!, frames: 4096)
+            XCTAssertEqual(try warm.read(into: b.floatChannelData!, frames: 4096), count)
+            XCTAssertEqual(Array(UnsafeBufferPointer(start: a.floatChannelData![0], count: count)),
+                           Array(UnsafeBufferPointer(start: b.floatChannelData![0], count: count)))
+        }
+        // Replacement with the same bytes and restored mtime must invalidate the probe.
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let bytes = try Data(contentsOf: url)
+        try bytes.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.modificationDate: attributes[.modificationDate]!], ofItemAtPath: url.path)
+        XCTAssertTrue(try FFmpegAudioFile(url: url, durationCache: cache).scannedDuration)
+    }
+
+    func testDurationCacheEvictsLeastRecentlyUsedProbe() throws {
+        let cache = FFmpegDurationCache(capacity: 2)
+        let first = try copy("tone.mpc")
+        let second = directory.appendingPathComponent("second.mpc")
+        let third = directory.appendingPathComponent("third.mpc")
+        try FileManager.default.copyItem(at: first, to: second)
+        try FileManager.default.copyItem(at: first, to: third)
+        for url in [first, second] { XCTAssertTrue(try FFmpegAudioFile(url: url, durationCache: cache).scannedDuration) }
+        XCTAssertFalse(try FFmpegAudioFile(url: first, durationCache: cache).scannedDuration)
+        XCTAssertTrue(try FFmpegAudioFile(url: third, durationCache: cache).scannedDuration)
+        XCTAssertTrue(try FFmpegAudioFile(url: second, durationCache: cache).scannedDuration)
+    }
+
+    func testPlaybackHandleDiscardsTagsAndArtworkButKeepsAudio() throws {
+        let url = fixture("tags.ogg")
+        let metadata = try FFmpegAudioFile(url: url)
+        let playback = try FFmpegAudioFile(url: url, readMetadata: false)
+        XCTAssertEqual(metadata.tag("title"), "Tag Preservation")
+        XCTAssertNotNil(metadata.picture)
+        XCTAssertNil(playback.tag("title"))
+        XCTAssertNil(playback.picture)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: playback.sampleRate, channels: 2))
+        let a = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        let b = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096))
+        let count = try metadata.read(into: a.floatChannelData!, frames: 4096)
+        XCTAssertEqual(try playback.read(into: b.floatChannelData!, frames: 4096), count)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: a.floatChannelData![0], count: count)),
+                       Array(UnsafeBufferPointer(start: b.floatChannelData![0], count: count)))
+    }
+
+    @MainActor
+    func testCancelledMetadataImportPreservesCancellation() async throws {
+        let task = Task { try await MetadataReader.read(fixture("tone.mpc")) }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Cancelled import must stop") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
     func testInvalidAndExtremeSeekInputsCannotTrapTheDecoder() async throws {
         for time in [Double.nan, Double.infinity, -Double.infinity] {
             XCTAssertThrowsError(try PCMDecoder(url: fixture("tone.wv"), start: time))

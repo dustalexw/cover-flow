@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-struct ParsedMetadata {
+struct ParsedMetadata: Sendable {
     var title: String?
     var artist: String?
     var album: String?
@@ -49,31 +49,22 @@ enum MetadataReader {
     ]).subtracting(supportedExtensions)
 
     static func read(_ url: URL) async throws -> ParsedMetadata {
-        var meta: ParsedMetadata
-        let isOgg = OggOpusStream.isOgg(url)
-        if isOgg, let opus = try readOggOpus(url) {
-            meta = opus
-        } else if usesFFmpeg(url, isOgg: isOgg) {
-            meta = try readFFmpeg(url)
-        } else if isOgg {
-            throw MetadataError.notPlayable
-        } else {
-            meta = try await readAsset(url)
+        let cancellation = PlaybackCancellation()
+        return try await withTaskCancellationHandler {
+            do {
+                return try await MetadataIngestionWorker.shared.read(url, cancellation: cancellation)
+            } catch {
+                try cancellation.check()
+                throw error
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
-
-        // Fallbacks: filename for title and numbering, folder for album, folder image for artwork.
-        let parsed = parseFilename(url.deletingPathExtension().lastPathComponent)
-        if meta.title == nil { meta.title = parsed.title; meta.usedFallback = true }
-        if meta.trackNumber == nil { meta.trackNumber = parsed.track }
-        if meta.discNumber == nil { meta.discNumber = parsed.disc }
-        if meta.album == nil { meta.usedFallback = true }
-        if meta.artwork == nil { meta.artwork = folderArtwork(near: url) }
-        return meta
     }
 
     /// AVFoundation can’t open Ogg, so Opus tags and duration come from the stream headers.
     /// Returns nil for another Ogg codec, or for surround Opus when FFmpeg can downmix it.
-    private static func readOggOpus(_ url: URL) throws -> ParsedMetadata? {
+    fileprivate static func readOggOpus(_ url: URL) throws -> ParsedMetadata? {
         let stream: OggOpusStream
         do {
             stream = try OggOpusStream(url: url)
@@ -91,7 +82,7 @@ enum MetadataReader {
         return meta
     }
 
-    private static func usesFFmpeg(_ url: URL, isOgg: Bool) -> Bool {
+    fileprivate static func usesFFmpeg(_ url: URL, isOgg: Bool) -> Bool {
         #if canImport(CFFmpegAudio)
         return isOgg || FFmpegAudioFile.extensions.contains(url.pathExtension.lowercased())
         #else
@@ -99,12 +90,13 @@ enum MetadataReader {
         #endif
     }
 
-    private static func readFFmpeg(_ url: URL) throws -> ParsedMetadata {
+    fileprivate static func readFFmpeg(_ url: URL, cancellation: PlaybackCancellation) throws -> ParsedMetadata {
         #if canImport(CFFmpegAudio)
         let file: FFmpegAudioFile
         do {
-            file = try FFmpegAudioFile(url: url)
+            file = try FFmpegAudioFile(url: url, cancellation: cancellation)
         } catch {
+            try cancellation.check()
             throw MetadataError.unreadable(error.localizedDescription)
         }
         guard file.length > 0 else { throw MetadataError.unreadable("The file contains no audio.") }
@@ -126,7 +118,7 @@ enum MetadataReader {
         #endif
     }
 
-    private static func readAsset(_ url: URL) async throws -> ParsedMetadata {
+    fileprivate static func readAsset(_ url: URL) async throws -> ParsedMetadata {
         var meta = ParsedMetadata()
         let asset = AVURLAsset(url: url)
         let playable: Bool
@@ -342,5 +334,36 @@ enum VorbisComments {
         i += 4 + descLen + 16
         guard let dataLen = be32(b, i), dataLen > 0, i + 4 + dataLen <= b.count else { return nil }
         return (type, Data(b[(i + 4)..<(i + 4 + dataLen)]))
+    }
+}
+
+/// Synchronous tag and folder-art I/O never runs on the UI or playback actor.
+/// Serializes heavy imports while allowing asynchronous AVAsset reads to suspend.
+private actor MetadataIngestionWorker {
+    static let shared = MetadataIngestionWorker()
+    func read(_ url: URL, cancellation: PlaybackCancellation) async throws -> ParsedMetadata {
+        try cancellation.check()
+        var meta: ParsedMetadata
+        let isOgg = OggOpusStream.isOgg(url)
+        if isOgg, let opus = try MetadataReader.readOggOpus(url) {
+            meta = opus
+        } else if MetadataReader.usesFFmpeg(url, isOgg: isOgg) {
+            meta = try MetadataReader.readFFmpeg(url, cancellation: cancellation)
+        } else if isOgg {
+            throw MetadataError.notPlayable
+        } else {
+            meta = try await MetadataReader.readAsset(url)
+        }
+
+        try cancellation.check()
+        // Fallbacks: filename for title and numbering, folder for album, folder image for artwork.
+        let parsed = MetadataReader.parseFilename(url.deletingPathExtension().lastPathComponent)
+        if meta.title == nil { meta.title = parsed.title; meta.usedFallback = true }
+        if meta.trackNumber == nil { meta.trackNumber = parsed.track }
+        if meta.discNumber == nil { meta.discNumber = parsed.disc }
+        if meta.album == nil { meta.usedFallback = true }
+        if meta.artwork == nil { meta.artwork = MetadataReader.folderArtwork(near: url) }
+        try cancellation.check()
+        return meta
     }
 }

@@ -63,7 +63,7 @@ pass validation before a cached runtime is used. A new installation is staged an
 validated before replacing the old one; interruption/failure preserves the working
 runtime. Build parallelism has a bounded default and a COVERFLOW_BUILD_JOBS override.
 
-## Validation
+## v1.8.1 validation baseline
 
 - Full local Mac suite on Apple silicon and Intel/Rosetta with Core Audio/GPU
   access: **120 tests, zero failures**;
@@ -86,3 +86,41 @@ runtime. Build parallelism has a bounded default and a COVERFLOW_BUILD_JOBS over
 These checks exercise the included codecs and failure cases; they do not guarantee
 all damaged files or all physical audio devices are failure-free. The published
 v1.8.0 release is not modified by this development work.
+
+## Follow-up to the v1.8.1 audit
+
+Verified the released implementation before changing the transport: playback uses
+AVAudioPlayerNode with bounded prebuffering, artwork pixels already decode on a
+background actor, and FFmpeg remains a macOS-only universal shared dependency.
+No AVAudioSourceNode/ring-buffer or cross-platform XCFramework rewrite is needed
+for these fixes.
+
+- Unknown-duration streams such as Musepack previously decoded to EOF on every
+  open. A bounded, session-only LRU now reuses the measured frame count for an
+  unchanged file. Path, device, inode, size, nanosecond mtime and ctime identify
+  each revision; changed/replaced files are probed again. The first uncached open
+  still counts the samples, preserving accurate seeking and end-of-track timing.
+  The native bridge rejects hints with a different sample rate.
+- Opus playback traverses OpusTags lacing without copying the comment/artwork
+  payload. Import still reads all tags. Audio packet storage, compressed input and
+  decoded output buffers are reused; changing Opus packet duration creates a new
+  converter as before, and seeks discard its state.
+- FFmpeg playback handles release display dictionaries and attached-picture
+  packets after codec setup, while import uses metadata-enabled handles. This
+  reduces retention; it does not bypass FFmpeg's initial container/header parsing.
+- Metadata ingestion has an explicit background actor, separate from playback and
+  ImageIO decoding. Import cancellation reaches FFmpeg's probe/count loop and
+  remains CancellationError instead of being reported as an unreadable file.
+
+Regression coverage includes equal cold/warm PCM before and after seeking,
+replacement with unchanged bytes/mtime, bounded LRU eviction, metadata retention
+versus playback, cancellation, and a one-megabyte multi-page OpusTags packet.
+Existing mono/stereo Opus waveform and seek tests cover buffer reuse. Native
+ASan/UBSan stress now exercises both cold and cached opens, discarded metadata,
+and mismatched-rate hints in addition to the existing error/ownership cases.
+
+Follow-up validation: the full 125-test Mac suite passes on Apple silicon and
+Intel/Rosetta (three optional external-model integrations skipped). The native
+stress run passes 1,200 cold/cached cycles (2,400 opens) and 6,000 seeks under
+ASan/UBSan; macOS leaks reports zero leaks. The universal Mac app passes strict
+signature validation, and the shared code builds for iPad devices.
