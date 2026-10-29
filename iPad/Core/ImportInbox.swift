@@ -55,12 +55,20 @@ struct ImportInbox {
       ? (fm.enumerator(at: item, includingPropertiesForKeys: [.isRegularFileKey], options: [])?
         .compactMap { $0 as? URL } ?? [])
       : [item]
-    var addedAny = false
     let itemPath = Self.key(item)
+    let addedAny = files.contains { imported.contains(Self.key($0)) }
+    if isFolder, !unfinished, !addedAny {
+      // Nothing from this folder made it in: keep it together in Not Imported, or drop it if it's empty.
+      if Self.isEmpty(item) {
+        try? fm.removeItem(at: item)
+      } else {
+        setAside(item, as: item.lastPathComponent, withLyrics: false)
+      }
+      return
+    }
     for file in files {
       let path = Self.key(file)
       if imported.contains(path) {
-        addedAny = true
         Self.removeWithLyrics(file)
       } else if failed.contains(path) {
         let relative =
@@ -70,12 +78,8 @@ struct ImportInbox {
         setAside(file, as: relative, withLyrics: true)
       }
     }
-    guard isFolder, !unfinished, fm.fileExists(atPath: item.path) else { return }
-    if addedAny || Self.isEmpty(item) {
-      try? fm.removeItem(at: item)
-    } else {
-      setAside(item, as: item.lastPathComponent, withLyrics: false)
-    }
+    // Its music is in the collection: what's left (covers, playlists…) goes with the folder.
+    if isFolder, !unfinished { try? fm.removeItem(at: item) }
   }
 
   /// Moves something into Not Imported, keeping its name (numbered if that name is taken).

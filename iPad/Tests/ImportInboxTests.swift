@@ -48,6 +48,16 @@ final class ImportInboxTests: XCTestCase {
     XCTAssertFalse(exists(inbox.notImported.appendingPathComponent("Album/Disc 1/01.mp3")))
   }
 
+  func testAlbumThatFailedEntirelyStaysTogether() throws {
+    let album = folder.appendingPathComponent("Album")
+    let broken = try write("Album/01.mp3")
+    try write("Album/cover.jpg")
+    inbox.finish(album, imported: [], failed: [ImportInbox.key(broken)], unfinished: false)
+    XCTAssertTrue(exists(inbox.notImported.appendingPathComponent("Album/01.mp3")))
+    XCTAssertTrue(exists(inbox.notImported.appendingPathComponent("Album/cover.jpg")))
+    XCTAssertFalse(exists(inbox.notImported.appendingPathComponent("Album 2")))
+  }
+
   func testCancelledImportKeepsWhatIsLeft() throws {
     let album = folder.appendingPathComponent("Album")
     let done = try write("Album/01.mp3")
