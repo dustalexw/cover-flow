@@ -8,6 +8,7 @@ struct MobileRootView: View {
   @EnvironmentObject private var karaoke: MobileKaraokeStore
   @State private var importingFiles = false
   @State private var importingFolder = false
+  @State private var dropTargeted = false
   var body: some View {
     NavigationSplitView {
       List(
@@ -110,6 +111,21 @@ struct MobileRootView: View {
     }
     .onChange(of: player.currentTrackID, initial: true) { _, _ in
       karaoke.refresh(player.currentTrack)
+    }
+    // Audio files, album folders and zip archives dragged in from Files or another app.
+    .onDrop(of: [.item], isTargeted: $dropTargeted) { app.importInbox.accept($0) }
+    .overlay {
+      if dropTargeted {
+        RoundedRectangle(cornerRadius: 24)
+          .strokeBorder(MobilePalette.brass, style: StrokeStyle(lineWidth: 3, dash: [10, 8]))
+          .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+          .overlay {
+            Label("Drop to add to your collection", systemImage: "square.and.arrow.down")
+              .font(.title2.weight(.semibold))
+          }
+          .padding(24)
+          .allowsHitTesting(false)
+      }
     }
     .overlay(alignment: .top) {
       if library.importing {

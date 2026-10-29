@@ -8,6 +8,7 @@ import SwiftUI
   let player: PlayerEngine
   let lyrics: LyricsStore
   let karaoke: MobileKaraokeStore
+  let importInbox: MobileImportInbox
   private var observers: [NSObjectProtocol] = []
   private var resumeAfterInterruption = false
   @Published var tab: MobileTab = .library
@@ -26,6 +27,7 @@ import SwiftUI
     player = PlayerEngine(library: library, scrobbler: scrobbler)
     lyrics = LyricsStore(directory: AppPaths.root.appendingPathComponent("Lyrics"))
     karaoke = MobileKaraokeStore(root: AppPaths.root.appendingPathComponent("Karaoke"))
+    importInbox = MobileImportInbox(library: library)
     let playerPurge = library.onTracksRemoved
     let karaoke = self.karaoke
     library.onTracksRemoved = { [weak karaoke] ids in
@@ -37,6 +39,7 @@ import SwiftUI
       MainActor.assumeIsolated { engine?.refreshLibraryMetadata() }
     }
     player.restore()
+    importInbox.start()
     observers.append(
       NotificationCenter.default.addObserver(
         forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
@@ -112,8 +115,10 @@ enum MobileTab: String, CaseIterable, Identifiable {
       )
       .tint(MobilePalette.brass)
       .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
-      .onChange(of: phase) { _, value in if value != .active { app.save() } }
-      .onOpenURL { url in Task { await app.library.importURLs([url]) } }
+      .onChange(of: phase) { _, value in
+        if value == .active { app.importInbox.appBecameActive() } else { app.save() }
+      }
+      .onOpenURL { url in app.importInbox.open(url) }
     }
   }
 }

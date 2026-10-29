@@ -20,15 +20,20 @@ struct MobileLibraryFile: Codable {
 @MainActor final class LibraryStore: ObservableObject {
   @Published private(set) var albums: [Album] = []
   @Published private(set) var tracks: [UUID: Track] = [:]
-  @Published private(set) var importing = false
-  @Published private(set) var importFraction = 0.0
-  @Published private(set) var importLabel = ""
+  // Import progress, set by the import pipeline in MobileImport.swift.
+  @Published internal(set) var importing = false
+  @Published internal(set) var importFraction = 0.0
+  @Published internal(set) var importLabel = ""
   @Published var lastReport: MobileImportReport?
   @Published var notice: String?
   let artwork = ArtworkStore()
   var onTracksRemoved: ((Set<UUID>) -> Void)?
   var onMetadataChanged: (() -> Void)?
-  private var cancelImport = false
+  var cancelRequested = false
+  /// Imports waiting for the one running now; see `enqueue(_:)`.
+  var importQueue: [PendingImport] = []
+  /// Whether the last import run ended with Cancel (the folder watcher then waits for new files).
+  var lastImportWasCancelled = false
   static var media: URL {
     let url = AppPaths.root.appendingPathComponent("Media", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -89,88 +94,64 @@ struct MobileLibraryFile: Codable {
     albums[index].lastPlayed = Date()
     saveNow()
   }
-  func cancel() { cancelImport = true }
-  func importURLs(_ urls: [URL]) async {
-    guard !importing else { return }
-    importing = true
-    cancelImport = false
-    importFraction = 0
-    defer {
-      importing = false
-      importLabel = ""
-      saveNow()
-    }
-    var report = MobileImportReport()
-    var fingerprints = Set(tracks.values.map(\.fingerprint))
-    let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
-    defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
-    let discovered = await Task.detached(priority: .userInitiated) { Self.enumerate(urls) }.value
-    report.failures = discovered.unsupported.map {
-      "\($0.lastPathComponent): unsupported audio format"
-    }
-    for (index, source) in discovered.audio.enumerated() {
-      if cancelImport || Task.isCancelled { break }
-      importLabel = source.lastPathComponent
-      importFraction = Double(index) / Double(max(1, discovered.audio.count))
-      let id = UUID()
-      let folder = Self.media.appendingPathComponent(id.uuidString, isDirectory: true)
-      do {
-        let fingerprint = try await Task.detached(priority: .userInitiated) {
-          try Self.digest(source)
-        }.value
-        if fingerprints.contains(fingerprint) {
-          report.duplicates += 1
-          continue
-        }
-        // Coordinate provider downloads/copies first; metadata reads the owned file.
-        let destination = try await Task.detached(priority: .userInitiated) {
-          try Self.copyAudio(source, to: folder)
-        }.value
-        let meta = try await MetadataReader.read(destination)
-        let title = meta.title?.nonEmpty ?? source.deletingPathExtension().lastPathComponent
-        let artist = meta.artist?.nonEmpty ?? "Unknown Artist"
-        let albumTitle =
-          meta.album?.nonEmpty ?? source.deletingLastPathComponent().lastPathComponent
-        let missing = meta.usedFallback || meta.artist?.nonEmpty == nil
-        let groupArtist = meta.albumArtist?.nonEmpty ?? artist
-        let key = albumTitle.normalizedKey + "\n" + groupArtist.normalizedKey
-        let track = Track(
-          id: id, fileURL: destination, title: title, artist: artist, albumTitle: albumTitle,
-          albumArtist: meta.albumArtist, trackNumber: meta.trackNumber, discNumber: meta.discNumber,
-          duration: meta.duration, year: meta.year, genre: meta.genre, dateAdded: Date(),
-          isDemo: false, missingMetadata: missing, fingerprint: fingerprint)
-        tracks[id] = track
-        fingerprints.insert(fingerprint)
-        let albumIndex: Int
-        if let index = albums.firstIndex(where: { $0.groupKey == key }) {
-          albumIndex = index
-          albums[index].trackIDs.append(id)
-        } else {
-          albums.append(
-            Album(
-              id: UUID(), groupKey: key, title: albumTitle, artist: groupArtist, year: meta.year,
-              genre: meta.genre, trackIDs: [id], artworkFile: nil, artworkPixelWidth: nil,
-              artworkPixelHeight: nil, artworkVersion: 0, tintHex: nil, dateAdded: Date(),
-              lastPlayed: nil, isDemo: false, missingMetadata: missing, userEdited: false)
-          )
-          albumIndex = albums.count - 1
-        }
-        albums[albumIndex].trackIDs.sort {
-          (tracks[$0]?.sortKey ?? (1, Int.max, "")) < (tracks[$1]?.sortKey ?? (1, Int.max, ""))
-        }
-        if albums[albumIndex].artworkFile == nil {
-          let art = meta.artwork ?? MetadataReader.folderArtwork(near: source)
-          if let art { try? setArtwork(albums[albumIndex].id, data: art) }
-        }
-        report.added += 1
-        if report.added % 10 == 0 { saveNow() }
-      } catch {
-        try? FileManager.default.removeItem(at: folder)
-        report.failures.append("\(source.lastPathComponent): \(error.localizedDescription)")
+  func cancel() { cancelRequested = true }
+  enum FileOutcome { case added, duplicate, failed(String) }
+  /// Copies one audio file into the collection and files it under its album. `albumFallback` names the album
+  /// when the file has no album tag (its folder's name, or "Unknown Album" for a loose file).
+  func importFile(_ source: URL, albumFallback: String, fingerprints: inout Set<String>) async
+    -> FileOutcome
+  {
+    let id = UUID()
+    let folder = Self.media.appendingPathComponent(id.uuidString, isDirectory: true)
+    do {
+      let fingerprint = try await Task.detached(priority: .userInitiated) {
+        try Self.digest(source)
+      }.value
+      if fingerprints.contains(fingerprint) { return .duplicate }
+      // Coordinate provider downloads/copies first; metadata reads the owned file.
+      let destination = try await Task.detached(priority: .userInitiated) {
+        try Self.copyAudio(source, to: folder)
+      }.value
+      let meta = try await MetadataReader.read(destination)
+      let title = meta.title?.nonEmpty ?? source.deletingPathExtension().lastPathComponent
+      let artist = meta.artist?.nonEmpty ?? "Unknown Artist"
+      let albumTitle = meta.album?.nonEmpty ?? albumFallback
+      let missing = meta.usedFallback || meta.artist?.nonEmpty == nil
+      let groupArtist = meta.albumArtist?.nonEmpty ?? artist
+      let key = albumTitle.normalizedKey + "\n" + groupArtist.normalizedKey
+      let track = Track(
+        id: id, fileURL: destination, title: title, artist: artist, albumTitle: albumTitle,
+        albumArtist: meta.albumArtist, trackNumber: meta.trackNumber, discNumber: meta.discNumber,
+        duration: meta.duration, year: meta.year, genre: meta.genre, dateAdded: Date(),
+        isDemo: false, missingMetadata: missing, fingerprint: fingerprint)
+      tracks[id] = track
+      fingerprints.insert(fingerprint)
+      let albumIndex: Int
+      if let index = albums.firstIndex(where: { $0.groupKey == key }) {
+        albumIndex = index
+        albums[index].trackIDs.append(id)
+      } else {
+        albums.append(
+          Album(
+            id: UUID(), groupKey: key, title: albumTitle, artist: groupArtist, year: meta.year,
+            genre: meta.genre, trackIDs: [id], artworkFile: nil, artworkPixelWidth: nil,
+            artworkPixelHeight: nil, artworkVersion: 0, tintHex: nil, dateAdded: Date(),
+            lastPlayed: nil, isDemo: false, missingMetadata: missing, userEdited: false)
+        )
+        albumIndex = albums.count - 1
       }
+      albums[albumIndex].trackIDs.sort {
+        (tracks[$0]?.sortKey ?? (1, Int.max, "")) < (tracks[$1]?.sortKey ?? (1, Int.max, ""))
+      }
+      if albums[albumIndex].artworkFile == nil {
+        let art = meta.artwork ?? MetadataReader.folderArtwork(near: source)
+        if let art { try? setArtwork(albums[albumIndex].id, data: art) }
+      }
+      return .added
+    } catch {
+      try? FileManager.default.removeItem(at: folder)
+      return .failed(error.localizedDescription)
     }
-    importFraction = 1
-    lastReport = report
   }
   nonisolated static func enumerate(_ urls: [URL]) -> (audio: [URL], unsupported: [URL]) {
     LocalAudioImport.enumerate(

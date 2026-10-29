@@ -58,7 +58,10 @@ struct MobileSettingsView: View {
         Button("Add Demo Collection") { Task { await library.addDemoCollection() } }.disabled(
           library.importing)
         Text(
-          "Import audio files or folders from Files and iCloud Drive. Cover Flow saves owned copies; deleting the source later won’t remove the imported music."
+          "Import audio files, folders or zip archives from Files and iCloud Drive, drag them onto Cover Flow, or AirDrop them. Cover Flow saves owned copies; deleting the source later won’t remove the imported music."
+        ).font(.footnote).foregroundStyle(.secondary)
+        Text(
+          "Anything put in Cover Flow’s folder — Files › On My iPad › Cover Flow, or the iPad’s Files tab in Finder on a Mac — is added automatically and then removed from the folder. Files that can’t be added move to its Not Imported folder."
         ).font(.footnote).foregroundStyle(.secondary)
       }
       Section("Karaoke on iPad") {
