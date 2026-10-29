@@ -51,7 +51,7 @@ struct MobileCollectionView: View {
             Label("Your music, by its covers", systemImage: "square.stack.3d.up.fill")
           } description: {
             Text(
-              "Import audio files or a folder from Files, iCloud Drive, or an attached drive. Your music stays available on this iPad."
+              "Import audio files, album folders or zip archives from Files, iCloud Drive or an attached drive, drag them here, or AirDrop them. Music put in Cover Flow’s folder (Files › On My iPad › Cover Flow) is added on its own."
             )
           } actions: {
             Button("Import Music") { importFiles(false) }.buttonStyle(.borderedProminent)

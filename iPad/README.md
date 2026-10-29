@@ -27,7 +27,7 @@ an iPad. Signing and installing through Xcode uses your own developer account.
 | --- | --- |
 | Cover Flow | Touch carousel, 3D covers and reflections, reduced-motion support |
 | Collection | Adaptive grid, search across albums/artists/tracks, sorting, multi-album selection |
-| Music import | Files, iCloud Drive and attached drives; recursive folder import, duplicate detection, format/error reporting |
+| Music import | Files, iCloud Drive and attached drives; recursive folder import; zip archives; drag and drop; AirDrop and "Open in"; an automatic import folder (Finder or Files); duplicate detection, format/error reporting |
 | Local library | Owned audio copies, original filenames and matching LRC sidecars; persistent library and playback queue; individual-track removal from the touch-and-hold menu |
 | Playback | Shared gapless engine, queue ordering, shuffle, repeat, seek, volume, mute and upcoming-track editing |
 | System audio | Background audio capability, lock-screen/Control Center commands, AirPlay routing and interruption/headphone handling |
@@ -51,8 +51,22 @@ and DRM files are not imported as playable audio.
 
 ## Music and lyrics
 
-Use **Import Music → Audio files** or **A folder**. Files must be readable/downloaded
-through their provider; failures appear in the import report. Imported copies
+Ways to add music:
+
+- **Import Music → Audio files** or **A folder**, from Files, iCloud Drive or an attached drive. Zip
+  archives (Bandcamp and similar downloads) can be picked as audio files and are unpacked automatically.
+- **Drag and drop**: drag audio files, album folders or zip archives onto Cover Flow, from Files in Split View
+  or another app.
+- **AirDrop or "Open in"**: send audio files or zip archives from a Mac or another app and choose Cover Flow.
+  Several files sent at once are imported together.
+- **Cover Flow's folder**: anything copied into Files › On My iPad › Cover Flow — or, with the iPad connected
+  to a Mac, dragged onto Cover Flow in the iPad's Files tab in Finder — is imported automatically once it has
+  finished copying. Imported files are then removed from the folder (the collection keeps its own copy);
+  files that couldn't be imported move to its **Not Imported** folder. Cancelling an import leaves the rest
+  of the folder until something new is added.
+
+Imports that start while another is running wait their turn and finish with one report. Files must be
+readable/downloaded through their provider; failures appear in the import report. Imported copies
 remain playable if you later remove the source or disconnect its drive. Removing
 an album deletes its iPad-owned music, imported lyrics, covers and prepared audio.
 Source files outside the app remain owned by their original provider.
