@@ -92,19 +92,35 @@ final class ZipArchiveTests: XCTestCase {
   static func storedZip(_ entries: [(String, Data)]) throws -> Data {
     var body = Data()
     var directory = Data()
-    func le16(_ value: Int) -> Data { withUnsafeBytes(of: UInt16(value).littleEndian) { Data($0) } }
-    func le32(_ value: Int) -> Data { withUnsafeBytes(of: UInt32(value).littleEndian) { Data($0) } }
-    for (name, data) in entries {
+    func put16(_ data: inout Data, _ values: Int...) {
+      for value in values { withUnsafeBytes(of: UInt16(value).littleEndian) { data.append(contentsOf: $0) } }
+    }
+    func put32(_ data: inout Data, _ values: Int...) {
+      for value in values { withUnsafeBytes(of: UInt32(value).littleEndian) { data.append(contentsOf: $0) } }
+    }
+    for (name, contents) in entries {
       let nameBytes = Data(name.utf8)
       let offset = body.count
-      body += le32(0x0403_4b50) + le16(20) + le16(0x800) + le16(0) + le16(0) + le16(0) + le32(0)
-        + le32(data.count) + le32(data.count) + le16(nameBytes.count) + le16(0) + nameBytes + data
-      directory += le32(0x0201_4b50) + le16(20) + le16(20) + le16(0x800) + le16(0) + le16(0) + le16(0)
-        + le32(0) + le32(data.count) + le32(data.count) + le16(nameBytes.count) + le16(0) + le16(0)
-        + le16(0) + le16(0) + le32(0) + le32(offset) + nameBytes
+      // Local header: signature, version, flags (UTF-8), method (stored), time, date, CRC, sizes, name, extra.
+      put32(&body, 0x0403_4b50)
+      put16(&body, 20, 0x800, 0, 0, 0)
+      put32(&body, 0, contents.count, contents.count)
+      put16(&body, nameBytes.count, 0)
+      body.append(nameBytes)
+      body.append(contents)
+      // Central directory: as above plus made-by, comment, disk, attributes and the local header offset.
+      put32(&directory, 0x0201_4b50)
+      put16(&directory, 20, 20, 0x800, 0, 0, 0)
+      put32(&directory, 0, contents.count, contents.count)
+      put16(&directory, nameBytes.count, 0, 0, 0, 0)
+      put32(&directory, 0, offset)
+      directory.append(nameBytes)
     }
-    let end = le32(0x0605_4b50) + le16(0) + le16(0) + le16(entries.count) + le16(entries.count)
-      + le32(directory.count) + le32(body.count) + le16(0)
+    var end = Data()
+    put32(&end, 0x0605_4b50)
+    put16(&end, 0, 0, entries.count, entries.count)
+    put32(&end, directory.count, body.count)
+    put16(&end, 0)
     return body + directory + end
   }
 }
