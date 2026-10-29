@@ -110,6 +110,16 @@ and reused when the source and model are unchanged. **Export instrumental…** s
 a WAV copy. This release includes an Apple-silicon processing runtime and uses
 CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 
+## iPhone and iPad projects
+
+Native iOS/iPadOS 17+ apps share the mobile player, lyrics, Files/iCloud import,
+AirPlay, background audio, native karaoke and visualizer. Open
+[iPhone/CoverFlow-iPhone.xcodeproj](iPhone/CoverFlow-iPhone.xcodeproj) or
+[iPad/CoverFlow-iPad.xcodeproj](iPad/CoverFlow-iPad.xcodeproj) and select your signing
+team to run on a device. Prepared project ZIPs include their native runtime;
+for a fresh checkout, run `./build-ios.command --project` (iPhone) or
+`./build-ipad.command --project` (iPad) first. See the [mobile guide](iPad/README.md).
+
 ## Download the macOS app
 
 Download **Cover-Flow-1.8.2-macOS.zip** from the

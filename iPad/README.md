@@ -1,25 +1,33 @@
-# Cover Flow for iPad
+# Cover Flow for iPhone and iPad
 
-A native iPadOS 17+ version of Cover Flow, with a separate Xcode application target.
+Native iOS/iPadOS 17+ versions of Cover Flow, with separate iPhone and iPad Xcode projects.
 The desktop app remains in the same repository; shared playback, metadata, lyrics,
 queue ordering and Last.fm code stay shared.
 
 ## Install with your developer account
 
-1. Open `CoverFlow-iPad.xcodeproj` in Xcode.
-2. Select **CoverFlowiPad → Signing & Capabilities**, enable automatic signing,
+1. Open `CoverFlow-iPad.xcodeproj` for iPad, or `../iPhone/CoverFlow-iPhone.xcodeproj` for iPhone.
+2. Select **CoverFlowiPad** or **CoverFlowiPhone → Signing & Capabilities**, enable automatic signing,
    and choose your Apple Developer team. Change the bundle identifier if your
    account needs a different identifier.
-3. Connect your iPad, select it as the run destination, and press **Run**.
+3. Connect your iPad or iPhone, select it as the run destination, and press **Run**.
 
-The prepared project download includes Microsoft's native runtime. From a fresh
+The prepared project download includes both Xcode projects and Microsoft's native runtime. Keep the unzipped folder together; the projects share sources and resources. No dependency download is needed before opening the prepared projects. From a fresh
 Git checkout, run `../build-ipad.command --project` first to fetch the verified
 runtime and open the project. No Python runtime or user separation weights are
 included in the iPad app. The project generator preserves a selected team and
-bundle identifier when regenerated.
+bundle identifier independently for each project when regenerated.
 
 The supplied device build is unsigned; it cannot be installed by opening a ZIP on
 an iPad. Signing and installing through Xcode uses your own developer account.
+
+## Phone navigation
+
+On iPhone, Collection, Up Next, Lyrics and Karaoke use bottom tabs. More opens
+Visualizer and Settings. The mini-player remains above the tabs; tap it for full
+Now Playing. Small screens and landscape use scrolling artwork/captions, wrapping
+controls and a scrollable karaoke page. Wide iPads retain sidebar navigation;
+narrow iPad windows use the compact interface.
 
 ## Features
 

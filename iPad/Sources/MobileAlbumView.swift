@@ -98,7 +98,7 @@ struct MobileAlbumView: View {
             }
           }
           .sheet(isPresented: $downloadArtwork) {
-            ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to this iPad’s collection.") { data in
+            ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to this device’s collection.") { data in
               guard library.album(album.id) != nil else { throw MusicLookupError.itemRemoved }
               try library.setArtwork(album.id, data: data)
             }
@@ -107,7 +107,7 @@ struct MobileAlbumView: View {
           .sheet(isPresented: $appearance) { MobileAppearanceEditor(album: album) }
           .sheet(item: $trackEdit) { track in MobileTrackEditor(track: track) }
           .confirmationDialog(
-            "Remove this album and its imported audio from this iPad?", isPresented: $remove,
+            "Remove this album and its imported audio from this device?", isPresented: $remove,
             titleVisibility: .visible
           ) {
             Button("Remove Album", role: .destructive) {
@@ -135,7 +135,7 @@ struct MobileAlbumView: View {
       }
       Button("Cancel", role: .cancel) { }
     } message: { track in
-      Text("“\(track.title)” and its imported audio will be removed from this iPad and the playback queue. The original file in Files or iCloud will stay untouched.")
+      Text("“\(track.title)” and its imported audio will be removed from this device and the playback queue. The original file in Files or iCloud will stay untouched.")
     }
     .preferredColorScheme(
       album?.panelAppearance.backgroundHex.map {
@@ -228,7 +228,7 @@ struct MobileAlbumEditor: View {
         }
         Section {
           Text(
-            "Edits update this iPad’s collection. Your imported audio files retain their original tags."
+            "Edits update this device’s collection. Your imported audio files retain their original tags."
           ).font(.footnote).foregroundStyle(.secondary)
         }
       }.navigationTitle("Edit Album").toolbar {

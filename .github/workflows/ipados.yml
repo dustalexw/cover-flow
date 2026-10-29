@@ -1,10 +1,11 @@
-name: iPadOS
+name: iPhone and iPad
 on:
   pull_request:
   push:
     branches: [main]
     paths:
       - 'iPad/**'
+      - 'iPhone/**'
       - 'Sources/CoverFlow/Playback/**'
       - 'Sources/CoverFlow/Model/**'
       - 'Sources/CoverFlow/Lyrics/**'
@@ -13,6 +14,7 @@ on:
       - 'Sources/CoverFlow/Library/OggOpus.swift'
       - 'scripts/*ipad*'
       - 'build-ipad.command'
+      - 'build-ios.command'
       - '.github/workflows/ipados.yml'
   workflow_dispatch:
 concurrency:
@@ -41,6 +43,8 @@ jobs:
             .build/vendor/ipados
             iPad/Vendor
           key: ipad-runtime-xcode16.4-${{ runner.arch }}-${{ hashFiles('scripts/fetch-ipad-runtime.sh') }}
+      - name: Verify project generation
+        run: python3 -m unittest discover -s scripts/tests -p 'test_mobile_projects.py' -v
       - name: Prepare native runtime
         run: bash scripts/fetch-ipad-runtime.sh
       - name: Verify processing core
@@ -49,3 +53,7 @@ jobs:
         run: bash build-ipad.command --device
       - name: Build for Simulator
         run: bash build-ipad.command --simulator
+      - name: Build for iPhone
+        run: bash build-ios.command --device
+      - name: Build iPhone Simulator
+        run: bash build-ios.command --simulator

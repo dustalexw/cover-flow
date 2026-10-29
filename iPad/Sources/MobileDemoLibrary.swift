@@ -62,7 +62,7 @@ extension LibraryStore {
             try file.write(from: buffer)
           }
           try
-            "[00:00.00]Welcome to Cover Flow\n[00:03.00]Browse your music by its covers\n[00:06.00]Tap a lyric line to seek\n[00:09.00]Your music stays on this iPad"
+            "[00:00.00]Welcome to Cover Flow\n[00:03.00]Browse your music by its covers\n[00:06.00]Tap a lyric line to seek\n[00:09.00]Your music stays on this device"
             .write(
               to: folder.appendingPathComponent("01 - \(name).lrc"), atomically: true,
               encoding: .utf8)

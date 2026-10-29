@@ -4,6 +4,11 @@ import UniformTypeIdentifiers
 struct MobileKaraokeView: View {
   @EnvironmentObject private var karaoke: MobileKaraokeStore
   @EnvironmentObject private var player: PlayerEngine
+  @EnvironmentObject private var app: MobileEnvironment
+  @Environment(\.horizontalSizeClass) private var widthClass
+  private var compact: Bool {
+    UIDevice.current.userInterfaceIdiom == .phone || widthClass == .compact
+  }
   @State private var importModel = false
   @State private var importSettings = false
   @State private var importStems = false
@@ -14,97 +19,17 @@ struct MobileKaraokeView: View {
   @State private var stemTrack: Track?
   var body: some View {
     VStack(spacing: 0) {
-      VStack(alignment: .leading, spacing: 14) {
-        HStack {
-          Label("Karaoke", systemImage: "mic.fill").font(.title2.weight(.semibold))
-          Spacer()
-          if modelBusy || karaoke.importingModel { ProgressView() }
-          Menu {
-            Button("Add Model…", systemImage: "plus") { importModel = true }
-            Button("Import Prepared Stems…", systemImage: "square.and.arrow.down") {
-              stemTrack = player.currentTrack
-              importStems = true
-            }.disabled(!player.hasTrack)
-            if karaoke.selected != nil {
-              Button("Remove Selected Model", systemImage: "trash", role: .destructive) {
-                removeModel = true
-              }
-            }
-          } label: {
-            Label("Add", systemImage: "plus")
-          }.disabled(karaoke.processing || karaoke.importingModel || modelBusy)
+      if compact {
+        ScrollView {
+          controlPanel
+          Button("Open Lyrics", systemImage: "quote.bubble") { app.tab = .lyrics }
+            .buttonStyle(.bordered).padding(.bottom, 20)
         }
-        if !karaoke.models.isEmpty || karaoke.audio != nil {
-          Picker(
-            "Model",
-            selection: Binding<UUID?>(
-              get: { karaoke.selectedID }, set: { karaoke.select($0, player: player) })
-          ) {
-            Text("Imported Stems").tag(nil as UUID?)
-            ForEach(karaoke.models) { Text($0.name).tag(Optional($0.id)) }
-          }.pickerStyle(.menu).disabled(karaoke.processing || karaoke.importingModel || modelBusy)
-        }
-        if karaoke.selected != nil {
-          Text(
-            karaoke.selected?.backend == .mdx
-              ? "MDX · Core ML GPU preferred · CPU fallback" : "Converted waveform model · Core ML"
-          ).font(.caption).foregroundStyle(.secondary)
-        } else if karaoke.audio != nil {
-          Text("Imported prepared stems").font(.caption).foregroundStyle(.secondary)
-        } else {
-          Text(
-            "Add an MDX ONNX model such as Inst_HQ_5, a converted Core ML model, or prepared stems from Cover Flow on your Mac."
-          ).font(.subheadline).foregroundStyle(.secondary)
-        }
-        if karaoke.processing {
-          VStack(alignment: .leading, spacing: 6) {
-            if let title = karaoke.processingTitle {
-              Text("Preparing \(title)").font(.caption.weight(.medium)).fixedSize(
-                horizontal: false, vertical: true)
-            }
-            ProgressView(value: karaoke.progress)
-            HStack {
-              Text(karaoke.stage).font(.caption)
-              Spacer()
-              Button(karaoke.cancelling ? "Cancelling…" : "Cancel") { karaoke.cancel() }.disabled(
-                karaoke.cancelling)
-            }
-          }
-        } else if karaoke.audio != nil {
-          HStack {
-            Label("Prepared audio ready", systemImage: "checkmark.circle.fill").foregroundStyle(
-              .green)
-            Spacer()
-            if let audio = karaoke.audio {
-              Menu {
-                ShareLink(item: audio.instrumental) { Text("Instrumental WAV") }
-                ShareLink(item: audio.vocals) { Text("Vocals WAV") }
-              } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-              }
-            }
-          }.font(.subheadline)
-        }
-        if let error = karaoke.error {
-          Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
-        }
-        ViewThatFits(in: .horizontal) {
-          HStack(spacing: 10) {
-            modes
-            Spacer()
-            prepare
-          }
-          VStack(alignment: .leading, spacing: 10) {
-            modes
-            prepare
-          }
-        }
-        Text(
-          "Keep Cover Flow open during preparation. Switching sources keeps your playback position; models have separate saved audio."
-        ).font(.caption2).foregroundStyle(.secondary)
-      }.padding(20)
-      Divider()
-      MobileLyricsView()
+      } else {
+        controlPanel
+        Divider()
+        MobileLyricsView()
+      }
     }
     .confirmationDialog(
       "Remove this imported model and its prepared audio?", isPresented: $removeModel,
@@ -169,9 +94,102 @@ struct MobileKaraokeView: View {
     }
     .onDisappear { if !offerSettings && !importSettings { cleanupStage() } }
   }
+  private var controlPanel: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        Label("Karaoke", systemImage: "mic.fill").font(.title2.weight(.semibold))
+        Spacer()
+        if modelBusy || karaoke.importingModel { ProgressView() }
+        Menu {
+          Button("Add Model…", systemImage: "plus") { importModel = true }
+          Button("Import Prepared Stems…", systemImage: "square.and.arrow.down") {
+            stemTrack = player.currentTrack
+            importStems = true
+          }.disabled(!player.hasTrack)
+          if karaoke.selected != nil {
+            Button("Remove Selected Model", systemImage: "trash", role: .destructive) {
+              removeModel = true
+            }
+          }
+        } label: {
+          Label("Add", systemImage: "plus")
+        }.disabled(karaoke.processing || karaoke.importingModel || modelBusy)
+      }
+      if !karaoke.models.isEmpty || karaoke.audio != nil {
+        Picker(
+          "Model",
+          selection: Binding<UUID?>(
+            get: { karaoke.selectedID }, set: { karaoke.select($0, player: player) })
+        ) {
+          Text("Imported Stems").tag(nil as UUID?)
+          ForEach(karaoke.models) { Text($0.name).tag(Optional($0.id)) }
+        }.pickerStyle(.menu).disabled(karaoke.processing || karaoke.importingModel || modelBusy)
+      }
+      if karaoke.selected != nil {
+        Text(
+          karaoke.selected?.backend == .mdx
+            ? "MDX · Core ML GPU preferred · CPU fallback" : "Converted waveform model · Core ML"
+        ).font(.caption).foregroundStyle(.secondary)
+      } else if karaoke.audio != nil {
+        Text("Imported prepared stems").font(.caption).foregroundStyle(.secondary)
+      } else {
+        Text(
+          "Add an MDX ONNX model such as Inst_HQ_5, a converted Core ML model, or prepared stems from Cover Flow on your Mac."
+        ).font(.subheadline).foregroundStyle(.secondary)
+      }
+      if karaoke.processing {
+        VStack(alignment: .leading, spacing: 6) {
+          if let title = karaoke.processingTitle {
+            Text("Preparing \(title)").font(.caption.weight(.medium)).fixedSize(
+              horizontal: false, vertical: true)
+          }
+          ProgressView(value: karaoke.progress)
+          HStack {
+            Text(karaoke.stage).font(.caption)
+            Spacer()
+            Button(karaoke.cancelling ? "Cancelling…" : "Cancel") { karaoke.cancel() }.disabled(
+              karaoke.cancelling)
+          }
+        }
+      } else if karaoke.audio != nil {
+        HStack {
+          Label("Prepared audio ready", systemImage: "checkmark.circle.fill").foregroundStyle(
+            .green)
+          Spacer()
+          if let audio = karaoke.audio {
+            Menu {
+              ShareLink(item: audio.instrumental) { Text("Instrumental WAV") }
+              ShareLink(item: audio.vocals) { Text("Vocals WAV") }
+            } label: {
+              Label("Export", systemImage: "square.and.arrow.up")
+            }
+          }
+        }.font(.subheadline)
+      }
+      if let error = karaoke.error {
+        Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+      }
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 10) {
+          modes
+          Spacer()
+          prepare
+        }
+        VStack(alignment: .leading, spacing: 10) {
+          modes
+          prepare
+        }
+      }
+      Text(
+        "Keep Cover Flow open during preparation. Switching sources keeps your playback position; models have separate saved audio."
+      ).font(.caption2).foregroundStyle(.secondary)
+    }.padding(20)
+  }
   private var modes: some View {
     HStack(spacing: 6) {
-      ForEach(Array([KaraokePlayback.original, .instrumental, .vocals].enumerated()), id: \.element.id) { index, mode in
+      ForEach(
+        Array([KaraokePlayback.original, .instrumental, .vocals].enumerated()), id: \.element.id
+      ) { index, mode in
         Button {
           guard let track = player.currentTrack else { return }
           let engine = player

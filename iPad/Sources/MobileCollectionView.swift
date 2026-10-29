@@ -51,7 +51,7 @@ struct MobileCollectionView: View {
             Label("Your music, by its covers", systemImage: "square.stack.3d.up.fill")
           } description: {
             Text(
-              "Import audio files or a folder from Files, iCloud Drive, or an attached drive. Your music stays available on this iPad."
+              "Import audio files or a folder from Files, iCloud Drive, or an attached drive. Your music stays available on this device."
             )
           } actions: {
             Button("Import Music") { importFiles(false) }.buttonStyle(.borderedProminent)
@@ -124,7 +124,8 @@ struct MobileCollectionView: View {
       if let album = library.album(id.id) { MobileAlbumView(albumID: album.id) }
     }
     .confirmationDialog(
-      "Remove these albums and their imported copies from this iPad?", isPresented: $removeSelected,
+      "Remove these albums and their imported copies from this device?",
+      isPresented: $removeSelected,
       titleVisibility: .visible
     ) {
       Button("Remove Albums", role: .destructive) {
@@ -182,59 +183,72 @@ struct MobileCoverFlow<MenuContent: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     GeometryReader { container in
-      let size = min(340, max(180, container.size.width * 0.48))
-      ScrollView(.horizontal) {
-        LazyHStack(spacing: 24) {
-          ForEach(albums) { album in
-            GeometryReader { card in
-              let center = card.frame(in: .named("covers")).midX
-              let offset = (center - container.size.width / 2) / max(size, 1)
-              Button {
-                onOpen(album)
-              } label: {
-                VStack(spacing: 14) {
-                  MobileArtwork(album: album, pixels: 900)
-                    .shadow(color: .black.opacity(0.3), radius: 16, y: 12)
-                    .overlay(alignment: .bottom) {
-                      MobileArtwork(album: album, pixels: 600)
-                        .frame(width: size, height: size).scaleEffect(x: 1, y: -1)
-                        .frame(width: size, height: 60, alignment: .top).clipped()
-                        .mask(
-                          LinearGradient(
-                            colors: [.white.opacity(0.18), .clear], startPoint: .top,
-                            endPoint: .bottom)
-                        )
-                        .offset(y: 68).accessibilityHidden(true)
-                    }
-                  VStack(spacing: 4) {
-                    Text(album.title).font(.system(.title3, design: .serif).weight(.semibold))
-                      .lineLimit(2)
-                    Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                  }.multilineTextAlignment(.center).padding(.top, 45)
-                }.foregroundStyle(.primary)
-              }.buttonStyle(.plain)
-                .rotation3DEffect(
-                  .degrees(reduceMotion ? 0 : -max(-1, min(1, offset)) * 40),
-                  axis: (x: 0, y: 1, z: 0), perspective: 0.5
-                )
-                .scaleEffect(reduceMotion ? 1 : 1 - min(0.14, abs(offset) * 0.1))
-                .contextMenu { menuContent(album) }
-            }.frame(width: size, height: size + 130).id(album.id)
-          }
-        }.scrollTargetLayout().padding(.vertical, 30).frame(minHeight: container.size.height)
-      }
-      .contentMargins(.horizontal, max(20, (container.size.width - size) / 2), for: .scrollContent)
-      .scrollTargetBehavior(.viewAligned).scrollPosition(id: $focused).coordinateSpace(
-        name: "covers"
-      )
-      .defaultScrollAnchor(.center)
-      .onChange(of: albums.map(\.id), initial: true) { _, ids in
-        if focused == nil, let id = UUID(uuidString: savedFocused), ids.contains(id) {
-          focused = id
+      let layout = MobileCoverLayout(width: container.size.width, height: container.size.height)
+      let size = CGFloat(layout.coverSide)
+      ScrollView(.vertical) {
+        ScrollView(.horizontal) {
+          LazyHStack(spacing: 24) {
+            ForEach(albums) { album in
+              GeometryReader { card in
+                let center = card.frame(in: .named("covers")).midX
+                let offset = (center - container.size.width / 2) / max(size, 1)
+                Button {
+                  onOpen(album)
+                } label: {
+                  VStack(spacing: 14) {
+                    MobileArtwork(album: album, pixels: 900)
+                      .shadow(color: .black.opacity(0.3), radius: 16, y: 12)
+                      .overlay(alignment: .bottom) {
+                        MobileArtwork(album: album, pixels: 600)
+                          .frame(width: size, height: size).scaleEffect(x: 1, y: -1)
+                          .frame(width: size, height: 60, alignment: .top).clipped()
+                          .mask(
+                            LinearGradient(
+                              colors: [.white.opacity(0.18), .clear], startPoint: .top,
+                              endPoint: .bottom)
+                          )
+                          .offset(y: 68).accessibilityHidden(true)
+                      }
+                    VStack(spacing: 4) {
+                      Text(album.title).font(.system(.title3, design: .serif).weight(.semibold))
+                        .lineLimit(2)
+                      Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    }.multilineTextAlignment(.center).padding(.top, 45)
+                  }.foregroundStyle(.primary)
+                }.buttonStyle(.plain)
+                  .rotation3DEffect(
+                    .degrees(reduceMotion ? 0 : -max(-1, min(1, offset)) * 40),
+                    axis: (x: 0, y: 1, z: 0), perspective: 0.5
+                  )
+                  .scaleEffect(reduceMotion ? 1 : 1 - min(0.14, abs(offset) * 0.1))
+                  .contextMenu { menuContent(album) }
+              }.frame(width: size, height: size + 130).id(album.id)
+            }
+          }.scrollTargetLayout()
+            .padding(.horizontal, max(0, (container.size.width - size) / 2))
+            .padding(.vertical, 6).frame(minHeight: layout.stageHeight)
         }
-      }
-      .onChange(of: focused) { _, id in if let id { savedFocused = id.uuidString } }
-      .frame(maxHeight: .infinity)
+        .scrollTargetBehavior(MobileCoverSnapping(step: size + 24, count: albums.count))
+        .scrollPosition(id: $focused, anchor: .center).coordinateSpace(name: "covers")
+        .defaultScrollAnchor(.center)
+        .onChange(of: albums.map(\.id), initial: true) { _, ids in
+          if focused == nil || !ids.contains(focused!) {
+            focused =
+              UUID(uuidString: savedFocused).flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
+          }
+        }
+        .onChange(of: focused) { _, id in if let id { savedFocused = id.uuidString } }
+        .frame(width: container.size.width, height: layout.stageHeight)
+      }.scrollBounceBehavior(.basedOnSize)
     }
+  }
+}
+
+private struct MobileCoverSnapping: ScrollTargetBehavior {
+  let step: CGFloat
+  let count: Int
+  func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+    target.rect.origin.x = MobileCoverLayout.snapOffset(
+      predicted: target.rect.minX, step: step, count: count)
   }
 }
