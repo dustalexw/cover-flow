@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cover Flow</title>
+<meta name="description" content="Browse your music by its covers. A free native Mac music player with 3D Cover Flow, gapless playback, lyrics, karaoke and a visualizer.">
+<meta property="og:title" content="Cover Flow">
+<meta property="og:description" content="Browse your music by its covers.">
+<meta property="og:image" content="https://raw.githubusercontent.com/dustalexw/cover-flow/main/docs/readme-header.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icon.webp" type="image/webp">
+<link rel="apple-touch-icon" href="icon.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one long midnight-navy page in the app's own colors (navy, steel blue, record gold, cream).
+   Hero with icon, two-tone wordmark and download button; a browsable 3D cover strip;
+   feature grid; install steps; release notes read from GitHub. */
+:root{
+  --ink-0:#0a1228; --ink-1:#152447; --steel:#293d61;
+  --panel:rgba(255,255,255,.045); --edge:rgba(200,215,255,.12);
+  --cream:#faf4e4; --muted:#9fabc4;
+  --gold:#f2c47d; --gold-deep:#d9a24f; --violet:#7b5cc7;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{background:var(--ink-0)}
+body{margin:0;color:var(--cream);font:16px/1.6 var(--body);min-height:100vh;overflow-x:hidden;
+  background:radial-gradient(1100px 650px at 6% -10%,rgba(242,196,125,.13) 0%,transparent 60%),
+             radial-gradient(1000px 700px at 100% 10%,rgba(123,92,199,.18) 0%,transparent 55%),
+             linear-gradient(180deg,var(--ink-1) 0%,var(--ink-0) 820px)}
+.wrap{position:relative;z-index:1;max-width:1080px;margin:0 auto;
+  padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+a{color:var(--gold)}
+a:focus-visible,button:focus-visible,.flow:focus-visible{outline:3px solid var(--gold);outline-offset:3px;border-radius:12px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:20px 0}
+.top .mini{display:flex;align-items:center;gap:10px;font:800 16px var(--body);color:var(--cream);text-decoration:none;letter-spacing:-.01em}
+.top .mini img{width:30px;height:30px;border-radius:8px}
+.top nav{display:flex;gap:18px;flex-wrap:wrap}
+.top nav a{color:var(--muted);text-decoration:none;font-weight:600;font-size:14px}
+.top nav a:hover{color:var(--cream)}
+
+.hero{display:grid;grid-template-columns:auto 1fr;gap:44px;align-items:center;padding-block:72px 30px}
+.hero .icon{width:220px;height:220px;border-radius:50px;filter:drop-shadow(0 22px 60px rgba(123,92,199,.35));animation:float 7s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-10px) rotate(1deg)}}
+.eyebrow{font:700 13px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin:0 0 6px}
+h1{font:900 clamp(56px,10vw,112px)/.95 var(--body);margin:0;letter-spacing:-.045em;color:var(--cream)}
+h1 .fl{color:var(--gold)}
+.tag{font-size:clamp(19px,2.3vw,24px);font-weight:600;margin:18px 0 6px;max-width:34ch;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 22px;font-size:16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 28px;padding:0;list-style:none}
+.chips li{font-size:13px;font-weight:600;color:var(--cream);border:1px solid var(--edge);background:rgba(0,0,0,.25);border-radius:999px;padding:5px 12px 5px 10px;display:flex;align-items:center;gap:7px}
+.chips li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c,var(--cream))}
+.dl{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px}
+.btn{display:inline-flex;align-items:center;gap:12px;text-decoration:none;color:#1b1406;font:800 18px var(--body);
+  padding:16px 26px;border-radius:16px;background:linear-gradient(180deg,#ffd796,var(--gold-deep));
+  box-shadow:0 0 0 1px rgba(255,255,255,.3) inset,0 14px 40px rgba(242,196,125,.28);transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 18px 50px rgba(242,196,125,.42)}
+.btn svg{width:22px;height:22px;flex:none}
+.btn small{display:block;font:600 12px var(--body);opacity:.78;margin-top:1px}
+.alt{font-size:14px;color:var(--muted);font-weight:600}
+.alt a{color:var(--cream);font-weight:700;text-decoration:none;border-bottom:1px solid var(--edge)}
+.alt a:hover{border-color:var(--gold)}
+.ver{font-size:13px;color:var(--muted);font-weight:600;margin-top:14px}
+.ver b{color:var(--cream)}
+.note{display:none;margin-top:14px;font-size:14px;font-weight:600;background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:10px 14px;max-width:48ch}
+
+/* demo: a little Cover Flow */
+.flow{position:relative;height:330px;perspective:900px;overflow:hidden;margin:10px 0 0;cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none;
+  background:radial-gradient(600px 220px at 50% 100%,rgba(41,61,97,.55),transparent 70%);border-radius:24px}
+.flow.drag{cursor:grabbing}
+.stage{position:absolute;left:50%;top:34px;transform-style:preserve-3d}
+.cv{position:absolute;width:200px;height:200px;left:-100px;top:0;border-radius:4px;transition:transform .5s cubic-bezier(.2,.8,.2,1),filter .5s;
+  -webkit-box-reflect:below 2px linear-gradient(transparent 62%,rgba(255,255,255,.22));box-shadow:0 18px 40px rgba(0,0,0,.45);overflow:hidden}
+.cv svg{display:block;width:100%;height:100%}
+.np{text-align:center;margin:-6px 0 0;min-height:52px}
+.np b{display:block;font:700 18px var(--body)}
+.np span{color:var(--muted);font-size:14px;font-weight:600}
+.ctl{display:flex;justify-content:center;gap:10px;margin-top:10px}
+.ctl button{font:700 15px var(--body);color:var(--cream);background:rgba(255,255,255,.06);border:1px solid var(--edge);border-radius:12px;width:44px;height:40px;cursor:pointer}
+.ctl button:hover{border-color:var(--gold)}
+.demo-note{font-size:14px;color:var(--muted);margin:14px 4px 70px;text-align:center}
+
+section{padding-block:10px 70px}
+h2{font:800 clamp(26px,3.6vw,38px)/1.1 var(--body);margin:0 0 10px;letter-spacing:-.025em;text-wrap:balance}
+.lead{color:var(--muted);margin:0 0 28px;max-width:62ch;font-size:17px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:20px;padding:22px 22px 20px;min-width:0}
+.card h3{font:700 17px/1.3 var(--body);margin:0 0 8px;display:flex;align-items:center;gap:10px}
+.card h3 .bar{width:4px;height:18px;border-radius:2px;flex:none;background:linear-gradient(180deg,var(--gold),var(--violet))}
+.card p{margin:0;color:var(--muted);font-size:15px}
+code.i{font:500 13px var(--mono);color:#e3e7ee;background:rgba(255,255,255,.07);border-radius:6px;padding:1px 6px}
+kbd{font:600 12px var(--mono);color:var(--cream);background:rgba(255,255,255,.08);border:1px solid var(--edge);border-bottom-width:2px;border-radius:6px;padding:0 6px}
+
+.steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.step{background:var(--panel);border:1px solid var(--edge);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.step h3{font:800 20px var(--body);margin:0;letter-spacing:-.01em}
+.step ol{margin:0;padding-left:20px;color:var(--muted);font-size:15px}
+.step ol li{margin:5px 0}
+.step ol b{color:var(--cream)}
+.step .get{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;text-decoration:none;color:var(--cream);font-weight:700;
+  border:1px solid var(--edge);border-radius:12px;padding:11px 14px;background:rgba(255,255,255,.03)}
+.step .get:hover{border-color:var(--gold);background:rgba(242,196,125,.08)}
+.step .get span{font-weight:600;font-size:13px;color:var(--muted)}
+pre.term{margin:0;font:500 13px/1.7 var(--mono);color:#e3e7ee;background:rgba(0,0,0,.35);border:1px solid var(--edge);border-radius:12px;padding:12px 14px;overflow-x:auto}
+pre.term .c{color:var(--muted)}
+
+.notes{background:var(--panel);border:1px solid var(--edge);border-radius:20px;padding:24px 26px}
+.notes h3{font:800 20px var(--body);margin:0 0 6px}
+.notes .when{color:var(--muted);font-size:14px;margin:0 0 14px}
+.notes .body h4{font:700 16px var(--body);margin:18px 0 6px}
+.notes .body ul{margin:0;padding-left:20px;color:var(--muted)}
+.notes .body li{margin:5px 0}
+.notes .body strong{color:var(--cream)}
+.notes .body code{font:500 13px var(--mono);color:#e3e7ee;background:rgba(255,255,255,.07);border-radius:6px;padding:1px 6px}
+.notes .more{display:inline-block;margin-top:16px;font-weight:700;text-decoration:none}
+
+footer{position:relative;z-index:1;border-top:1px solid var(--edge);color:var(--muted);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;padding-block:24px max(28px,env(safe-area-inset-bottom,0px))}
+footer a{color:var(--cream);text-decoration:none;font-weight:700}
+
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;justify-items:start;gap:26px;padding-block:44px 24px}
+  .hero .icon{width:150px;height:150px;border-radius:34px}
+  .grid,.steps{grid-template-columns:1fr}
+  .top nav{display:none}
+  .flow{height:260px}.cv{width:150px;height:150px;left:-75px}
+}
+@media (prefers-reduced-motion:reduce){.hero .icon{animation:none}.btn,.cv{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="mini" href="#"><img src="icon.webp" alt="">Cover Flow</a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="#new">What's new</a>
+      <a href="https://github.com/dustalexw/cover-flow">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <img class="icon" src="icon.webp" alt="The Cover Flow app icon: a violet album cover with a record, between stacks of tilted covers">
+      <div>
+        <p class="eyebrow">Record-collection player · a dustalexw app</p>
+        <h1>Cover <span class="fl">Flow</span></h1>
+        <p class="tag">Browse your music by its covers.</p>
+        <p class="sub">3D Cover Flow, a grid, and Album View, from mini-player to full screen. With gapless playback, lyrics, karaoke and a visualizer.</p>
+        <ul class="chips" aria-label="Highlights">
+          <li style="--c:var(--gold)">3D Cover Flow</li><li>Gapless playback</li><li style="--c:var(--violet)">Karaoke &amp; stems</li><li>FLAC · ALAC · Opus · APE</li>
+        </ul>
+        <div class="dl">
+          <a class="btn" id="mainBtn" href="https://github.com/dustalexw/cover-flow/releases/latest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/></svg>
+            <span><span id="mainLabel">Download for Mac</span><small id="mainSub">Free · macOS 14 or later</small></span>
+          </a>
+          <p class="alt">Apple silicon and Intel · <a href="#ipad">iPad and iPhone</a></p>
+        </div>
+        <p class="ver" id="ver">Version <b>1.8.2</b></p>
+        <p class="note" id="phoneNote">Cover Flow for Mac downloads on a Mac. There are iPad and iPhone versions too, built with Xcode: see <a href="#ipad">iPad and iPhone</a>.</p>
+      </div>
+    </div>
+
+    <div class="flow" id="flow" tabindex="0" role="listbox" aria-label="Example albums. Use the left and right arrow keys to browse."><div class="stage" id="stage"></div></div>
+    <div class="np" aria-live="polite"><b id="npT"></b><span id="npA"></span></div>
+    <div class="ctl"><button type="button" id="prev" aria-label="Previous album">←</button><button type="button" id="next" aria-label="Next album">→</button></div>
+    <p class="demo-note">Drag, swipe, click a cover or use <kbd>←</kbd> <kbd>→</kbd>, just like the app. These albums are made up.</p>
+
+    <section id="features">
+      <h2>A player built around your record collection</h2>
+      <p class="lead">Cover Flow is a native SwiftUI and AVFoundation app that plays your files where they are, or keeps them organized for you. Here's what's inside.</p>
+      <div class="grid">
+        <article class="card"><h3><span class="bar"></span>Three ways to browse</h3><p>The 3D Cover Flow, a grid, and Album View: a player window that scales from a compact mini-player to an almost full-screen cover.</p></article>
+        <article class="card"><h3><span class="bar"></span>Gapless, in every format</h3><p>MP3, AAC, ALAC, FLAC, WAV and AIFF, plus Opus, Ogg Vorbis, Monkey's Audio, WavPack, DSD, Musepack, WMA and more, all played without gaps.</p></article>
+        <article class="card"><h3><span class="bar"></span>Karaoke and Stem Mix</h3><p>Remove the vocals, hear only the vocals, or isolate drums, bass, guitar and piano with Demucs. Mix the stems yourself and export them as WAV.</p></article>
+        <article class="card"><h3><span class="bar"></span>Lyrics and artwork</h3><p>Synced lyrics that follow the music, found on LRCLIB. Missing covers come from MusicBrainz and the Cover Art Archive. No API keys needed.</p></article>
+        <article class="card"><h3><span class="bar"></span>Music visualizer</h3><p>Four native Metal styles, Pulse, Aurora, Spectrum and Nebula, at up to 60 fps, or bring your own MilkDrop presets.</p></article>
+        <article class="card"><h3><span class="bar"></span>Immersive scenes</h3><p>In immersive Album View the artwork extends across the screen in its own colors, with optional on-device Stable Diffusion refinement.</p></article>
+        <article class="card"><h3><span class="bar"></span>Album track panel</h3><p>Early-iTunes style: Helvetica, compact song columns and a big cover, colored to match each album's artwork.</p></article>
+        <article class="card"><h3><span class="bar"></span>Last.fm scrobbling</h3><p>Now Playing and scrobbles from real listening time, cached during outages. Your password never touches the app.</p></article>
+        <article class="card"><h3><span class="bar"></span>Keep media organized</h3><p>Optionally copy or move imports into <code class="i">Artist/Album/01 Title</code> folders, on your Mac or an external drive.</p></article>
+      </div>
+    </section>
+
+    <section id="download">
+      <h2>Download</h2>
+      <p class="lead">One universal app for Apple silicon and Intel Macs running macOS 14 or later.</p>
+      <div class="steps">
+        <article class="step">
+          <h3>Cover Flow for Mac</h3>
+          <ol>
+            <li>Download the zip, unzip it and move <b>Cover Flow.app</b> to Applications.</li>
+            <li>First launch: the app isn't notarized by Apple, so right-click it and choose <b>Open</b>.</li>
+            <li>Karaoke processing needs Apple silicon. Demucs models download on first use; other models are your own files.</li>
+          </ol>
+          <a class="get" id="appGet" href="https://github.com/dustalexw/cover-flow/releases/latest">Download Cover Flow <span id="appGetSub">.zip</span></a>
+        </article>
+        <article class="step" id="ipad">
+          <h3>iPad and iPhone</h3>
+          <ol>
+            <li>Native iPadOS and iOS 17 apps with touch Cover Flow, Files and iCloud import, gapless playback, lyrics, karaoke and the visualizer.</li>
+            <li>Open <b>iPad/CoverFlow-iPad.xcodeproj</b> or <b>iPhone/CoverFlow-iPhone.xcodeproj</b> in Xcode, choose your signing team and run it on your device.</li>
+          </ol>
+          <a class="get" href="https://github.com/dustalexw/cover-flow/blob/main/iPad/README.md">iPad guide <span>GitHub</span></a>
+        </article>
+        <article class="step" style="grid-column:1/-1">
+          <h3>Or build it yourself</h3>
+          <p style="margin:0;color:var(--muted);font-size:15px">Needs macOS 14 and Xcode (or the Command Line Tools). The first build downloads verified TagLib, projectM and FFmpeg sources and the scene model; later builds reuse them. No Homebrew needed.</p>
+<pre class="term">git clone https://github.com/dustalexw/cover-flow
+cd cover-flow
+./build.command                      <span class="c"># builds, signs and opens Cover Flow.app</span>
+COVERFLOW_SKIP_SD=1 ./build.command  <span class="c"># skip the 1.6 GB scene model</span></pre>
+        </article>
+      </div>
+    </section>
+
+    <section id="new">
+      <h2>What's new</h2>
+      <div class="notes">
+        <h3 id="relName">Cover Flow 1.8.2</h3>
+        <p class="when" id="relWhen">macOS</p>
+        <div class="body" id="relBody">
+          <ul>
+            <li><strong>Immersive scene choices:</strong> Extend, Subtle or Ornate, remembered per album.</li>
+            <li><strong>Smoother cover browsing:</strong> trackpad scrolling waits for the gesture to finish before snapping.</li>
+            <li><strong>Faster repeat playback</strong> for formats such as Musepack, and lower playback overhead for Opus.</li>
+          </ul>
+        </div>
+        <a class="more" id="relLink" href="https://github.com/dustalexw/cover-flow">Cover Flow on GitHub →</a>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>Cover Flow is an independent app by dustalexw, not affiliated with Apple. Third-party components are listed in the app's notices.</span>
+    <a href="https://github.com/dustalexw/cover-flow">Source on GitHub</a>
+  </div>
+</footer>
+
+<script>
+// ---- demo: generated covers in a 3D flow ----
+(()=>{const A=[
+  ['Night Signals','Lumen Harbor','#1d3b6e','#f2c47d','sun'],
+  ['Paper Moths','The Paper Moths','#e7dcc4','#c0453a','rings'],
+  ['Violet Hour','Mara Ostend','#4b2f8f','#f6a0be','disc'],
+  ['Low Tide','Seabright','#0f5f63','#bfe8d6','waves'],
+  ['Saltwater Radio','Hollow Pines','#c96b2b','#20222c','bars'],
+  ['Glass Hours','June Calder','#101826','#7fd0ff','grid'],
+  ['Porchlight','The Wren Sisters','#f2c47d','#3a2a12','sun'],
+  ['Static Bloom','Nadir','#2a1a35','#ff7e67','rings'],
+  ['Orchard Road','Kit Lowell','#3f6b2e','#f5e7b0','waves'],
+  ['Neon Lullabies','Tessellate','#0a0a14','#c38bff','grid'],
+  ['Far Field','Openair','#8fb3d9','#16264a','disc']];
+  const art=(bg,fg,k)=>{let s='';
+    if(k==='sun')s=`<circle cx="100" cy="112" r="52" fill="${fg}"/><rect x="0" y="130" width="200" height="70" fill="${bg}" opacity=".85"/>${[0,1,2,3].map(i=>`<rect x="0" y="${140+i*14}" width="200" height="${5+i}" fill="${fg}" opacity=".5"/>`).join('')}`;
+    if(k==='rings')s=[70,52,34,16].map((r,i)=>`<circle cx="100" cy="100" r="${r}" fill="none" stroke="${fg}" stroke-width="${10-i*2}"/>`).join('');
+    if(k==='disc')s=`<circle cx="118" cy="100" r="66" fill="#0b0b10"/><circle cx="118" cy="100" r="22" fill="${fg}"/><rect x="18" y="34" width="100" height="132" fill="${fg}" opacity=".9"/>`;
+    if(k==='waves')s=[0,1,2,3,4].map(i=>`<path d="M0 ${70+i*24} Q50 ${50+i*24} 100 ${70+i*24} T200 ${70+i*24}" fill="none" stroke="${fg}" stroke-width="7" opacity="${1-i*.15}"/>`).join('');
+    if(k==='bars')s=[30,70,45,90,60,110,80,50].map((h,i)=>`<rect x="${18+i*21}" y="${170-h}" width="14" height="${h}" fill="${fg}"/>`).join('');
+    if(k==='grid')s=Array.from({length:25},(_,i)=>`<circle cx="${36+(i%5)*32}" cy="${36+Math.floor(i/5)*32}" r="${4+((i*7)%5)*2}" fill="${fg}" opacity="${.35+((i*3)%7)/10}"/>`).join('');
+    return `<svg viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" fill="${bg}"/>${s}</svg>`;};
+  const stage=document.getElementById('stage'),flow=document.getElementById('flow');
+  const els=A.map((a,i)=>{const d=document.createElement('div');d.className='cv';d.innerHTML=art(a[2],a[3],a[4]);d.setAttribute('role','option');d.setAttribute('aria-label',a[0]+' by '+a[1]);
+    d.addEventListener('click',()=>{if(!moved)go(i);});stage.appendChild(d);return d;});
+  let cur=5,moved=false;
+  function go(i){cur=Math.max(0,Math.min(A.length-1,i));const small=innerWidth<860,sp=small?40:58,off=small?95:130;
+    els.forEach((e,j)=>{const d=j-cur;let t;
+      if(d===0)t='translateX(0) translateZ(80px) rotateY(0)';
+      else t=`translateX(${Math.sign(d)*(off+Math.abs(d)*sp)}px) translateZ(${-Math.abs(d)*12}px) rotateY(${d<0?62:-62}deg)`;
+      e.style.transform=t;e.style.zIndex=100-Math.abs(d);e.style.filter=d===0?'none':'brightness(.72)';e.setAttribute('aria-selected',String(d===0));});
+    document.getElementById('npT').textContent=A[cur][0];document.getElementById('npA').textContent=A[cur][1];}
+  document.getElementById('prev').onclick=()=>go(cur-1);document.getElementById('next').onclick=()=>go(cur+1);
+  flow.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'){go(cur-1);e.preventDefault();}if(e.key==='ArrowRight'){go(cur+1);e.preventDefault();}
+    if(e.key==='Home')go(0);if(e.key==='End')go(A.length-1);});
+  let x0=null,c0=0;
+  flow.addEventListener('pointerdown',e=>{x0=e.clientX;c0=cur;moved=false;flow.classList.add('drag');});
+  addEventListener('pointermove',e=>{if(x0===null)return;const dx=e.clientX-x0;if(Math.abs(dx)>6)moved=true;const n=c0-Math.round(dx/70);if(n!==cur)go(n);});
+  addEventListener('pointerup',()=>{x0=null;flow.classList.remove('drag');});
+  flow.addEventListener('wheel',e=>{if(Math.abs(e.deltaX)>Math.abs(e.deltaY)&&Math.abs(e.deltaX)>8){e.preventDefault();go(cur+(e.deltaX>0?1:-1));}},{passive:false});
+  addEventListener('resize',()=>go(cur));go(cur);})();
+
+// ---- phones and tablets: point to the iPad and iPhone builds ----
+const ua=navigator.userAgent,plat=(navigator.userAgentData&&navigator.userAgentData.platform)||navigator.platform||'';
+const phone=/iPhone|iPad|iPod|Android/i.test(ua)||(/Mac/.test(plat)&&navigator.maxTouchPoints>1);
+if(phone)document.getElementById('phoneNote').style.display='block';
+
+// ---- download links and release notes from the latest GitHub release ----
+const btn=document.getElementById('mainBtn'),get=document.getElementById('appGet');
+function md(src){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl=s=>esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2">$1</a>');
+  let out='',inList=false;
+  for(const raw of src.replace(/\r/g,'').split('\n')){const l=raw.trim();
+    if(/^#{1,6}\s/.test(l)){if(inList){out+='</ul>';inList=false;}const t=l.replace(/^#{1,6}\s+/,'');if(/^(downloads?|install|checksums?|verify)/i.test(t))break;out+='<h4>'+inl(t)+'</h4>';}
+    else if(/^\d+\.\s+|^[-*]\s+/.test(l)){if(!inList){out+='<ul>';inList=true;}out+='<li>'+inl(l.replace(/^(\d+\.|[-*])\s+/,''))+'</li>';}
+    else if(l){if(inList){out+='</ul>';inList=false;}out+='<p style="color:var(--muted);margin:6px 0">'+inl(l)+'</p>';}}
+  if(inList)out+='</ul>';return out;}
+fetch('https://api.github.com/repos/dustalexw/cover-flow/releases/latest',{headers:{Accept:'application/vnd.github+json'}})
+  .then(r=>r.ok?r.json():Promise.reject(r.status)).then(rel=>{
+    const a=(rel.assets||[]).find(a=>/-macOS\.zip$/i.test(a.name));if(!a)return;
+    const v=(rel.tag_name||'').replace(/^v/,'')||'1.8.2';
+    btn.href=a.browser_download_url;get.href=a.browser_download_url;
+    document.getElementById('mainSub').textContent='Free · version '+v;
+    document.getElementById('ver').innerHTML='Latest release: <b>Cover Flow '+v+'</b>';
+    document.getElementById('relName').textContent=rel.name||('Cover Flow '+v);
+    if(rel.published_at)document.getElementById('relWhen').textContent='Released '+new Date(rel.published_at).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'})+' · macOS';
+    if(rel.body){const h=md(rel.body);if(h.trim())document.getElementById('relBody').innerHTML=h;}
+    if(rel.html_url)document.getElementById('relLink').href=rel.html_url;
+  }).catch(()=>{});
+</script>
+</body>
+</html>
