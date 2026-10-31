@@ -139,13 +139,3 @@ enum ExtraArtworkReader {
         return result
     }
 }
-
-/// Optional fanart.tv personal API key (free at fanart.tv), which adds its disc art
-/// to the online sources. Stored in preferences; it isn't a password.
-enum ExtraArtSettings {
-    static let fanartKeyDefaultsKey = "artwork.fanartKey"
-    static var fanartKey: String? {
-        let key = (UserDefaults.standard.string(forKey: fanartKeyDefaultsKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return key.isEmpty ? nil : key
-    }
-}
