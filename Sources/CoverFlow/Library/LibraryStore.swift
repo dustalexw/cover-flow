@@ -516,8 +516,16 @@ final class LibraryStore: ObservableObject {
         let client = MusicLookupClient.shared
         guard let match = try await client.bestMatch(title: album.title, artist: album.artist) else { return nil }
         let haveDiscs = Set(album.discImages.compactMap(\.disc))
-        let wanted = await client.albumExtras(match, fanartKey: fanartKey).filter { extra in
-            extra.kind == .back ? album.backImage == nil : !haveDiscs.contains(extra.disc ?? 1)
+        let albumDiscs = discNumbers(of: album)
+        var found = await client.albumExtras(match, fanartKey: fanartKey)
+        // Only the album's own discs; a single-disc album takes the first disc image.
+        if albumDiscs == [1], !found.contains(where: { $0.kind == .disc && $0.disc == 1 }),
+           let first = found.first(where: { $0.kind == .disc }) {
+            found.append(CoverArtExtra(kind: .disc, disc: 1, url: first.url, source: first.source))
+        }
+        let wanted = found.filter { extra in
+            extra.kind == .back ? album.backImage == nil
+                : albumDiscs.contains(extra.disc ?? 1) && !haveDiscs.contains(extra.disc ?? 1)
         }
         var images: [(kind: AlbumImageKind, disc: Int?, data: Data)] = []
         for extra in wanted {

@@ -60,7 +60,8 @@ Back and disc art come from:
   Only those are searched; sources are asked in parallel and their images appear as each
   one answers. Click an image to replace the current one, use **Choose File…**, **Keep
   Current**, or **Remove** a back cover or disc. Kinds the album lacks are filled in for
-  you; existing art is only replaced when you pick something. **Save Artwork** saves it
+  you (one disc image for a single-disc album, even if a source lists art for several
+  discs; **Add Disc** adds more); existing art is only replaced when you pick something. **Save Artwork** saves it
   all at once. **Find Back Cover & Disc Art Online…** opens the window on the back cover
   tab.
 - **Fill In Missing Back & Disc Art Automatically** (album menu, grid right-click, or

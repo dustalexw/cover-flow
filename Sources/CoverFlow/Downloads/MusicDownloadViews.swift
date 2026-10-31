@@ -138,6 +138,8 @@ struct ArtworkDownloadView: View {
     @State private var autoPicked: Set<String> = []
     @State private var tab: ArtworkKind
     @State private var disc = 1
+    /// Highest disc slot added by hand with Add Disc.
+    @State private var addedDiscs = 1
     @State private var importing = false
     @State private var searching = false
     @State private var saving = false
@@ -185,10 +187,12 @@ struct ArtworkDownloadView: View {
         return sources.flatMap { found[$0] ?? [] }.filter { wants($0.kind) && seen.insert($0.url).inserted }
     }
 
+    /// The album's discs, plus any that already have art or a choice, plus ones added
+    /// with Add Disc. A single-disc album gets one slot, whatever the sources list.
     private var discSlots: [Int] {
-        let foundDiscs = candidates.filter { $0.kind == .disc }.compactMap(\.disc).max() ?? 1
         let have = album.discImages.compactMap(\.disc).max() ?? 1
-        return Array(1...min(20, max(discCount, foundDiscs, have, discs.keys.max() ?? 1)))
+        let chosen = discs.filter { $0.value != .keep }.keys.max() ?? 1
+        return Array(1...min(20, max(discCount, have, chosen, addedDiscs)))
     }
 
     // MARK: Choices
@@ -269,8 +273,12 @@ struct ArtworkDownloadView: View {
         pick(.front, nil, picks.front)
         guard onUseExtras != nil else { return }
         pick(.back, nil, picks.back)
-        let numbers = Set(picks.discs.keys).union(discs.keys)
-        for number in numbers { pick(.disc, number, picks.discs[number]) }
+        // Only the album's own discs are filled in; a single-disc album takes the first
+        // disc image found even if a source lists it as another disc.
+        for number in 1...discCount {
+            pick(.disc, number, picks.discs[number] ?? (discCount == 1 ? picks.discs.keys.sorted().first.flatMap { picks.discs[$0] } : nil))
+        }
+        for number in discs.keys where number > discCount && autoPicked.contains(key(.disc, number)) { set(.disc, number, .keep) }
     }
 
     // MARK: Layout
@@ -404,10 +412,20 @@ struct ArtworkDownloadView: View {
                 .frame(width: 220, height: 220)
                 VStack(alignment: .leading, spacing: 8) {
                     if tab == .disc {
-                        Picker("Disc", selection: $disc) {
-                            ForEach(discSlots, id: \.self) { Text("Disc \($0)").tag($0) }
+                        HStack {
+                            if discSlots.count > 1 {
+                                Picker("Disc", selection: $disc) {
+                                    ForEach(discSlots, id: \.self) { Text("Disc \($0)").tag($0) }
+                                }
+                                .frame(width: 150)
+                            }
+                            Button(discSlots.count > 1 ? "Add Disc" : "Add Another Disc") {
+                                addedDiscs = (discSlots.last ?? 1) + 1
+                                disc = addedDiscs
+                            }
+                            .disabled(saving || discSlots.count >= 20)
+                            .help("Add art for another disc, shown beside the first when you flip the cover.")
                         }
-                        .frame(width: 150)
                     }
                     Text(choiceTitle).font(.headline)
                     Text(choiceDetail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
