@@ -32,6 +32,18 @@ queue. Your original audio file stays on disk; removing the last track removes
 the empty album. On iPad, touch and hold a track for the same action; only the
 app’s imported copy is deleted.
 
+## Save edits to your audio files (macOS)
+
+Turn on **Settings › Editing › Save album and track edits to the audio files** (or the
+**Also save changes** checkbox in Edit Album Info / Edit Track Info) and edits are
+written into the files' tags too: title, artist, album, album artist, year, genre, and
+track and disc numbers, so other apps see them. Album-wide fields are written only when
+you change them, so tracks keep their own years and genres otherwise. Values a file
+already has are left alone (a `1997-05-21` date stays when the year is 1997, and `3/12`
+keeps its `/12`), and untouched files aren't rewritten. Each file is edited as a copy
+that replaces it only after the new tags are read back and checked; artwork and other
+tags are kept. Off by default; with it off, edits stay in Cover Flow's library.
+
 ## Keep media organized (macOS)
 
 By default Cover Flow plays your files where they are. To keep your music in one

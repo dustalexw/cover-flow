@@ -375,14 +375,6 @@ struct CoverItem: View {
                 .frame(width: size, height: size)
                 .overlay(Color.black.opacity((scheme == .dark ? 0.4 : 0.22) * shade).allowsHitTesting(false))
                 .background(Color.black.opacity(0.001))
-                .overlay(alignment: .topTrailing) {
-                    if isPlayingAlbum {
-                        NowPlayingBars(playing: isPlaying, color: .white, height: max(10, size * 0.035))
-                            .padding(7)
-                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
-                            .padding(size * 0.035)
-                    }
-                }
                 .shadow(color: .black.opacity(scheme == .dark ? 0.55 : 0.25), radius: 18 * emphasis + 6, y: 10 * emphasis + 4)
             // Subtle reflection on the "shelf".
             ArtworkView(album: album, pointSize: size, cornerRadius: 3)
