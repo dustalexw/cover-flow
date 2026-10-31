@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var confirmOrganize = false
     @State private var organizeCount = 0
     @AppStorage(ExtraArtSettings.fanartKeyDefaultsKey) private var fanartKey = ""
+    @AppStorage(LibraryStore.writeEditsDefaultsKey) private var writeEditsToFiles = false
 
     var body: some View {
         Form {
@@ -104,6 +105,15 @@ struct SettingsView: View {
             }
 
             LastFmSettings()
+
+            Section("Editing") {
+                Toggle("Save album and track edits to the audio files", isOn: $writeEditsToFiles)
+                Text(writeEditsToFiles
+                     ? "Edit Album Info and Edit Track Info also write the changes into the files’ tags (title, artist, album, album artist, year, genre, track and disc numbers), so other apps see them too. Each file is updated through a copy that replaces it only after the new tags are checked; everything else in the file is kept."
+                     : "Off: edits are saved only in Cover Flow’s library and your audio files aren’t changed.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Section("Your Library & Saved Data") {
                 VStack(alignment: .leading, spacing: 6) {

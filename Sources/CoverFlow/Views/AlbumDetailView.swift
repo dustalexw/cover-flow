@@ -301,6 +301,7 @@ struct TrackEditView: View {
     @State private var year = ""
     @State private var genre = ""
     @State private var loaded = false
+    @AppStorage(LibraryStore.writeEditsDefaultsKey) private var writeToFiles = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -342,7 +343,12 @@ struct TrackEditView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                Text("Changes are saved to Cover Flow’s library; the audio file isn’t modified. To change the album or its artwork, use Edit Album Info.")
+                Toggle("Also save changes to the audio file", isOn: $writeToFiles)
+                    .disabled(track.isDemo)
+                Text((writeToFiles && !track.isDemo
+                      ? "Changes are saved to Cover Flow’s library and written into the file’s tags."
+                      : "Changes are saved to Cover Flow’s library; the audio file isn’t modified.")
+                     + " To change the album or its artwork, use Edit Album Info.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -388,6 +394,7 @@ struct AlbumEditView: View {
     @State private var genre = ""
     @State private var edits: [LibraryStore.TrackEdit] = []
     @State private var loaded = false
+    @AppStorage(LibraryStore.writeEditsDefaultsKey) private var writeToFiles = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -434,7 +441,11 @@ struct AlbumEditView: View {
                 }
             }
             .frame(minHeight: 160)
-            Text("Text edits are saved to Cover Flow’s library. Replacing artwork also embeds the cover in the album’s audio files.")
+            Toggle("Also save changes to the audio files", isOn: $writeToFiles)
+                .disabled(library.album(albumID)?.isDemo ?? true)
+            Text(writeToFiles && library.album(albumID)?.isDemo == false
+                 ? "Edits are saved to Cover Flow’s library and written into the album’s audio files. Replacing artwork also embeds the cover."
+                 : "Text edits are saved to Cover Flow’s library. Replacing artwork also embeds the cover in the album’s audio files.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
@@ -448,7 +459,7 @@ struct AlbumEditView: View {
             }
         }
         .padding(24)
-        .frame(width: 620, height: 600)
+        .frame(width: 620, height: 630)
         .onAppear(perform: load)
     }
 

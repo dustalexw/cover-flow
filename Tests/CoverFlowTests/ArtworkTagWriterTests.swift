@@ -66,6 +66,47 @@ final class ArtworkTagWriterTests: XCTestCase {
         XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix(".coverflow-") })
     }
 
+    func testTextTagEditsAreWrittenVerifiedAndSkippedWhenUnchanged() async throws {
+        for name in fixtures {
+            let url = try copy(name)
+            let before = try await MetadataReader.read(url)
+            let audio = try audioPayload(try Data(contentsOf: url), extension: url.pathExtension)
+            let fields = ["TITLE": "New Title ✓", "ALBUM": "New Album", "TRACKNUMBER": "7", "GENRE": "Shoegaze"]
+            do { XCTAssertTrue(try ArtworkTagWriter.writeTags(fields, at: url), name) }
+            catch { XCTFail("\(name): \(error.localizedDescription)"); continue }
+            let after = try await MetadataReader.read(url)
+            XCTAssertEqual(after.title, "New Title ✓", name)
+            XCTAssertEqual(after.album, "New Album", name)
+            XCTAssertEqual(after.trackNumber, 7, name)
+            XCTAssertEqual(after.genre, "Shoegaze", name)
+            XCTAssertEqual(after.artist, before.artist, name)
+            XCTAssertEqual(after.artwork, before.artwork, name)
+            XCTAssertEqual(try audioPayload(try Data(contentsOf: url), extension: url.pathExtension), audio, name)
+            // The same values again leave the file alone.
+            let stamp = try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber
+            XCTAssertFalse(try ArtworkTagWriter.writeTags(fields, at: url), name)
+            XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber, stamp, name)
+        }
+        // A cleared value removes the tag.
+        let flac = try copy("tags.flac")
+        XCTAssertTrue(try ArtworkTagWriter.writeTags(["GENRE": "Shoegaze"], at: flac))
+        XCTAssertTrue(try ArtworkTagWriter.writeTags(["GENRE": ""], at: flac))
+        let cleared = try await MetadataReader.read(flac)
+        XCTAssertNil(cleared.genre)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix(".coverflow-") })
+        let text = directory.appendingPathComponent("notes.txt")
+        try Data("x".utf8).write(to: text)
+        XCTAssertThrowsError(try ArtworkTagWriter.writeTags(["TITLE": "x"], at: text))
+    }
+
+    func testWriteReportSaysWhenFilesAlreadyMatched() {
+        var report = ArtworkWriteReport(action: "Changes saved to")
+        report.unchanged = 3
+        XCTAssertEqual(report.summary, "The audio files already had these details.")
+        report.updated = 2
+        XCTAssertEqual(report.summary, "Changes saved to 2 audio files.")
+    }
+
     func testFailuresKeepOriginalBytesAndReportEachFileWhileDeduplicatingAliases() async throws {
         let good = try copy("tags.mp3")
         let locked = try copy("tags.flac")
