@@ -11,6 +11,7 @@ struct AlbumDetailView: View {
     @State private var downloadArtwork = false
     @State private var trackToRemove: Track?
     @State private var confirmingTrackRemoval = false
+    @State private var trackToEdit: IDRef?
 
     var body: some View {
         Group {
@@ -24,10 +25,13 @@ struct AlbumDetailView: View {
                 .frame(width: 420, height: 200)
             }
         }
-        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil && !confirmingTrackRemoval && !downloadArtwork,
+        .background(AlbumPanelEvents(enabled: state.editAlbum == nil && state.appearanceAlbum == nil && state.confirmRemoval == nil && !confirmingTrackRemoval && !downloadArtwork && trackToEdit == nil,
                                      onDismiss: { dismiss() }, onTogglePlayback: { player.togglePlayPause() }))
         .sheet(item: $state.editAlbum) { ref in
             AlbumEditView(albumID: ref.id).environmentObject(library)
+        }
+        .sheet(item: $trackToEdit) { ref in
+            TrackEditView(trackID: ref.id).environmentObject(library)
         }
         .sheet(item: $state.appearanceAlbum) { ref in
             AlbumAppearanceView(albumID: ref.id).environmentObject(library)
@@ -107,10 +111,12 @@ struct AlbumDetailView: View {
                                                 .padding(.top, track.id == columns[column].first?.id ? 0 : 14)
                                                 .padding(.bottom, 5).padding(.leading, 8)
                                         }
-                                        TrackRow(track: track, position: index + 1, album: album, colors: colors) { track in
+                                        TrackRow(track: track, position: index + 1, album: album, colors: colors, onRemove: { track in
                                             trackToRemove = track
                                             confirmingTrackRemoval = true
-                                        }
+                                        }, onEdit: { track in
+                                            trackToEdit = IDRef(id: track.id)
+                                        })
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -206,6 +212,7 @@ struct TrackRow: View {
     let album: Album
     let colors: AlbumDetailPalette
     var onRemove: (Track) -> Void
+    var onEdit: (Track) -> Void = { _ in }
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @State private var hover = false
@@ -263,6 +270,7 @@ struct TrackRow: View {
             Button("Play Next") { player.playNext([track.id]) }
             Button("Add to Queue") { player.addToQueue([track.id]) }
             Divider()
+            Button("Edit Track Info…") { onEdit(track) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([track.fileURL]) }
             Divider()
             Button("Remove from Collection…", role: .destructive) { onRemove(track) }
@@ -270,6 +278,95 @@ struct TrackRow: View {
         .task(id: track.fileURL) { exists = library.fileExists(track) }
         .accessibilityLabel("Track \(track.trackNumber ?? position), \(track.title), \(formatTime(track.duration))\(isCurrent ? ", now playing" : "")\(exists ? "" : ", file missing")")
         .accessibilityHint(isCurrent ? "Play or pause" : "Play from this track")
+    }
+}
+
+/// Edit Track Info: one track's title, artist, numbers, year and genre (library only).
+struct TrackEditView: View {
+    let trackID: UUID
+    @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var artist = ""
+    @State private var trackNumber = ""
+    @State private var discNumber = ""
+    @State private var year = ""
+    @State private var genre = ""
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Edit Track Info")
+                .font(Typography.albumTitle(20))
+            if let track = library.track(trackID) {
+                HStack(alignment: .top, spacing: 18) {
+                    if let album = library.album(library.albumID(forTrack: trackID)) {
+                        ArtworkView(album: album, pointSize: 96)
+                            .frame(width: 96, height: 96)
+                            .accessibilityHidden(true)
+                    }
+                    Form {
+                        TextField("Title", text: $title)
+                        TextField("Artist", text: $artist)
+                        LabeledContent("Track") {
+                            HStack(spacing: 8) {
+                                TextField("", text: $trackNumber).frame(width: 52).accessibilityLabel("Track number")
+                                Text("Disc").foregroundStyle(.secondary)
+                                TextField("", text: $discNumber).frame(width: 52).accessibilityLabel("Disc number")
+                            }
+                        }
+                        LabeledContent("Year") {
+                            TextField("", text: $year).frame(width: 80).accessibilityLabel("Year")
+                        }
+                        TextField("Genre", text: $genre)
+                    }
+                    .formStyle(.columns)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    if let album = library.album(library.albumID(forTrack: trackID)) {
+                        Text("Album: \(album.title)")
+                    }
+                    Text("Length: \(formatTime(track.duration)) · \(track.fileURL.pathExtension.uppercased())")
+                    Text(track.fileURL.path)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(track.fileURL.path)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Text("Changes are saved to Cover Flow’s library; the audio file isn’t modified. To change the album or its artwork, use Edit Album Info.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("This track is no longer in your collection.").foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    library.updateTrack(trackID, title: title, artist: artist, trackNumber: trackNumber,
+                                        discNumber: discNumber, year: year, genre: genre)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(library.track(trackID) == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 520)
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        guard !loaded, let track = library.track(trackID) else { return }
+        loaded = true
+        title = track.title
+        artist = track.artist
+        trackNumber = track.trackNumber.map(String.init) ?? ""
+        discNumber = track.discNumber.map(String.init) ?? ""
+        year = track.year.map(String.init) ?? ""
+        genre = track.genre ?? ""
     }
 }
 
