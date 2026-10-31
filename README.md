@@ -51,11 +51,19 @@ Back and disc art come from:
   other editions with back or disc scans), TheAudioDB, and fanart.tv's disc art when you
   add a free personal API key in Settings › Back Covers & Disc Art. Cut-out disc art is
   preferred to photos of discs unless the archive has scans of more discs.
-  - **Find Back Cover & Disc Art** (album menu, grid right-click, or **File › Find
-    Missing Back Covers & Disc Art** for the whole collection) fills in only what an
-    album lacks, for albums MusicBrainz matches by title and artist.
-  - **Find Artwork Online…** with **Also download back cover and disc art** on saves
-    them along with the cover you pick. The preview says what was found.
+- **Find Artwork Online…** (album menu) has **Front Cover**, **Back Cover** and **Disc
+  Art** tabs. Pick an album result, and each tab lists every image found, labelled by
+  source and edition: the Cover Art Archive (each edition with scans), TheAudioDB, and
+  fanart.tv. Click one to use it, choose **Disc 1/2/…** for a multi-disc set, use
+  **Choose File…** for your own image, or **Keep Current**. Sensible picks are made for
+  you; **Use Artwork** saves everything chosen at once. **Find Back Cover & Disc Art
+  Online…** opens the same window on the back cover tab.
+- **Fill In Missing Back & Disc Art Automatically** (album menu, grid right-click, or
+  **File › Find Missing Back Covers & Disc Art** for the whole collection) does the
+  same without asking, only for what an album lacks and only for albums MusicBrainz
+  matches by title and artist.
+- **Choose Artwork from File** (album menu and grid right-click) sets the front cover,
+  back cover, or any disc's art from an image file.
 
 They are kept with the collection's artwork; the audio files aren't changed.
 **Remove Back & Disc Art** in the album panel's menu removes them.

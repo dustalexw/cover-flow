@@ -111,6 +111,57 @@ final class BackAndDiscArtTests: XCTestCase {
         XCTAssertNil(MusicLookupClient.safeURL("https://theaudiodb.com.evil.net/x.jpg"))
     }
 
+    func testArtworkChoicesListEveryKindFromEverySource() throws {
+        let index = """
+        {"release":"https://musicbrainz.org/release/BBBBBBBB-0000-0000-0000-000000000000","images":[
+         {"types":["Front"],"front":true,"image":"http://coverartarchive.org/release/r/1.jpg","thumbnails":{"1200":"http://coverartarchive.org/release/r/1-1200.jpg","250":"http://coverartarchive.org/release/r/1-250.jpg"},"comment":""},
+         {"types":["Back"],"back":true,"image":"http://coverartarchive.org/release/r/2.jpg","thumbnails":{},"comment":"Spine side"},
+         {"types":["Medium"],"image":"http://coverartarchive.org/release/r/3.jpg","comment":"CD 2"},
+         {"types":["Booklet"],"image":"http://coverartarchive.org/release/r/4.jpg"}]}
+        """
+        XCTAssertEqual(MusicLookupClient.releaseID(inIndex: Data(index.utf8)), "bbbbbbbb-0000-0000-0000-000000000000")
+        let archive = try MusicLookupClient.parseCoverCandidates(Data(index.utf8), note: "1999 · JP")
+        XCTAssertEqual(archive.map(\.kind), [.front, .back, .disc])
+        XCTAssertEqual(archive[0].previewURL?.absoluteString, "https://coverartarchive.org/release/r/1-250.jpg")
+        XCTAssertEqual(archive[1].note, "1999 · JP · Spine side")
+        XCTAssertEqual(archive[2].disc, 2)
+
+        let browse = """
+        {"releases":[{"id":"11111111-1111-1111-1111-111111111111","date":"2003-05-01","country":"GB","cover-art-archive":{"back":true,"count":3}},
+                     {"id":"22222222-2222-2222-2222-222222222222","cover-art-archive":{"back":false,"count":2}}]}
+        """
+        let editions = try MusicLookupClient.parseEditions(Data(browse.utf8))
+        XCTAssertEqual(editions.map(\.label), ["2003 · GB", "Other edition"])
+
+        let audioDB = """
+        {"album":[{"strAlbumThumbHQ":"https://r2.theaudiodb.com/a/hq.jpg","strAlbumThumb":"https://r2.theaudiodb.com/a/t.jpg",
+                   "strAlbumBack":null,"strAlbumCDart":"https://r2.theaudiodb.com/a/cd.png"}]}
+        """
+        let adb = try MusicLookupClient.parseAudioDBCandidates(Data(audioDB.utf8))
+        XCTAssertEqual(adb.map(\.kind), [.front, .front, .disc])
+        XCTAssertEqual(adb[0].previewURL?.absoluteString, "https://r2.theaudiodb.com/a/hq.jpg/small")
+
+        let group = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let fanart = """
+        {"albums":{"\(group)":{"albumcover":[{"url":"https://assets.fanart.tv/fanart/music/x/albumcover/c.jpg","likes":"2"}],
+          "cdart":[{"url":"https://assets.fanart.tv/fanart/music/x/cdart/1.png","likes":"1","disc":"1"},
+                   {"url":"https://assets.fanart.tv/fanart/music/x/cdart/2.png","likes":"4","disc":"2"}]}}}
+        """
+        let fan = try MusicLookupClient.parseFanartCandidates(Data(fanart.utf8), releaseGroup: group)
+        XCTAssertEqual(fan.map(\.kind), [.front, .disc, .disc])
+        XCTAssertEqual(fan[1].disc, 2)                                    // most liked first
+        XCTAssertEqual(fan[1].previewURL?.absoluteString, "https://assets.fanart.tv/preview/music/x/cdart/2.png")
+
+        // Defaults: archive front and back scan; fanart cut-outs cover more discs than scans.
+        let picks = MusicLookupClient.defaultChoices(archive + adb + fan)
+        XCTAssertEqual(picks.front?.source, .coverArtArchive)
+        XCTAssertEqual(picks.back?.source, .coverArtArchive)
+        XCTAssertEqual(picks.discs.keys.sorted(), [1, 2])
+        XCTAssertTrue(picks.discs.values.allSatisfy { $0.source == .fanartTV })
+        // Without fanart.tv, the archive's disc-2 scan ties TheAudioDB's disc 1; cut-outs win ties.
+        XCTAssertEqual(MusicLookupClient.defaultChoices(archive + adb).discs[1]?.source, .theAudioDB)
+    }
+
     func testOnlyAConfidentMusicBrainzMatchIsPicked() {
         let a = ArtworkMatch(id: UUID(), title: "OK Computer", artist: "Radiohead", year: "1997")
         let b = ArtworkMatch(id: UUID(), title: "OK Computer OKNOTOK 1997 2017", artist: "Radiohead", year: "2017")

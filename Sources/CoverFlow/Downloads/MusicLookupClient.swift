@@ -427,3 +427,208 @@ actor MusicLookupClient {
     }
     private struct Artist: Decodable { let name: String }
 }
+
+// MARK: - Artwork choices for Find Artwork Online
+
+/// Which artwork an image is for.
+enum ArtworkKind: String, CaseIterable, Identifiable, Sendable {
+    case front, back, disc
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .front: return "Front Cover"
+        case .back: return "Back Cover"
+        case .disc: return "Disc Art"
+        }
+    }
+    var imageKind: AlbumImageKind? {
+        switch self {
+        case .front: return nil
+        case .back: return .back
+        case .disc: return .disc
+        }
+    }
+}
+
+/// One image Find Artwork Online can offer.
+struct ArtCandidate: Identifiable, Sendable, Equatable {
+    var id: URL { url }
+    let kind: ArtworkKind
+    /// Disc number for disc art.
+    let disc: Int?
+    /// The image to save (up to 1200 pixels where the service offers sizes).
+    let url: URL
+    /// A smaller image for the picker; the full image is used if it fails.
+    let previewURL: URL?
+    let source: ArtSource
+    /// "2009 · GB", "Disc 2", "12 likes"…
+    var note: String = ""
+}
+
+extension MusicLookupClient {
+    /// Every front, back and disc image found for the album, grouped by kind in a
+    /// sensible default order: the Cover Art Archive's chosen release, its other editions
+    /// (up to five), then TheAudioDB, then fanart.tv (with a personal key).
+    func artCandidates(_ match: ArtworkMatch, fanartKey: String? = nil) async -> [ArtCandidate] {
+        let group = match.id.uuidString.lowercased()
+        var archive: [ArtCandidate] = []
+        var chosenRelease: String?
+        do {
+            let url = URL(string: "https://coverartarchive.org/release-group/\(group)")!
+            let data = try await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json")
+            chosenRelease = Self.releaseID(inIndex: data)
+            archive += (try? Self.parseCoverCandidates(data, note: "")) ?? []
+        } catch { }
+        let browse = URL(string: "https://musicbrainz.org/ws/2/release?release-group=\(group)&fmt=json&limit=100")!
+        let editions = (try? Self.parseEditions(try await fetch(browse, limit: 4 * 1024 * 1024))) ?? []
+        for edition in editions.filter({ $0.id != chosenRelease }).prefix(5) {
+            let url = URL(string: "https://coverartarchive.org/release/\(edition.id)")!
+            guard let data = try? await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json") else { continue }
+            archive += (try? Self.parseCoverCandidates(data, note: edition.label)) ?? []
+        }
+        var others: [ArtCandidate] = []
+        let byGroup = URL(string: "https://www.theaudiodb.com/api/v1/json/\(Self.audioDBKey)/album-mb.php?i=\(group)")!
+        var audioDB = (try? Self.parseAudioDBCandidates(try await fetch(byGroup, limit: 1024 * 1024))) ?? []
+        if audioDB.isEmpty {
+            audioDB = (try? Self.parseAudioDBCandidates(try await fetch(Self.audioDBSearchURL(title: match.title, artist: match.artist), limit: 1024 * 1024))) ?? []
+        }
+        others += audioDB
+        if let key = fanartKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty,
+           var parts = URLComponents(string: "https://webservice.fanart.tv/v3/music/albums/\(group)") {
+            parts.queryItems = [URLQueryItem(name: "api_key", value: key)]
+            if let url = parts.url, let data = try? await fetch(url, limit: 1024 * 1024) {
+                others += (try? Self.parseFanartCandidates(data, releaseGroup: group)) ?? []
+            }
+        }
+        var seen = Set<URL>()
+        return (archive + others).filter { seen.insert($0.url).inserted }
+    }
+
+    /// Downloads an image from one of the art services.
+    func image(_ url: URL, limit: Int = 25 * 1024 * 1024) async throws -> Data {
+        guard url.scheme == "https", Self.safeURL(url.absoluteString) != nil else { throw MusicLookupError.invalidResponse }
+        return try await fetch(url, limit: limit, accept: "image/*")
+    }
+
+    /// The default picks: the first front; a back scan, else any back; disc art as in
+    /// mergeExtras (cut-outs unless the archive has scans of more discs), one per disc.
+    nonisolated static func defaultChoices(_ candidates: [ArtCandidate]) -> (front: ArtCandidate?, back: ArtCandidate?, discs: [Int: ArtCandidate]) {
+        let front = candidates.first { $0.kind == .front }
+        let back = candidates.first { $0.kind == .back && $0.source == .coverArtArchive } ?? candidates.first { $0.kind == .back }
+        func perDisc(_ list: [ArtCandidate]) -> [Int: ArtCandidate] {
+            var result: [Int: ArtCandidate] = [:]
+            for item in list where result[item.disc ?? 1] == nil { result[item.disc ?? 1] = item }
+            return result
+        }
+        let discs = candidates.filter { $0.kind == .disc }
+        let scans = perDisc(discs.filter { $0.source == .coverArtArchive })
+        let fanart = perDisc(discs.filter { $0.source == .fanartTV })
+        let cutOuts = fanart.isEmpty ? perDisc(discs.filter { $0.source == .theAudioDB }) : fanart
+        return (front, back, !cutOuts.isEmpty && cutOuts.count >= scans.count ? cutOuts : scans)
+    }
+
+    nonisolated static func releaseID(inIndex data: Data) -> String? {
+        struct Index: Decodable { let release: String? }
+        guard let release = (try? JSONDecoder().decode(Index.self, from: data))?.release else { return nil }
+        return URL(string: release)?.lastPathComponent.lowercased()
+    }
+
+    /// Releases with cover art beyond a lone front, best first, each with a short label.
+    nonisolated static func parseEditions(_ data: Data) throws -> [(id: String, label: String)] {
+        struct Browse: Decodable { let releases: [Release] }
+        struct Release: Decodable {
+            let id: String
+            let date: String?
+            let country: String?
+            let disambiguation: String?
+        }
+        guard let browse = try? JSONDecoder().decode(Browse.self, from: data) else { throw MusicLookupError.invalidResponse }
+        let order = try parseReleaseBrowse(data)
+        let byID = Dictionary(browse.releases.map { ($0.id.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        return order.map { id in
+            let release = byID[id]
+            let parts = [String((release?.date ?? "").prefix(4)), release?.country ?? "", release?.disambiguation ?? ""]
+                .filter { !$0.isEmpty }
+            return (id, parts.isEmpty ? "Other edition" : parts.joined(separator: " · "))
+        }
+    }
+
+    /// Front, back and disc ("Medium") images of a Cover Art Archive index.
+    nonisolated static func parseCoverCandidates(_ data: Data, note: String) throws -> [ArtCandidate] {
+        struct Index: Decodable { let images: [Image] }
+        struct Image: Decodable {
+            let types: [String]?
+            let front: Bool?
+            let back: Bool?
+            let image: String?
+            let thumbnails: [String: String]?
+            let comment: String?
+        }
+        guard let index = try? JSONDecoder().decode(Index.self, from: data) else { throw MusicLookupError.invalidResponse }
+        func archiveURL(_ string: String?) -> URL? {
+            guard let url = safeURL(string), let host = url.host?.lowercased(),
+                  host == "coverartarchive.org" || host == "archive.org" || host.hasSuffix(".archive.org") else { return nil }
+            return url
+        }
+        let discs = (try? parseCoverExtras(data)) ?? []
+        var result: [ArtCandidate] = []
+        for image in index.images {
+            let types = Set((image.types ?? []).map { $0.lowercased() })
+            guard let url = archiveURL(image.thumbnails?["1200"] ?? image.thumbnails?["large"] ?? image.image) else { continue }
+            let preview = archiveURL(image.thumbnails?["250"] ?? image.thumbnails?["small"])
+            let comment = (image.comment ?? "").trimmingCharacters(in: .whitespaces)
+            let label = [note, comment].filter { !$0.isEmpty }.joined(separator: " · ")
+            if types.contains("front") || image.front == true {
+                result.append(ArtCandidate(kind: .front, disc: nil, url: url, previewURL: preview, source: .coverArtArchive, note: label))
+            } else if types.contains("back") || image.back == true {
+                result.append(ArtCandidate(kind: .back, disc: nil, url: url, previewURL: preview, source: .coverArtArchive, note: label))
+            } else if types.contains("medium") {
+                // Numbered the same way as parseCoverExtras.
+                let disc = discs.first { $0.kind == .disc && $0.url == url }?.disc ?? 1
+                result.append(ArtCandidate(kind: .disc, disc: disc, url: url, previewURL: preview, source: .coverArtArchive, note: label))
+            }
+        }
+        return result
+    }
+
+    /// TheAudioDB album: front (HQ first), back and cut-out CD art.
+    nonisolated static func parseAudioDBCandidates(_ data: Data) throws -> [ArtCandidate] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MusicLookupError.invalidResponse }
+        guard let album = (object["album"] as? [[String: Any]])?.first else { return [] }
+        var result: [ArtCandidate] = []
+        func add(_ field: String, _ kind: ArtworkKind, _ note: String = "") {
+            guard let url = safeURL(album[field] as? String) else { return }
+            // TheAudioDB serves a small version at "<image>/small".
+            result.append(ArtCandidate(kind: kind, disc: kind == .disc ? 1 : nil, url: url,
+                                       previewURL: URL(string: url.absoluteString + "/small"), source: .theAudioDB, note: note))
+        }
+        add("strAlbumThumbHQ", .front, "High quality")
+        add("strAlbumThumb", .front)
+        add("strAlbumBack", .back)
+        add("strAlbumCDart", .disc)
+        return result
+    }
+
+    /// fanart.tv album: covers and cut-out disc art, most liked first.
+    nonisolated static func parseFanartCandidates(_ data: Data, releaseGroup: String) throws -> [ArtCandidate] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MusicLookupError.invalidResponse }
+        let albums = object["albums"] as? [String: Any] ?? [:]
+        let album = (albums[releaseGroup] ?? albums.first(where: { $0.key.lowercased() == releaseGroup })?.value) as? [String: Any]
+        func int(_ value: Any?) -> Int? { (value as? Int) ?? (value as? String).flatMap { Int($0) } }
+        func items(_ field: String, _ kind: ArtworkKind) -> [ArtCandidate] {
+            (album?[field] as? [[String: Any]] ?? [])
+                .compactMap { item -> (Int, ArtCandidate)? in
+                    guard let url = safeURL(item["url"] as? String) else { return nil }
+                    let likes = int(item["likes"]) ?? 0
+                    // fanart.tv serves previews under /preview/ instead of /fanart/.
+                    let preview = URL(string: url.absoluteString.replacingOccurrences(of: "/fanart/", with: "/preview/"))
+                    let disc = kind == .disc ? max(1, int(item["disc"]) ?? 1) : nil
+                    return (likes, ArtCandidate(kind: kind, disc: disc, url: url, previewURL: preview, source: .fanartTV,
+                                                note: likes == 1 ? "1 like" : "\(likes) likes"))
+                }
+                .sorted { $0.0 > $1.0 }
+                .map { $0.1 }
+        }
+        return items("albumcover", .front) + items("cdart", .disc)
+    }
+}
