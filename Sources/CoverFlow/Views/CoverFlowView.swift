@@ -491,12 +491,12 @@ struct AlbumCaption: View {
                         }
                         .buttonStyle(PillButtonStyle())
                         .help("Show the track list (Return)")
-                        if let onFlip, album != nil {
+                        if let onFlip {
                             Button(action: onFlip) {
                                 Label(isFlipped ? "Front" : "Flip", systemImage: "rectangle.2.swap")
                             }
                             .buttonStyle(PillButtonStyle())
-                            .help(isFlipped ? "Show the front cover (F)" : (album?.hasExtraImages == true
+                            .help(isFlipped ? "Show the front cover (F)" : (album.hasExtraImages
                                   ? "Turn the cover over to see the back and disc art (F or Option-click)"
                                   : "Turn the cover over (F or Option-click)"))
                         }
