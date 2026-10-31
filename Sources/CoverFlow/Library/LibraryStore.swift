@@ -679,6 +679,36 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// Choose Artwork from File › Back Cover / Disc Art: saves the image for the album,
+    /// replacing any it had for that kind and disc.
+    func chooseExtraArtwork(for id: UUID, kind: AlbumImageKind, disc: Int?) {
+        guard let album = album(id) else { return }
+        let what = kind == .back ? "back cover" : (discNumbers(of: album).count > 1 ? "art for disc \(disc ?? 1)" : "disc art")
+        let panel = NSOpenPanel()
+        panel.title = "Choose \(kind == .back ? "Back Cover" : "Disc Art")"
+        panel.message = "Choose an image to use as the \(what) of “\(album.title)”. It’s shown when you flip the cover in Cover Flow."
+        panel.prompt = "Use Image"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task {
+                    let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
+                    guard let data, data.count <= 40 * 1024 * 1024 else {
+                        self.notice = "Couldn’t read that image file."
+                        return
+                    }
+                    let saved = await self.replaceExtraImages(id, with: [(kind: kind, disc: kind == .disc ? (disc ?? 1) : nil, data: data)])
+                    self.notice = saved > 0
+                        ? "Saved the \(what). Flip the cover in Cover Flow (F) to see it."
+                        : "Couldn’t use that file as artwork. Choose a JPEG, PNG, HEIC or other image."
+                }
+            }
+        }
+    }
+
     func replaceArtwork(_ id: UUID, with url: URL) {
         replaceArtwork(id, load: { try Data(contentsOf: url) })
     }

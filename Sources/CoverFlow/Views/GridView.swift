@@ -206,9 +206,11 @@ struct AlbumContextMenu: View {
         Button("Show Tracks") { state.detailAlbum = IDRef(id: album.id) }
         Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
         Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
-        Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
+        if selectionAlbums.count <= 1 {
+            CustomArtworkMenu(album: album)
+        }
         if selectionAlbums.contains(where: { !$0.isDemo }) {
-            Button(selectionAlbums.count > 1 ? "Find Back Covers & Disc Art" : "Find Back Cover & Disc Art") {
+            Button("Fill In Missing Back & Disc Art Automatically") {
                 library.findExtraArt(selectionAlbums.map(\.id))
             }
             .disabled(library.importProgress != nil)
