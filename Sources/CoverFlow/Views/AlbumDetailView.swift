@@ -154,6 +154,10 @@ struct AlbumDetailView: View {
                 Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
                 Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
                 Button("Find Artwork Online…") { downloadArtwork = true }
+                if !album.isDemo {
+                    Button("Find Back Cover & Disc Art") { library.findExtraArt([album.id]) }
+                        .disabled(library.importProgress != nil)
+                }
                 Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
                 if album.hasExtraImages { Button("Remove Back & Disc Art") { library.removeExtraImages(album.id) } }

@@ -12,39 +12,96 @@ enum ExtraArtworkReader {
 
     static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "webp", "tif", "tiff"]
     static let maxFileSize = 40 * 1024 * 1024
-    private static let backNames: Set<String> = ["back", "backcover", "back cover", "back_cover", "back-cover", "rear", "inlay", "tray"]
-    private static let discPattern = try! NSRegularExpression(
-        pattern: #"^(?:cd|disc|disk|vinyl|media|label|lp)[ _-]?(\d{1,2})?$"#, options: [.caseInsensitive])
+    private static let backWords: Set<String> = ["back", "backcover", "rear", "inlay", "tray", "traycard", "backinlay", "reverse"]
+    private static let discWords: Set<String> = ["cd", "cdart", "disc", "disk", "discart", "vinyl", "media", "label", "lp", "medium"]
+    /// Words that may follow the keyword ("Back Cover", "CD 2 Art", "Vinyl Side A").
+    private static let trailingWords: Set<String> = ["art", "artwork", "image", "scan", "label", "side", "a", "b", "c", "d", "hq", "hires", "large"]
+    /// Image folders commonly kept beside the audio ("Scans/Back.jpg").
+    static let artworkFolders: Set<String> = ["scans", "scan", "artwork", "artworks", "art", "covers", "cover", "images", "pictures", "booklet", "extras"]
 
-    /// What a folder image's base name says it is, if anything. Disc art without a
-    /// number in its name ("cd.jpg") returns a nil disc.
+    /// Lowercased words of a file name, with letter/digit runs split ("CD2" → "cd", "2").
+    static func words(_ name: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var currentIsDigit = false
+        for ch in name.lowercased() {
+            let isWordChar = ch.isLetter || ch.isNumber
+            if !isWordChar || (!current.isEmpty && ch.isNumber != currentIsDigit) {
+                if !current.isEmpty { result.append(current) }
+                current = ""
+            }
+            if isWordChar { current.append(ch); currentIsDigit = ch.isNumber }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    /// What a folder image's name says it is, if anything. The keyword has to end the
+    /// name (apart from a disc number or words like "cover"/"art"), so "Back in Black.jpg"
+    /// stays a front cover while "Back in Black - Back.jpg" is a back cover. Disc art
+    /// without a number ("cd.jpg") returns a nil disc.
     static func classify(fileName: String) -> (kind: AlbumImageKind, disc: Int?)? {
         let url = URL(fileURLWithPath: fileName)
         guard imageExtensions.contains(url.pathExtension.lowercased()) else { return nil }
-        let base = url.deletingPathExtension().lastPathComponent.lowercased().trimmingCharacters(in: .whitespaces)
-        if backNames.contains(base) { return (.back, nil) }
-        let range = NSRange(base.startIndex..., in: base)
-        guard let match = discPattern.firstMatch(in: base, range: range) else { return nil }
-        let number = Range(match.range(at: 1), in: base).flatMap { Int(base[$0]) }
-        return (.disc, number.map { max(1, $0) })
+        let tokens = words(url.deletingPathExtension().lastPathComponent)
+        guard !tokens.isEmpty, !tokens.contains("front"), !tokens.contains("folder") else { return nil }
+        // The last keyword, with only a number or descriptive words after it.
+        for index in tokens.indices.reversed() {
+            let token = tokens[index]
+            let isBack = backWords.contains(token), isDisc = discWords.contains(token)
+            guard isBack || isDisc else { continue }
+            let rest = tokens[(index + 1)...]
+            guard rest.allSatisfy({ Int($0) != nil || trailingWords.contains($0) || ($0 == "cover" && isBack) }) else { return nil }
+            if isBack { return (.back, nil) }
+            // "Disc 1 Label": the number may sit between two keywords.
+            var start = index
+            while start > 0, discWords.contains(tokens[start - 1]) || (Int(tokens[start - 1]) != nil && start > 1 && discWords.contains(tokens[start - 2])) {
+                start -= 1
+            }
+            let number = tokens[start...].lazy.compactMap { Int($0) }.first.map { min(max(1, $0), 99) }
+            return (.disc, number)
+        }
+        return nil
     }
 
-    /// Back and disc images in the audio file's folder, one per kind/disc (first by name).
-    /// Unnumbered disc art belongs to `trackDisc`.
+    /// Whether a folder name is a per-disc folder ("CD1", "Disc 2").
+    static func discFolderNumber(_ name: String) -> Int? {
+        let tokens = words(name)
+        guard tokens.count == 2, ["cd", "disc", "disk"].contains(tokens[0]), let n = Int(tokens[1]), n > 0 else { return nil }
+        return n
+    }
+
+    /// Back and disc images beside the audio file, one per kind/disc (first by name).
+    /// Also looks in artwork subfolders ("Scans", "Artwork", "Covers"…) and, for a
+    /// per-disc folder like "CD2", in the album folder above it. Unnumbered disc art
+    /// belongs to `trackDisc`.
     static func folderImages(for audio: URL, trackDisc: Int = 1) -> [Found] {
+        let manager = FileManager.default
         let folder = audio.deletingLastPathComponent()
-        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        func entries(_ dir: URL) -> [String] {
+            ((try? manager.contentsOfDirectory(atPath: dir.path)) ?? []).filter { !$0.hasPrefix(".") }
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+        func subfolders(_ dir: URL) -> [URL] {
+            entries(dir).filter { artworkFolders.contains($0.lowercased()) }.map { dir.appendingPathComponent($0, isDirectory: true) }
+        }
+        var places = [folder] + subfolders(folder)
+        if discFolderNumber(folder.lastPathComponent) != nil {
+            let parent = folder.deletingLastPathComponent()
+            places += [parent] + subfolders(parent)
+        }
         var found: [Found] = []
-        for name in names {
-            guard let match = classify(fileName: name) else { continue }
-            let kind = match.kind
-            let disc = kind == .disc ? (match.disc ?? trackDisc) : nil
-            guard !found.contains(where: { $0.kind == kind && $0.disc == disc }) else { continue }
-            let url = folder.appendingPathComponent(name)
-            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0, size <= maxFileSize,
-                  let data = try? Data(contentsOf: url) else { continue }
-            found.append(Found(kind: kind, disc: disc, data: data))
+        for place in places {
+            for name in entries(place) {
+                guard let match = classify(fileName: name) else { continue }
+                let kind = match.kind
+                let disc = kind == .disc ? (match.disc ?? trackDisc) : nil
+                guard !found.contains(where: { $0.kind == kind && $0.disc == disc }) else { continue }
+                let url = place.appendingPathComponent(name)
+                guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0, size <= maxFileSize,
+                      let data = try? Data(contentsOf: url) else { continue }
+                found.append(Found(kind: kind, disc: disc, data: data))
+            }
         }
         return found
     }
@@ -80,5 +137,15 @@ enum ExtraArtworkReader {
             result.append(item)
         }
         return result
+    }
+}
+
+/// Optional fanart.tv personal API key (free at fanart.tv), which adds its disc art
+/// to the online sources. Stored in preferences; it isn't a password.
+enum ExtraArtSettings {
+    static let fanartKeyDefaultsKey = "artwork.fanartKey"
+    static var fanartKey: String? {
+        let key = (UserDefaults.standard.string(forKey: fanartKeyDefaultsKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : key
     }
 }

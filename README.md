@@ -40,13 +40,22 @@ the sleeve (up to three discs). Albums without a scanned back get a printed back
 the track list. Browsing to another album turns it back over.
 
 Back and disc art come from:
-- **Import**: images beside the audio named `back`, `back cover`, `inlay`, `rear` or
-  `tray`, and `cd`, `disc`, `disk`, `vinyl`, `media`, `label` or `lp` (optionally
-  numbered, such as `cd2.jpg`). Unnumbered disc art in a disc's folder counts as that
-  disc. Also back cover and media pictures embedded in the tags.
-- **Find Artwork Online…**: with **Also download back cover and disc art** on, the
-  edition's back cover and disc images from the Cover Art Archive are saved too. The
-  preview says what's available.
+- **Your folders**: images whose name ends in `back`, `back cover`, `inlay`, `rear` or
+  `tray`, or in `cd`, `cdart`, `disc`, `disk`, `vinyl`, `media`, `label` or `lp`
+  (optionally numbered, such as `Album - CD2.jpg` or `Disc 1 Label.png`). Cover Flow
+  looks beside the audio, in `Scans`, `Artwork`, `Covers`, `Art` or `Images` subfolders,
+  and in the album folder above a per-disc folder like `CD2`. Unnumbered disc art in a
+  disc's folder counts as that disc. Also back cover and media pictures embedded in the
+  tags. Albums already in the collection are looked through once, automatically.
+- **Online**: the Cover Art Archive (the release MusicBrainz chose for the album, then
+  other editions with back or disc scans), TheAudioDB, and fanart.tv's disc art when you
+  add a free personal API key in Settings › Back Covers & Disc Art. Cut-out disc art is
+  preferred to photos of discs unless the archive has scans of more discs.
+  - **Find Back Cover & Disc Art** (album menu, grid right-click, or **File › Find
+    Missing Back Covers & Disc Art** for the whole collection) fills in only what an
+    album lacks, for albums MusicBrainz matches by title and artist.
+  - **Find Artwork Online…** with **Also download back cover and disc art** on saves
+    them along with the cover you pick. The preview says what was found.
 
 They are kept with the collection's artwork; the audio files aren't changed.
 **Remove Back & Disc Art** in the album panel's menu removes them.
