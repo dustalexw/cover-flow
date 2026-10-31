@@ -36,12 +36,24 @@ struct AlbumDetailView: View {
         .sheet(isPresented: $downloadArtwork) {
             if let album = library.album(albumID) {
                 ArtworkDownloadView(album: album, saveDescription: "A new front cover is also embedded in supported audio files. Back covers and disc art are kept in the collection and shown when you flip the cover in Cover Flow.",
-                                    discCount: library.discNumbers(of: album).max() ?? 1, initialKind: downloadKind, onUse: { data in
+                                    discCount: library.discNumbers(of: album).max() ?? 1, initialKind: downloadKind,
+                                    currentImage: { kind, disc in
+                                        guard let album = library.album(albumID) else { return nil }
+                                        let file: String?
+                                        switch kind {
+                                        case .front: file = album.artworkFile
+                                        case .back: file = album.backImage?.file
+                                        case .disc: file = album.discImages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+                                        }
+                                        return file.map { library.artwork.fileURL($0) }
+                                    }, onUse: { data in
                     guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
                     library.replaceArtwork(albumID, with: data)
                 }, onUseExtras: { images in
                     guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
                     await library.replaceExtraImages(albumID, with: images)
+                }, onRemoveExtras: { items in
+                    library.removeExtraImages(albumID, only: items)
                 })
             }
         }

@@ -51,13 +51,18 @@ Back and disc art come from:
   other editions with back or disc scans), TheAudioDB, and fanart.tv's disc art when you
   add a free personal API key in Settings › Back Covers & Disc Art. Cut-out disc art is
   preferred to photos of discs unless the archive has scans of more discs.
-- **Find Artwork Online…** (album menu) has **Front Cover**, **Back Cover** and **Disc
-  Art** tabs. Pick an album result, and each tab lists every image found, labelled by
-  source and edition: the Cover Art Archive (each edition with scans), TheAudioDB, and
-  fanart.tv. Click one to use it, choose **Disc 1/2/…** for a multi-disc set, use
-  **Choose File…** for your own image, or **Keep Current**. Sensible picks are made for
-  you; **Use Artwork** saves everything chosen at once. **Find Back Cover & Disc Art
-  Online…** opens the same window on the back cover tab.
+- **Find Artwork Online…** (album menu) opens already searching for the album (notes
+  like "(Deluxe Edition)" or "(declipped)" are left out of the search) and picks the
+  matching result. It has **Front Cover**, **Back Cover** and **Disc Art** tabs, each
+  showing the album's **current** image first, then every image found. Choose what to
+  **Look for** (front, back, disc) and which **Sources** to ask: the Cover Art Archive
+  (each edition with scans, labelled by year and country), TheAudioDB, and fanart.tv.
+  Only those are searched; sources are asked in parallel and their images appear as each
+  one answers. Click an image to replace the current one, use **Choose File…**, **Keep
+  Current**, or **Remove** a back cover or disc. Kinds the album lacks are filled in for
+  you; existing art is only replaced when you pick something. **Save Artwork** saves it
+  all at once. **Find Back Cover & Disc Art Online…** opens the window on the back cover
+  tab.
 - **Fill In Missing Back & Disc Art Automatically** (album menu, grid right-click, or
   **File › Find Missing Back Covers & Disc Art** for the whole collection) does the
   same without asking, only for what an album lacks and only for albums MusicBrainz

@@ -162,6 +162,45 @@ final class BackAndDiscArtTests: XCTestCase {
         XCTAssertEqual(MusicLookupClient.defaultChoices(archive + adb).discs[1]?.source, .theAudioDB)
     }
 
+    func testSearchTitlesDropTrailingEditionNotesOnly() {
+        XCTAssertEqual(MusicLookupClient.searchTitle("(What's The Story) Morning Glory? (declipped)"), "(What's The Story) Morning Glory?")
+        XCTAssertEqual(MusicLookupClient.searchTitle("OK Computer [Remastered] (Deluxe Edition)"), "OK Computer")
+        XCTAssertEqual(MusicLookupClient.searchTitle("(Untitled)"), "(Untitled)")
+        let oasis = ArtworkMatch(id: UUID(), title: "(What’s the Story) Morning Glory?", artist: "Oasis", year: "1995")
+        XCTAssertNotNil(MusicLookupClient.pickMatch([oasis], title: "(What's The Story) Morning Glory? (declipped)", artist: "Oasis"))
+    }
+
+    func testImageHostsRunInParallelWhileMetadataServicesStaySerial() {
+        XCTAssertEqual(MusicLookupClient.limits(for: "musicbrainz.org").concurrent, 1)
+        XCTAssertGreaterThanOrEqual(MusicLookupClient.limits(for: "musicbrainz.org").gap, 1)
+        XCTAssertEqual(MusicLookupClient.limits(for: "www.theaudiodb.com").concurrent, 1)
+        XCTAssertGreaterThan(MusicLookupClient.limits(for: "ia800.us.archive.org").concurrent, 1)
+        XCTAssertEqual(MusicLookupClient.limits(for: "ia800.us.archive.org").gap, 0)
+    }
+
+    @MainActor
+    func testRemovingOneExtraImageKeepsTheRest() async throws {
+        let root = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let music = root.appendingPathComponent("Music", isDirectory: true)
+        try FileManager.default.createDirectory(at: music, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture("tags.flac"), to: music.appendingPathComponent("01.flac"))
+        let artwork = root.appendingPathComponent("Artwork", isDirectory: true)
+        try FileManager.default.createDirectory(at: artwork, withIntermediateDirectories: true)
+        let library = LibraryStore(artwork: ArtworkStore(directory: artwork), libraryURL: root.appendingPathComponent("Library.json"))
+        library.importURLs([music])
+        for _ in 0..<200 where library.importProgress != nil || library.lastReport == nil {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let id = try XCTUnwrap(library.albums.first?.id)
+        await library.replaceExtraImages(id, with: [(kind: .back, disc: nil, data: png(.red)), (kind: .disc, disc: 1, data: png(.green)),
+                                                    (kind: .disc, disc: 2, data: png(.blue))])
+        library.removeExtraImages(id, only: [(kind: .disc, disc: 1)])
+        let album = try XCTUnwrap(library.album(id))
+        XCTAssertNotNil(album.backImage)
+        XCTAssertEqual(album.discImages.map(\.disc), [2])
+    }
+
     func testOnlyAConfidentMusicBrainzMatchIsPicked() {
         let a = ArtworkMatch(id: UUID(), title: "OK Computer", artist: "Radiohead", year: "1997")
         let b = ArtworkMatch(id: UUID(), title: "OK Computer OKNOTOK 1997 2017", artist: "Radiohead", year: "2017")

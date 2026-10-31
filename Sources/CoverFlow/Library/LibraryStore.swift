@@ -782,6 +782,18 @@ final class LibraryStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Removes particular back/disc images (a nil disc matches disc 1).
+    func removeExtraImages(_ id: UUID, only items: [(kind: AlbumImageKind, disc: Int?)]) {
+        guard let i = albumIndex[id], let images = albums[i].extraImages, !items.isEmpty else { return }
+        let keys = Set(items.map { "\($0.kind.rawValue)\($0.kind == .disc ? ($0.disc ?? 1) : 0)" })
+        let gone = images.filter { keys.contains("\($0.kind.rawValue)\($0.kind == .disc ? ($0.disc ?? 1) : 0)") }
+        guard !gone.isEmpty else { return }
+        artwork.removeExtras(gone)
+        let rest = images.filter { image in !gone.contains { $0.file == image.file } }
+        albums[i].extraImages = rest.isEmpty ? nil : rest
+        scheduleSave()
+    }
+
     func removeArtwork(_ id: UUID) {
         guard let i = albumIndex[id] else { return }
         artwork.remove(file: albums[i].artworkFile)

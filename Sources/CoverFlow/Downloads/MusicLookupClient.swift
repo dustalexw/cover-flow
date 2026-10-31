@@ -14,7 +14,7 @@ struct LyricMatch: Decodable, Identifiable, Sendable {
 }
 
 /// Where a back cover or disc image was found.
-enum ArtSource: String, Sendable, Equatable {
+enum ArtSource: String, Sendable, Equatable, Hashable, CaseIterable {
     case coverArtArchive = "Cover Art Archive"
     case theAudioDB = "TheAudioDB"
     case fanartTV = "fanart.tv"
@@ -72,16 +72,23 @@ enum ExtraArtSettings {
     }
 }
 
-/// User-initiated metadata lookups only. Serial requests, service spacing and
-/// Retry-After apply across all windows; no music files are sent to either service.
+/// User-initiated metadata lookups only. Requests to each service are limited (one at
+/// a time, spaced, for MusicBrainz, TheAudioDB and LRCLIB; a few at once for image
+/// hosts), and Retry-After applies across all windows. No music files are sent anywhere.
 actor MusicLookupClient {
     static let shared = MusicLookupClient()
     static var userAgent: String { "CoverFlow/\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.0") (https://github.com/dustalexw/cover-flow)" }
     static let maxRetries = 3
     static let maxAutoRetryWait = 5
     private let session: URLSession
-    private var pending: Task<Data, Error>?
     private var nextRequest: [String: Date] = [:]
+    private var active: [String: Int] = [:]
+    private var waiting: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Recent artwork answers and images, so going back to a result is instant.
+    var candidateCache: [String: [ArtCandidate]] = [:]
+    private var imageCache: [URL: Data] = [:]
+    private var imageCacheOrder: [URL] = []
+    private var imageCacheBytes = 0
 
     init(session: URLSession? = nil) {
         let config = URLSessionConfiguration.ephemeral
@@ -180,13 +187,13 @@ actor MusicLookupClient {
     /// artist agree with it closely enough to pick without asking.
     func bestMatch(title: String, artist: String) async throws -> ArtworkMatch? {
         let results: [ArtworkMatch]
-        do { results = try await artwork(title: title, artist: artist) }
+        do { results = try await artwork(title: Self.searchTitle(title), artist: artist) }
         catch MusicLookupError.noResults { return nil }
         return Self.pickMatch(results, title: title, artist: artist)
     }
 
     nonisolated static func pickMatch(_ results: [ArtworkMatch], title: String, artist: String) -> ArtworkMatch? {
-        let wantedTitle = normalized(title, dropEdition: true)
+        let wantedTitle = normalized(searchTitle(title), dropEdition: true)
         let wantedArtist = normalized(artist, dropEdition: false)
         let various = ["various artists", "various", ""].contains(wantedArtist)
         return results.first { match in
@@ -357,26 +364,49 @@ actor MusicLookupClient {
         return parts.url!
     }
 
+    /// How many requests may run at once per host, and the gap after each.
+    nonisolated static func limits(for host: String) -> (concurrent: Int, gap: Double) {
+        switch host {
+        case "musicbrainz.org": return (1, 1.1)                 // one request a second
+        case "www.theaudiodb.com", "theaudiodb.com": return (1, 2.1) // public key: 30 a minute
+        case "lrclib.net": return (1, 0.35)
+        case "coverartarchive.org", "webservice.fanart.tv": return (3, 0)
+        default: return (4, 0)                                  // image hosts (archive.org, r2.theaudiodb.com, assets.fanart.tv)
+        }
+    }
+
+    private func acquire(_ host: String) async {
+        if active[host, default: 0] < Self.limits(for: host).concurrent { active[host, default: 0] += 1; return }
+        await withCheckedContinuation { waiting[host, default: []].append($0) }
+    }
+
+    private func release(_ host: String) {
+        if var queue = waiting[host], !queue.isEmpty {
+            let next = queue.removeFirst()
+            waiting[host] = queue
+            next.resume()                                       // the slot passes straight on
+        } else {
+            active[host, default: 1] -= 1
+        }
+    }
+
     private func fetch(_ url: URL, limit: Int, accept: String? = nil) async throws -> Data {
-        let previous = pending
-        let work = Task<Data, Error> {
-            if let previous { _ = try? await previous.value }
-            // LRCLIB in particular answers brief overloads with 503 + "Retry-After: 1".
-            // Short waits are retried quietly; long ones go back to the user.
-            var attempt = 0
-            while true {
-                try Task.checkCancellation()
-                do { return try await self.perform(url, limit: limit, accept: accept) }
-                catch let error as MusicLookupError {
-                    guard attempt < Self.maxRetries, let wait = error.retryDelay, wait <= Self.maxAutoRetryWait else { throw error }
-                    attempt += 1
-                    // perform() already waits out Retry-After; add a growing pad so retries spread out.
-                    try await Task.sleep(for: .seconds(0.5 * Double(attempt)))
-                }
+        let host = url.host ?? ""
+        await acquire(host)
+        defer { release(host) }
+        // LRCLIB in particular answers brief overloads with 503 + "Retry-After: 1".
+        // Short waits are retried quietly; long ones go back to the user.
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
+            do { return try await perform(url, limit: limit, accept: accept) }
+            catch let error as MusicLookupError {
+                guard attempt < Self.maxRetries, let wait = error.retryDelay, wait <= Self.maxAutoRetryWait else { throw error }
+                attempt += 1
+                // perform() already waits out Retry-After; add a growing pad so retries spread out.
+                try await Task.sleep(for: .seconds(0.5 * Double(attempt)))
             }
         }
-        pending = work
-        return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
     }
     private func perform(_ url: URL, limit: Int, accept: String? = nil) async throws -> Data {
         let host = url.host ?? ""
@@ -386,11 +416,10 @@ actor MusicLookupClient {
         var request = URLRequest(url: url)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(accept ?? (host == "coverartarchive.org" ? "image/*" : "application/json"), forHTTPHeaderField: "Accept")
-        // Set a minimum gap even if the request fails; MB requires at most one per second.
-        // MusicBrainz allows one request a second; TheAudioDB's public key 30 a minute.
-        let gap = host == "musicbrainz.org" ? 1.1 : host.hasSuffix("theaudiodb.com") ? 2.1 : 0.35
-        defer { nextRequest[host] = max(nextRequest[host] ?? .distantPast, Date().addingTimeInterval(gap)) }
-        let (bytes, response) = try await session.bytes(for: request)
+        // Set the minimum gap even if the request fails.
+        let gap = Self.limits(for: host).gap
+        defer { if gap > 0 { nextRequest[host] = max(nextRequest[host] ?? .distantPast, Date().addingTimeInterval(gap)) } }
+        let (body, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw MusicLookupError.invalidResponse }
         if response.statusCode == 429 || response.statusCode == 503 {
             let value = response.value(forHTTPHeaderField: "Retry-After") ?? ""
@@ -403,15 +432,8 @@ actor MusicLookupClient {
             throw response.statusCode == 503 ? MusicLookupError.busy(seconds) : MusicLookupError.rateLimited(seconds)
         }
         guard (200..<300).contains(response.statusCode) else { throw MusicLookupError.unavailable(response.statusCode) }
-        guard response.expectedContentLength <= Int64(limit) else { throw MusicLookupError.tooLarge }
-        var data = Data()
-        data.reserveCapacity(min(limit, max(0, Int(response.expectedContentLength))))
-        for try await byte in bytes {
-            if data.count >= limit { throw MusicLookupError.tooLarge }
-            data.append(byte)
-            if data.count % 16_384 == 0 { try Task.checkCancellation() }
-        }
-        return data
+        guard response.expectedContentLength <= Int64(limit), body.count <= limit else { throw MusicLookupError.tooLarge }
+        return body
     }
 
     private struct ReleaseGroups: Decodable {
@@ -470,44 +492,88 @@ extension MusicLookupClient {
     /// sensible default order: the Cover Art Archive's chosen release, its other editions
     /// (up to five), then TheAudioDB, then fanart.tv (with a personal key).
     func artCandidates(_ match: ArtworkMatch, fanartKey: String? = nil) async -> [ArtCandidate] {
-        let group = match.id.uuidString.lowercased()
-        var archive: [ArtCandidate] = []
-        var chosenRelease: String?
-        do {
-            let url = URL(string: "https://coverartarchive.org/release-group/\(group)")!
-            let data = try await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json")
-            chosenRelease = Self.releaseID(inIndex: data)
-            archive += (try? Self.parseCoverCandidates(data, note: "")) ?? []
-        } catch { }
-        let browse = URL(string: "https://musicbrainz.org/ws/2/release?release-group=\(group)&fmt=json&limit=100")!
-        let editions = (try? Self.parseEditions(try await fetch(browse, limit: 4 * 1024 * 1024))) ?? []
-        for edition in editions.filter({ $0.id != chosenRelease }).prefix(5) {
-            let url = URL(string: "https://coverartarchive.org/release/\(edition.id)")!
-            guard let data = try? await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json") else { continue }
-            archive += (try? Self.parseCoverCandidates(data, note: edition.label)) ?? []
-        }
-        var others: [ArtCandidate] = []
-        let byGroup = URL(string: "https://www.theaudiodb.com/api/v1/json/\(Self.audioDBKey)/album-mb.php?i=\(group)")!
-        var audioDB = (try? Self.parseAudioDBCandidates(try await fetch(byGroup, limit: 1024 * 1024))) ?? []
-        if audioDB.isEmpty {
-            audioDB = (try? Self.parseAudioDBCandidates(try await fetch(Self.audioDBSearchURL(title: match.title, artist: match.artist), limit: 1024 * 1024))) ?? []
-        }
-        others += audioDB
-        if let key = fanartKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty,
-           var parts = URLComponents(string: "https://webservice.fanart.tv/v3/music/albums/\(group)") {
-            parts.queryItems = [URLQueryItem(name: "api_key", value: key)]
-            if let url = parts.url, let data = try? await fetch(url, limit: 1024 * 1024) {
-                others += (try? Self.parseFanartCandidates(data, releaseGroup: group)) ?? []
-            }
-        }
+        async let archive = artCandidates(match, source: .coverArtArchive, fanartKey: fanartKey)
+        async let audioDB = artCandidates(match, source: .theAudioDB, fanartKey: fanartKey)
+        async let fanart = artCandidates(match, source: .fanartTV, fanartKey: fanartKey)
         var seen = Set<URL>()
-        return (archive + others).filter { seen.insert($0.url).inserted }
+        return (await archive + audioDB + fanart).filter { seen.insert($0.url).inserted }
     }
 
-    /// Downloads an image from one of the art services.
+    /// An album title without trailing notes such as "(Deluxe Edition)", "[Remastered]"
+    /// or "(declipped)", which MusicBrainz titles don't have.
+    nonisolated static func searchTitle(_ title: String) -> String {
+        var text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let range = text.range(of: #"\s*[\(\[][^\(\)\[\]]*[\)\]]\s*$"#, options: .regularExpression),
+              range.lowerBound != text.startIndex {
+            text.removeSubrange(range)
+        }
+        return text
+    }
+
+    /// Downloads an image from one of the art services (recent ones come from memory).
     func image(_ url: URL, limit: Int = 25 * 1024 * 1024) async throws -> Data {
         guard url.scheme == "https", Self.safeURL(url.absoluteString) != nil else { throw MusicLookupError.invalidResponse }
-        return try await fetch(url, limit: limit, accept: "image/*")
+        if let cached = imageCache[url] { return cached }
+        let data = try await fetch(url, limit: limit, accept: "image/*")
+        if imageCache[url] == nil {
+            imageCache[url] = data; imageCacheOrder.append(url); imageCacheBytes += data.count
+            while imageCacheBytes > 160 * 1024 * 1024, !imageCacheOrder.isEmpty {
+                let old = imageCacheOrder.removeFirst()
+                imageCacheBytes -= imageCache.removeValue(forKey: old)?.count ?? 0
+            }
+        }
+        return data
+    }
+
+    /// One source's images for an album (cached). The Cover Art Archive's other editions
+    /// are only looked up when `editions` is true (they matter for back and disc art).
+    func artCandidates(_ match: ArtworkMatch, source: ArtSource, editions: Bool = true, fanartKey: String? = nil) async -> [ArtCandidate] {
+        let group = match.id.uuidString.lowercased()
+        let cacheKey = "\(source.rawValue)|\(group)|\(source == .coverArtArchive && editions)"
+        if let cached = candidateCache[cacheKey] { return cached }
+        var result: [ArtCandidate] = []
+        switch source {
+        case .coverArtArchive:
+            // The group's own index and the edition list are fetched at the same time.
+            let indexURL = URL(string: "https://coverartarchive.org/release-group/\(group)")!
+            let browseURL = URL(string: "https://musicbrainz.org/ws/2/release?release-group=\(group)&fmt=json&limit=100")!
+            let indexTask = Task { try? await self.fetch(indexURL, limit: 2 * 1024 * 1024, accept: "application/json") }
+            let browseTask: Task<Data?, Never>? = editions ? Task { try? await self.fetch(browseURL, limit: 4 * 1024 * 1024) } : nil
+            let index = await indexTask.value
+            let chosen = index.flatMap { Self.releaseID(inIndex: $0) }
+            if let index { result += (try? Self.parseCoverCandidates(index, note: "")) ?? [] }
+            if let browse = await browseTask?.value {
+                let list = ((try? Self.parseEditions(browse)) ?? []).filter { $0.id != chosen }.prefix(5)
+                let found = await withTaskGroup(of: (Int, [ArtCandidate]).self) { group in
+                    for (i, edition) in list.enumerated() {
+                        group.addTask {
+                            let url = URL(string: "https://coverartarchive.org/release/\(edition.id)")!
+                            guard let data = try? await self.fetch(url, limit: 2 * 1024 * 1024, accept: "application/json") else { return (i, []) }
+                            return (i, (try? Self.parseCoverCandidates(data, note: edition.label)) ?? [])
+                        }
+                    }
+                    var all: [(Int, [ArtCandidate])] = []
+                    for await item in group { all.append(item) }
+                    return all.sorted { $0.0 < $1.0 }.flatMap { $0.1 }
+                }
+                result += found
+            }
+        case .theAudioDB:
+            let byGroup = URL(string: "https://www.theaudiodb.com/api/v1/json/\(Self.audioDBKey)/album-mb.php?i=\(group)")!
+            result = (try? Self.parseAudioDBCandidates(try await fetch(byGroup, limit: 1024 * 1024))) ?? []
+            if result.isEmpty {
+                result = (try? Self.parseAudioDBCandidates(try await fetch(Self.audioDBSearchURL(title: match.title, artist: match.artist), limit: 1024 * 1024))) ?? []
+            }
+        case .fanartTV:
+            guard let key = fanartKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty,
+                  var parts = URLComponents(string: "https://webservice.fanart.tv/v3/music/albums/\(group)") else { return [] }
+            parts.queryItems = [URLQueryItem(name: "api_key", value: key)]
+            if let url = parts.url, let data = try? await fetch(url, limit: 1024 * 1024) {
+                result = (try? Self.parseFanartCandidates(data, releaseGroup: group)) ?? []
+            }
+        }
+        if !Task.isCancelled { candidateCache[cacheKey] = result }
+        return result
     }
 
     /// The default picks: the first front; a back scan, else any back; disc art as in
