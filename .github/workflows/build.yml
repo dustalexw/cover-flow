@@ -119,6 +119,14 @@ jobs:
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # Keep the built app on every run, so a tested build can be downloaded without tagging a release.
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cover-Flow-macOS
+          path: ${{ steps.package.outputs.zip }}
+          retention-days: 14
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
