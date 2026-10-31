@@ -105,3 +105,98 @@ bool cf_artwork_write(const char *path, const unsigned char *data, size_t size,
     } catch(const std::exception &e) { return fail(e.what()); }
     catch(...) { return fail("Unexpected error writing artwork tags."); }
 }
+
+static int leadingNumber(const TagLib::String &value) {
+    const auto text = value.stripWhiteSpace().to8Bit(true);
+    int number = 0; bool any = false;
+    for(char c : text) {
+        if(c < '0' || c > '9') break;
+        number = number * 10 + (c - '0'); any = true;
+        if(number > 100000) break;
+    }
+    return any ? number : -1;
+}
+
+static bool sameValue(const TagLib::String &key, const TagLib::StringList &current, const TagLib::String &value) {
+    if(current.isEmpty()) return false;
+    const auto first = current.front();
+    if(key == "TRACKNUMBER" || key == "DISCNUMBER") return leadingNumber(first) >= 0 && leadingNumber(first) == leadingNumber(value);
+    if(key == "DATE" && value.size() == 4) return first.stripWhiteSpace().substr(0, 4) == value;
+    return current.size() == 1 && first == value;
+}
+
+bool cf_tags_write(const char *path, const char *const *keys, const char *const *values, size_t count,
+                   bool *changed, char *error, size_t errorSize) {
+    auto fail = [&](const char *message) {
+        if(error && errorSize) std::snprintf(error, errorSize, "%s", message);
+        return false;
+    };
+    if(changed) *changed = false;
+    if(!path || (count && (!keys || !values))) return fail("Nothing to write.");
+    try {
+        TagLib::PropertyMap expected;
+        TagLib::StringList written;
+        {
+            TagLib::FileRef ref(path, false);
+            if(ref.isNull() || !ref.file()->isValid()) return fail("The audio file is damaged or this format cannot store tags.");
+            if(ref.file()->readOnly()) return fail("The audio file is read-only.");
+            if(auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(ref.file())) carryAIFFText(aiff);
+            auto properties = ref.file()->properties();
+            // Edits go into ID3v2; seed it from an existing ID3v1/RIFF text tag first.
+            if(auto mp3 = dynamic_cast<TagLib::MPEG::File *>(ref.file())) {
+                auto tag = mp3->ID3v2Tag(true);
+                if(tag->isEmpty()) tag->setProperties(properties);
+            }
+            if(auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(ref.file())) {
+                auto tag = wav->ID3v2Tag();
+                if(tag && tag->isEmpty()) tag->setProperties(properties);
+            }
+            for(size_t i = 0; i < count; ++i) {
+                if(!keys[i] || !values[i]) continue;
+                const TagLib::String key = TagLib::String(keys[i], TagLib::String::UTF8).upper();
+                const TagLib::String value = TagLib::String(values[i], TagLib::String::UTF8).stripWhiteSpace();
+                const TagLib::StringList current = properties.contains(key) ? properties[key] : TagLib::StringList();
+                if(value.isEmpty()) {
+                    if(current.isEmpty()) continue;
+                    properties.erase(key);
+                } else {
+                    if(sameValue(key, current, value)) continue;
+                    TagLib::String output = value;
+                    if((key == "TRACKNUMBER" || key == "DISCNUMBER") && !current.isEmpty() && value.find("/") < 0) {
+                        const int slash = current.front().find("/");
+                        if(slash >= 0) output += current.front().substr(slash);
+                    }
+                    properties.replace(key, TagLib::StringList(output));
+                }
+                written.append(key);
+            }
+            if(written.isEmpty()) return true;
+            const auto rejected = ref.file()->setProperties(properties);
+            for(const auto &key : written)
+                if(rejected.contains(key)) return fail("This audio format can’t store one of the changed details.");
+            expected = ref.file()->properties();
+            for(const auto &key : written) {
+                const TagLib::StringList want = properties.contains(key) ? properties[key] : TagLib::StringList();
+                const TagLib::StringList got = expected.contains(key) ? expected[key] : TagLib::StringList();
+                if(want != got) return fail("This audio format can’t store one of the changed details.");
+            }
+            bool saved;
+            if(auto mp3 = dynamic_cast<TagLib::MPEG::File *>(ref.file()))
+                saved = mp3->save(TagLib::MPEG::File::AllTags, TagLib::MPEG::File::StripNone,
+                                  TagLib::ID3v2::v4, TagLib::MPEG::File::DoNotDuplicate);
+            else saved = ref.save();
+            if(!saved) return fail("Couldn’t save the tags.");
+        }
+        TagLib::FileRef check(path, false);
+        if(check.isNull() || !check.file()->isValid()) return fail("The updated file could not be verified.");
+        const TagLib::PropertyMap after = check.file()->properties();
+        for(const auto &key : written) {
+            const TagLib::StringList want = expected.contains(key) ? expected[key] : TagLib::StringList();
+            const TagLib::StringList got = after.contains(key) ? after[key] : TagLib::StringList();
+            if(want != got) return fail("The saved tags could not be verified; the original file was kept.");
+        }
+        if(changed) *changed = true;
+        return true;
+    } catch(const std::exception &e) { return fail(e.what()); }
+    catch(...) { return fail("Unexpected error writing tags."); }
+}
