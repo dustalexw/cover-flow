@@ -222,8 +222,10 @@ enum Announcer {
     private static var last: (String, Date)?
     static func announce(_ text: String) {
         if let last, last.0 == text, Date().timeIntervalSince(last.1) < 2 { return }
+        // No application object in unit tests (NSApp is nil there).
+        guard let app = NSApp else { return }
         last = (text, Date())
-        let element: Any = NSApp.mainWindow ?? NSApp as Any
+        let element: Any = app.mainWindow ?? app
         NSAccessibility.post(element: element, notification: .announcementRequested, userInfo: [
             .announcement: text,
             .priority: NSAccessibilityPriorityLevel.medium.rawValue
