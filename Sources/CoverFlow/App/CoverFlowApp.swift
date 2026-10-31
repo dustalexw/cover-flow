@@ -88,6 +88,7 @@ final class AppEnvironment {
         state = AppState()
         albumView = AlbumViewController()
         library.load()
+        library.scanLibraryForLocalExtraArtOnce()
         player.restore()
         let d = UserDefaults.standard
         if !d.bool(forKey: "didSeedDemo") {
@@ -202,6 +203,10 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Import Music…") { library.presentImportPanel() }
                 .keyboardShortcut("o")
+            Button("Find Missing Back Covers & Disc Art") {
+                library.findExtraArt(library.albums.filter { library.needsExtraArt($0) }.map(\.id))
+            }
+            .disabled(library.importProgress != nil || library.albums.allSatisfy { $0.isDemo })
             Divider()
             Button(library.hasDemoContent ? "Rebuild Demo Collection" : "Add Demo Collection") { library.addDemoCollection() }
             if library.hasDemoContent {

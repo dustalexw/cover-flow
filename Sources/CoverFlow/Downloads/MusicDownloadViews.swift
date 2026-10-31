@@ -97,6 +97,7 @@ struct ArtworkDownloadView: View {
     var onUseExtras: (([ExtraImage]) async throws -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @AppStorage("artworkDownload.includeExtras") private var includeExtras = true
+    @AppStorage(ExtraArtSettings.fanartKeyDefaultsKey) private var fanartKey = ""
     @State private var extras: [CoverArtExtra] = []
     @State private var extrasChecked = false
     @State private var title: String
@@ -120,7 +121,10 @@ struct ArtworkDownloadView: View {
         var parts: [String] = []
         if back { parts.append("back cover") }
         if discs > 0 { parts.append(discs == 1 ? "disc art" : "\(discs) disc images") }
-        return parts.isEmpty ? "No back cover or disc art for this edition." : "This edition also has: " + parts.joined(separator: " and ") + "."
+        guard !parts.isEmpty else { return "No back cover or disc art found for this album." }
+        var sources: [String] = []
+        for source in extras.map(\.source) where !sources.contains(source.rawValue) { sources.append(source.rawValue) }
+        return "Also found: " + parts.joined(separator: " and ") + " (from " + sources.joined(separator: " and ") + ")."
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -159,7 +163,7 @@ struct ArtworkDownloadView: View {
                 Spacer()
                 Button("Use Artwork") { save() }.buttonStyle(.borderedProminent).disabled(imageData == nil || busy)
             }
-            Text("Album search by MusicBrainz. Covers from the Cover Art Archive, up to 1200 pixels. Availability varies by edition.")
+            Text("Album search by MusicBrainz. Covers from the Cover Art Archive, up to 1200 pixels. Back covers and disc art from the Cover Art Archive, TheAudioDB\(fanartKey.isEmpty ? "" : " and fanart.tv"). Availability varies by album.")
                 .font(.caption2).foregroundStyle(.secondary)
         }.padding(24)
         #if os(macOS)
@@ -189,7 +193,7 @@ struct ArtworkDownloadView: View {
                 try Task.checkCancellation(); imageData = data
                 if wantsExtras {
                     // Listing what else the edition has is optional; a failure just hides the line.
-                    let found = (try? await MusicLookupClient.shared.coverExtras(match)) ?? []
+                    let found = await MusicLookupClient.shared.albumExtras(match, fanartKey: fanartKey)
                     try Task.checkCancellation(); extras = found; extrasChecked = true
                 }
             } catch is CancellationError { } catch { if !Task.isCancelled { message = error.localizedDescription } }

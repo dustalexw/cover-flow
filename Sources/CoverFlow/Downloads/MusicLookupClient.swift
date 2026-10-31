@@ -13,12 +13,21 @@ struct LyricMatch: Decodable, Identifiable, Sendable {
     var text: String { isSynced ? syncedLyrics! : plainLyrics ?? "" }
 }
 
-/// A back cover or disc (Medium) image listed by the Cover Art Archive.
+/// Where a back cover or disc image was found.
+enum ArtSource: String, Sendable, Equatable {
+    case coverArtArchive = "Cover Art Archive"
+    case theAudioDB = "TheAudioDB"
+    case fanartTV = "fanart.tv"
+}
+
+/// A back cover or disc image found online: a scan from the Cover Art Archive, or
+/// disc art (cut-out CD/vinyl images) from TheAudioDB or fanart.tv.
 struct CoverArtExtra: Sendable, Equatable {
     let kind: AlbumImageKind
     /// Disc number for disc art.
     let disc: Int?
     let url: URL
+    var source: ArtSource = .coverArtArchive
 }
 
 struct ArtworkMatch: Identifiable, Sendable {
@@ -50,6 +59,16 @@ enum MusicLookupError: LocalizedError {
         case .rateLimited(let seconds), .busy(let seconds): return seconds
         default: return nil
         }
+    }
+}
+
+/// Optional fanart.tv personal API key (free at fanart.tv), which adds its disc art
+/// to the online sources. Stored in preferences; it isn't a password.
+enum ExtraArtSettings {
+    static let fanartKeyDefaultsKey = "artwork.fanartKey"
+    static var fanartKey: String? {
+        let key = (UserDefaults.standard.string(forKey: fanartKeyDefaultsKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : key
     }
 }
 
@@ -119,8 +138,160 @@ actor MusicLookupClient {
         }
     }
 
+    /// Back cover and disc art for an album from every source: the Cover Art Archive
+    /// (the group's chosen release first, then other editions that have a back cover or
+    /// more scans), TheAudioDB, and fanart.tv when a personal API key is set. Sources that
+    /// fail or have nothing are skipped.
+    func albumExtras(_ match: ArtworkMatch, fanartKey: String? = nil) async -> [CoverArtExtra] {
+        let group = match.id.uuidString.lowercased()
+        var archive = (try? await coverExtras(match)) ?? []
+        func has(_ list: [CoverArtExtra], _ kind: AlbumImageKind) -> Bool { list.contains { $0.kind == kind } }
+        if !has(archive, .back) || !has(archive, .disc) {
+            // The group's index only covers one release; other editions often have more scans.
+            let browse = URL(string: "https://musicbrainz.org/ws/2/release?release-group=\(group)&fmt=json&limit=100")!
+            let releases = (try? Self.parseReleaseBrowse(try await fetch(browse, limit: 4 * 1024 * 1024))) ?? []
+            for release in releases.prefix(4) {
+                if has(archive, .back) && has(archive, .disc) { break }
+                let url = URL(string: "https://coverartarchive.org/release/\(release)")!
+                guard let found = try? Self.parseCoverExtras(try await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json")) else { continue }
+                if !has(archive, .back), let back = found.first(where: { $0.kind == .back }) { archive.append(back) }
+                // Take every disc from one edition so a set's discs match each other.
+                if !has(archive, .disc) { archive += found.filter { $0.kind == .disc } }
+            }
+        }
+        var audioDB: [CoverArtExtra] = []
+        let byGroup = URL(string: "https://www.theaudiodb.com/api/v1/json/\(Self.audioDBKey)/album-mb.php?i=\(group)")!
+        if let data = try? await fetch(byGroup, limit: 1024 * 1024) { audioDB = (try? Self.parseAudioDB(data)) ?? [] }
+        if audioDB.isEmpty, let data = try? await fetch(Self.audioDBSearchURL(title: match.title, artist: match.artist), limit: 1024 * 1024) {
+            audioDB = (try? Self.parseAudioDB(data)) ?? []
+        }
+        var fanart: [CoverArtExtra] = []
+        if let key = fanartKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty,
+           var parts = URLComponents(string: "https://webservice.fanart.tv/v3/music/albums/\(group)") {
+            parts.queryItems = [URLQueryItem(name: "api_key", value: key)]
+            if let url = parts.url, let data = try? await fetch(url, limit: 1024 * 1024) {
+                fanart = (try? Self.parseFanart(data, releaseGroup: group)) ?? []
+            }
+        }
+        return Self.mergeExtras(archive: archive, audioDB: audioDB, fanart: fanart)
+    }
+
+    /// The release group that best matches an album, or nil when no result's title and
+    /// artist agree with it closely enough to pick without asking.
+    func bestMatch(title: String, artist: String) async throws -> ArtworkMatch? {
+        let results: [ArtworkMatch]
+        do { results = try await artwork(title: title, artist: artist) }
+        catch MusicLookupError.noResults { return nil }
+        return Self.pickMatch(results, title: title, artist: artist)
+    }
+
+    nonisolated static func pickMatch(_ results: [ArtworkMatch], title: String, artist: String) -> ArtworkMatch? {
+        let wantedTitle = normalized(title, dropEdition: true)
+        let wantedArtist = normalized(artist, dropEdition: false)
+        let various = ["various artists", "various", ""].contains(wantedArtist)
+        return results.first { match in
+            guard normalized(match.title, dropEdition: true) == wantedTitle else { return false }
+            if various { return true }
+            let found = normalized(match.artist, dropEdition: false)
+            return found == wantedArtist || found.contains(wantedArtist) || wantedArtist.contains(found)
+        }
+    }
+
+    /// Lowercased letters and digits; optionally without a trailing "(Deluxe Edition)" or "[Remastered]".
+    nonisolated static func normalized(_ value: String, dropEdition: Bool) -> String {
+        var text = value.lowercased().folding(options: [.diacriticInsensitive, .widthInsensitive], locale: nil)
+        if dropEdition, let range = text.range(of: #"\s*[\(\[][^\)\]]*[\)\]]\s*$"#, options: .regularExpression), range.lowerBound != text.startIndex {
+            text.removeSubrange(range)
+        }
+        text = text.replacingOccurrences(of: "&", with: "and")
+        return String(text.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
+    }
+
+    /// TheAudioDB's public key; limited to 30 requests a minute, spaced in perform().
+    static let audioDBKey = "123"
+
+    nonisolated static func audioDBSearchURL(title: String, artist: String) -> URL {
+        var parts = URLComponents(string: "https://www.theaudiodb.com/api/v1/json/\(audioDBKey)/searchalbum.php")!
+        parts.queryItems = [URLQueryItem(name: "s", value: artist.trimmingCharacters(in: .whitespacesAndNewlines)),
+                            URLQueryItem(name: "a", value: title.trimmingCharacters(in: .whitespacesAndNewlines))]
+        return parts.url!
+    }
+
+    /// Release IDs in a MusicBrainz release browse that have a back cover or more than
+    /// one image in the Cover Art Archive, best first.
+    nonisolated static func parseReleaseBrowse(_ data: Data) throws -> [String] {
+        struct Browse: Decodable { let releases: [Release] }
+        struct Release: Decodable {
+            let id: String
+            let art: Art?
+            enum CodingKeys: String, CodingKey { case id; case art = "cover-art-archive" }
+        }
+        struct Art: Decodable { let back: Bool?; let count: Int? }
+        guard let browse = try? JSONDecoder().decode(Browse.self, from: data) else { throw MusicLookupError.invalidResponse }
+        return browse.releases
+            .filter { UUID(uuidString: $0.id) != nil && ($0.art?.back == true || ($0.art?.count ?? 0) > 1) }
+            .enumerated()
+            .sorted { a, b in
+                let x = a.element.art, y = b.element.art
+                if (x?.back == true) != (y?.back == true) { return x?.back == true }
+                if (x?.count ?? 0) != (y?.count ?? 0) { return (x?.count ?? 0) > (y?.count ?? 0) }
+                return a.offset < b.offset
+            }
+            .map { $0.element.id.lowercased() }
+    }
+
+    /// TheAudioDB album: strAlbumBack and strAlbumCDart (a cut-out disc, disc 1).
+    nonisolated static func parseAudioDB(_ data: Data) throws -> [CoverArtExtra] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MusicLookupError.invalidResponse }
+        guard let album = (object["album"] as? [[String: Any]])?.first else { return [] }
+        var extras: [CoverArtExtra] = []
+        if let url = safeURL(album["strAlbumBack"] as? String) {
+            extras.append(CoverArtExtra(kind: .back, disc: nil, url: url, source: .theAudioDB))
+        }
+        if let url = safeURL(album["strAlbumCDart"] as? String) {
+            extras.append(CoverArtExtra(kind: .disc, disc: 1, url: url, source: .theAudioDB))
+        }
+        return extras
+    }
+
+    /// fanart.tv album: "cdart" images, the most liked per disc.
+    nonisolated static func parseFanart(_ data: Data, releaseGroup: String) throws -> [CoverArtExtra] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MusicLookupError.invalidResponse }
+        let albums = object["albums"] as? [String: Any] ?? [:]
+        let album = (albums[releaseGroup] ?? albums.first(where: { $0.key.lowercased() == releaseGroup })?.value) as? [String: Any]
+        let art = album?["cdart"] as? [[String: Any]] ?? []
+        func int(_ value: Any?) -> Int? { (value as? Int) ?? (value as? String).flatMap { Int($0) } }
+        var best: [Int: (likes: Int, url: URL)] = [:]
+        for item in art {
+            guard let url = safeURL(item["url"] as? String) else { continue }
+            let disc = max(1, int(item["disc"]) ?? 1), likes = int(item["likes"]) ?? 0
+            if best[disc] == nil || likes > best[disc]!.likes { best[disc] = (likes, url) }
+        }
+        return best.keys.sorted().map { CoverArtExtra(kind: .disc, disc: $0, url: best[$0]!.url, source: .fanartTV) }
+    }
+
+    /// One back cover (a real scan first) and one image per disc. Cut-out disc art from
+    /// fanart.tv or TheAudioDB is preferred, unless the archive has scans of more discs.
+    nonisolated static func mergeExtras(archive: [CoverArtExtra], audioDB: [CoverArtExtra], fanart: [CoverArtExtra]) -> [CoverArtExtra] {
+        var result: [CoverArtExtra] = []
+        if let back = (archive + audioDB).first(where: { $0.kind == .back }) { result.append(back) }
+        let scans = archive.filter { $0.kind == .disc }
+        let cutOuts = fanart.isEmpty ? audioDB.filter { $0.kind == .disc } : fanart
+        result += cutOuts.count >= scans.count && !cutOuts.isEmpty ? cutOuts : scans
+        return result
+    }
+
+    /// Only image hosts of the art services are fetched, always over HTTPS.
+    nonisolated static func safeURL(_ string: String?) -> URL? {
+        guard let string, !string.isEmpty, var parts = URLComponents(string: string), let host = parts.host?.lowercased() else { return nil }
+        let trusted = ["coverartarchive.org", "archive.org", "theaudiodb.com", "fanart.tv"]
+        guard trusted.contains(where: { host == $0 || host.hasSuffix("." + $0) }) else { return nil }
+        parts.scheme = "https"
+        return parts.url
+    }
+
     func extraImage(_ extra: CoverArtExtra) async throws -> Data {
-        try await fetch(extra.url, limit: 25 * 1024 * 1024)
+        try await fetch(extra.url, limit: 25 * 1024 * 1024, accept: "image/*")
     }
 
     /// Reads a Cover Art Archive index: the first "Back" image, and every "Medium" image
@@ -138,10 +309,9 @@ actor MusicLookupClient {
         }
         guard let index = try? JSONDecoder().decode(Index.self, from: data) else { throw MusicLookupError.invalidResponse }
         func safeURL(_ string: String?) -> URL? {
-            guard let string, var parts = URLComponents(string: string), let host = parts.host?.lowercased(),
+            guard let url = Self.safeURL(string), let host = url.host?.lowercased(),
                   host == "coverartarchive.org" || host == "archive.org" || host.hasSuffix(".archive.org") else { return nil }
-            parts.scheme = "https"
-            return parts.url
+            return url
         }
         func discNumber(_ comment: String?) -> Int? {
             guard let comment else { return nil }
@@ -217,7 +387,9 @@ actor MusicLookupClient {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(accept ?? (host == "coverartarchive.org" ? "image/*" : "application/json"), forHTTPHeaderField: "Accept")
         // Set a minimum gap even if the request fails; MB requires at most one per second.
-        defer { nextRequest[host] = max(nextRequest[host] ?? .distantPast, Date().addingTimeInterval(host == "musicbrainz.org" ? 1.1 : 0.35)) }
+        // MusicBrainz allows one request a second; TheAudioDB's public key 30 a minute.
+        let gap = host == "musicbrainz.org" ? 1.1 : host.hasSuffix("theaudiodb.com") ? 2.1 : 0.35
+        defer { nextRequest[host] = max(nextRequest[host] ?? .distantPast, Date().addingTimeInterval(gap)) }
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw MusicLookupError.invalidResponse }
         if response.statusCode == 429 || response.statusCode == 503 {

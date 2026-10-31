@@ -199,6 +199,12 @@ struct AlbumContextMenu: View {
         Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
         Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
         Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
+        if selectionAlbums.contains(where: { !$0.isDemo }) {
+            Button(selectionAlbums.count > 1 ? "Find Back Covers & Disc Art" : "Find Back Cover & Disc Art") {
+                library.findExtraArt(selectionAlbums.map(\.id))
+            }
+            .disabled(library.importProgress != nil)
+        }
         Divider()
         Button(selectionAlbums.count > 1 ? "Remove \(selectionAlbums.count) Albums…" : "Remove from Collection…", role: .destructive) {
             if selectionAlbums.count > 1 { state.selectedAlbumRemoval = selectionAlbums.map(\.id) }

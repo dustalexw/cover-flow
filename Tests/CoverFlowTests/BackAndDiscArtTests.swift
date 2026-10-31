@@ -38,6 +38,87 @@ final class BackAndDiscArtTests: XCTestCase {
         XCTAssertNil(ExtraArtworkReader.classify(fileName: "cover.jpg"))
         XCTAssertNil(ExtraArtworkReader.classify(fileName: "back.txt"))
         XCTAssertNil(ExtraArtworkReader.classify(fileName: "backstage.jpg"))
+        // Common scan names, and album names that merely contain a keyword.
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "AC-DC - Back in Black - Back.jpg")?.kind, .back)
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Back in Black.jpg"))
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "cover_back.jpg")?.kind, .back)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Rear.png")?.kind, .back)
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Front & Back.jpg"))
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "cdart.png")?.kind, .disc)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Album - CD2.jpg")?.disc, 2)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Disc 1 Label.jpg")?.disc, 1)
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Album 2 - CD.jpg")?.disc)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Vinyl Side A.jpg")?.kind, .disc)
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "folder.jpg"))
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Booklet 03.jpg"))
+        XCTAssertEqual(ExtraArtworkReader.discFolderNumber("CD 2"), 2)
+        XCTAssertNil(ExtraArtworkReader.discFolderNumber("Scans"))
+    }
+
+    func testArtworkSubfoldersAndTheAlbumFolderAboveADiscFolderAreSearched() throws {
+        let album = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: album) }
+        let disc2 = album.appendingPathComponent("CD2", isDirectory: true)
+        let scans = album.appendingPathComponent("Scans", isDirectory: true)
+        try FileManager.default.createDirectory(at: disc2, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scans, withIntermediateDirectories: true)
+        try png(.red).write(to: scans.appendingPathComponent("Back.jpg"))
+        try png(.green).write(to: scans.appendingPathComponent("CD2.png"))
+        let found = ExtraArtworkReader.folderImages(for: disc2.appendingPathComponent("01.flac"), trackDisc: 2)
+        XCTAssertEqual(Set(found.map { "\($0.kind.rawValue)\($0.disc ?? 0)" }), ["back0", "disc2"])
+    }
+
+    func testOtherSourcesAreParsedAndMerged() throws {
+        let browse = """
+        {"releases":[
+         {"id":"11111111-1111-1111-1111-111111111111","cover-art-archive":{"back":false,"count":1}},
+         {"id":"22222222-2222-2222-2222-222222222222","cover-art-archive":{"back":false,"count":4}},
+         {"id":"33333333-3333-3333-3333-333333333333","cover-art-archive":{"back":true,"count":2}},
+         {"id":"not-a-uuid","cover-art-archive":{"back":true,"count":9}}]}
+        """
+        XCTAssertEqual(try MusicLookupClient.parseReleaseBrowse(Data(browse.utf8)),
+                       ["33333333-3333-3333-3333-333333333333", "22222222-2222-2222-2222-222222222222"])
+
+        let audioDB = """
+        {"album":[{"strAlbumBack":"https://r2.theaudiodb.com/images/media/album/back/x.jpg",
+                   "strAlbumCDart":"http://r2.theaudiodb.com/images/media/album/cdart/y.png","strAlbumSpine":null}]}
+        """
+        let adb = try MusicLookupClient.parseAudioDB(Data(audioDB.utf8))
+        XCTAssertEqual(adb.map(\.kind), [.back, .disc])
+        XCTAssertEqual(adb[1].url.scheme, "https")
+        XCTAssertTrue(try MusicLookupClient.parseAudioDB(Data(#"{"album":null}"#.utf8)).isEmpty)
+
+        let group = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let fanart = """
+        {"albums":{"\(group)":{"cdart":[
+          {"url":"https://assets.fanart.tv/fanart/music/a/cdart/1.png","likes":"1","disc":"1"},
+          {"url":"https://assets.fanart.tv/fanart/music/a/cdart/2.png","likes":"5","disc":"1"},
+          {"url":"https://assets.fanart.tv/fanart/music/a/cdart/3.png","likes":"0","disc":"2"},
+          {"url":"https://evil.example.com/4.png","likes":"9","disc":"2"}]}}}
+        """
+        let fan = try MusicLookupClient.parseFanart(Data(fanart.utf8), releaseGroup: group)
+        XCTAssertEqual(fan.map(\.disc), [1, 2])
+        XCTAssertEqual(fan[0].url.lastPathComponent, "2.png")
+        XCTAssertEqual(fan[1].url.lastPathComponent, "3.png")
+
+        // Archive back scan wins; cut-out discs win unless the archive has more discs.
+        let scan = { (disc: Int) in CoverArtExtra(kind: .disc, disc: disc, url: URL(string: "https://coverartarchive.org/\(disc)")!) }
+        let back = CoverArtExtra(kind: .back, disc: nil, url: URL(string: "https://coverartarchive.org/b")!)
+        var merged = MusicLookupClient.mergeExtras(archive: [back, scan(1)], audioDB: adb, fanart: fan)
+        XCTAssertEqual(merged.map(\.source), [.coverArtArchive, .fanartTV, .fanartTV])
+        merged = MusicLookupClient.mergeExtras(archive: [scan(1), scan(2), scan(3)], audioDB: adb, fanart: [])
+        XCTAssertEqual(merged.map(\.source), [.theAudioDB, .coverArtArchive, .coverArtArchive, .coverArtArchive])
+        XCTAssertNil(MusicLookupClient.safeURL("https://theaudiodb.com.evil.net/x.jpg"))
+    }
+
+    func testOnlyAConfidentMusicBrainzMatchIsPicked() {
+        let a = ArtworkMatch(id: UUID(), title: "OK Computer", artist: "Radiohead", year: "1997")
+        let b = ArtworkMatch(id: UUID(), title: "OK Computer OKNOTOK 1997 2017", artist: "Radiohead", year: "2017")
+        XCTAssertEqual(MusicLookupClient.pickMatch([b, a], title: "OK Computer (Remastered)", artist: "radiohead")?.id, a.id)
+        XCTAssertNil(MusicLookupClient.pickMatch([b], title: "OK Computer", artist: "Radiohead"))
+        XCTAssertNil(MusicLookupClient.pickMatch([a], title: "OK Computer", artist: "Someone Else"))
+        let various = ArtworkMatch(id: UUID(), title: "Now That’s What I Call Music!", artist: "Various Artists", year: "")
+        XCTAssertNotNil(MusicLookupClient.pickMatch([various], title: "Now That's What I Call Music", artist: "Various Artists"))
     }
 
     func testCoverArtArchiveIndexGivesBackAndNumberedDiscsFromTrustedHostsOnly() throws {

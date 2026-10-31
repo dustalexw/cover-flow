@@ -400,7 +400,13 @@ final class LibraryStore: ObservableObject {
     /// Back cover and disc art from the track's folder or tags, for kinds/discs the album lacks.
     private func addExtraArtwork(albumID: UUID, audio: URL, disc: Int) async {
         let key = "\(albumID.uuidString)|\(disc)|\(audio.deletingLastPathComponent().path)"
-        guard extraArtworkChecked.insert(key).inserted, let album = album(albumID) else { return }
+        guard extraArtworkChecked.insert(key).inserted else { return }
+        await addLocalExtraArtwork(albumID: albumID, audio: audio, disc: disc)
+    }
+
+    @discardableResult
+    private func addLocalExtraArtwork(albumID: UUID, audio: URL, disc: Int) async -> Int {
+        guard let album = album(albumID) else { return 0 }
         let have = Set((album.extraImages ?? []).map { "\($0.kind.rawValue)\($0.disc ?? 0)" })
         let store = artwork
         let saved = await Task.detached(priority: .utility) { () -> [AlbumImage] in
@@ -408,9 +414,117 @@ final class LibraryStore: ObservableObject {
                 .filter { !have.contains("\($0.kind.rawValue)\($0.disc ?? 0)") }
                 .compactMap { try? store.saveExtra(data: $0.data, albumID: albumID, kind: $0.kind, disc: $0.disc) }
         }.value
-        guard !saved.isEmpty else { return }
-        guard let i = albums.firstIndex(where: { $0.id == albumID }) else { store.removeExtras(saved); return }
+        guard !saved.isEmpty else { return 0 }
+        guard let i = albums.firstIndex(where: { $0.id == albumID }) else { store.removeExtras(saved); return 0 }
         albums[i].extraImages = (albums[i].extraImages ?? []) + saved
+        return saved.count
+    }
+
+    // MARK: Back cover and disc art for albums already in the collection
+
+    /// Disc numbers of the album's tracks (1 when untagged).
+    func discNumbers(of album: Album) -> Set<Int> {
+        let discs = Set(tracks(of: album).map { max(1, $0.discNumber ?? 1) })
+        return discs.isEmpty ? [1] : discs
+    }
+
+    /// Whether the album still lacks a back cover or art for one of its discs.
+    func needsExtraArt(_ album: Album) -> Bool {
+        guard !album.isDemo else { return false }
+        let haveDiscs = Set(album.discImages.compactMap(\.disc))
+        return album.backImage == nil || !discNumbers(of: album).isSubset(of: haveDiscs)
+    }
+
+    /// Looks beside each of the album's tracks (and in their artwork folders) for back
+    /// and disc images the album doesn't have yet. Returns how many were added.
+    @discardableResult
+    func scanLocalExtraArt(_ id: UUID) async -> Int {
+        guard let album = album(id), !album.isDemo else { return 0 }
+        var seen = Set<String>(), added = 0
+        for track in tracks(of: album) where !track.isDemo {
+            let disc = max(1, track.discNumber ?? 1)
+            guard seen.insert("\(disc)|\(track.fileURL.deletingLastPathComponent().path)").inserted else { continue }
+            added += await addLocalExtraArtwork(albumID: id, audio: track.fileURL, disc: disc)
+        }
+        if added > 0 { scheduleSave() }
+        return added
+    }
+
+    /// Albums imported before back and disc art existed get one look through their folders.
+    func scanLibraryForLocalExtraArtOnce() {
+        let key = "extraArt.localScanVersion"
+        guard UserDefaults.standard.integer(forKey: key) < 2 else { return }
+        let ids = albums.filter { !$0.isDemo && needsExtraArt($0) }.map(\.id)
+        Task {
+            var found = 0
+            for id in ids where !Task.isCancelled {
+                if await scanLocalExtraArt(id) > 0 { found += 1 }
+            }
+            UserDefaults.standard.set(2, forKey: key)
+            if found > 0 {
+                notice = "Found back covers or disc art for \(found) album\(found == 1 ? "" : "s") in your music folders. Flip a cover in Cover Flow (F) to see it."
+            }
+        }
+    }
+
+    /// Fills in missing back covers and disc art: first from the albums' folders and
+    /// tags, then online (Cover Art Archive, TheAudioDB, and fanart.tv with a key), for
+    /// albums MusicBrainz matches confidently. Existing images are kept.
+    func findExtraArt(_ ids: [UUID]) {
+        guard importProgress == nil else {
+            notice = "Cover Flow is busy importing or organizing. Try again when it finishes."
+            return
+        }
+        let targets = ids.compactMap { album($0) }.filter { needsExtraArt($0) }
+        guard !targets.isEmpty else {
+            notice = ids.count == 1 ? "This album already has a back cover and disc art. Use Find Artwork Online… to replace them."
+                                    : "Every album already has a back cover and disc art."
+            return
+        }
+        let fanartKey = ExtraArtSettings.fanartKey
+        importProgress = ImportProgress(done: 0, total: targets.count, current: targets[0].title, activity: "Finding back & disc art")
+        Task {
+            var improved = 0, unmatched = 0, failed = 0
+            search: for (n, target) in targets.enumerated() {
+                importProgress = ImportProgress(done: n, total: targets.count, current: target.title, activity: "Finding back & disc art")
+                var added = await scanLocalExtraArt(target.id)
+                if let album = album(target.id), needsExtraArt(album) {
+                    do {
+                        if let count = try await downloadExtraArt(album, fanartKey: fanartKey) { added += count } else { unmatched += 1 }
+                    } catch {
+                        failed += 1
+                        // A long rate limit applies to every album after this one too.
+                        if case MusicLookupError.rateLimited = error { break search }
+                    }
+                }
+                if added > 0 { improved += 1 }
+            }
+            importProgress = nil
+            var message = targets.count == 1
+                ? (improved == 1 ? "Added back cover or disc art to “\(targets[0].title)”. Flip the cover in Cover Flow (F) to see it."
+                                 : unmatched == 1 ? "Couldn’t find “\(targets[0].title)” on MusicBrainz with that title and artist. Try Find Artwork Online… to search by hand."
+                                 : "No back cover or disc art found for “\(targets[0].title)”.")
+                : "Added back covers or disc art to \(improved) of \(targets.count) albums."
+            if targets.count > 1 && unmatched > 0 { message += " \(unmatched) couldn’t be matched on MusicBrainz." }
+            if failed > 0 { message += " \(failed) lookup\(failed == 1 ? "" : "s") failed; try again later." }
+            notice = message
+        }
+    }
+
+    /// Downloads online back/disc art the album lacks. Nil when no confident match.
+    private func downloadExtraArt(_ album: Album, fanartKey: String?) async throws -> Int? {
+        let client = MusicLookupClient.shared
+        guard let match = try await client.bestMatch(title: album.title, artist: album.artist) else { return nil }
+        let haveDiscs = Set(album.discImages.compactMap(\.disc))
+        let wanted = await client.albumExtras(match, fanartKey: fanartKey).filter { extra in
+            extra.kind == .back ? album.backImage == nil : !haveDiscs.contains(extra.disc ?? 1)
+        }
+        var images: [(kind: AlbumImageKind, disc: Int?, data: Data)] = []
+        for extra in wanted {
+            try Task.checkCancellation()
+            if let data = try? await client.extraImage(extra) { images.append((extra.kind, extra.disc, data)) }
+        }
+        return images.isEmpty ? 0 : await replaceExtraImages(album.id, with: images)
     }
 
     /// Orders tracks by disc and track number and settles the album's display artist.
