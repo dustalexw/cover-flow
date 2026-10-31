@@ -552,6 +552,31 @@ final class LibraryStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Edit Track Info: changes one track in the library (not the audio file).
+    /// Empty title or artist keeps the current value; numbers that don't parse are cleared.
+    func updateTrack(_ id: UUID, title: String, artist: String, trackNumber: String, discNumber: String,
+                     year: String, genre: String) {
+        guard var t = tracks[id] else { return }
+        func number(_ s: String) -> Int? {
+            Int(s.trimmingCharacters(in: .whitespaces)).flatMap { $0 > 0 ? $0 : nil }
+        }
+        t.title = title.nonEmpty ?? t.title
+        t.artist = artist.nonEmpty ?? t.artist
+        t.trackNumber = number(trackNumber)
+        t.discNumber = number(discNumber)
+        t.year = number(year)
+        t.genre = genre.nonEmpty
+        t.missingMetadata = false
+        tracks[id] = t
+        if let albumID = trackToAlbum[id] {
+            // Re-sort by the new numbers and settle the album artist (it becomes
+            // "Various Artists" if the tracks now disagree, unless the album was edited).
+            finalizeAlbum(albumID)
+        }
+        rebuildIndex()
+        scheduleSave()
+    }
+
     func chooseReplacementArtwork(for id: UUID) {
         let panel = NSOpenPanel()
         panel.title = "Choose Artwork"

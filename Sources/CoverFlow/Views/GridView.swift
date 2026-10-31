@@ -149,14 +149,6 @@ struct GridCell: View {
                     .transition(.opacity)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                if isPlayingAlbum {
-                    NowPlayingBars(playing: player.isPlaying, color: .white, height: 11)
-                        .padding(6)
-                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 5))
-                        .padding(8)
-                }
-            }
             .scaleEffect(hover ? 1.02 : 1)
 
             VStack(alignment: .leading, spacing: 2) {
