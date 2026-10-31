@@ -32,6 +32,29 @@ queue. Your original audio file stays on disk; removing the last track removes
 the empty album. On iPad, touch and hold a track for the same action; only the
 app’s imported copy is deleted.
 
+## Keep media organized (macOS)
+
+By default Cover Flow plays your files where they are. To keep your music in one
+place instead, open **Cover Flow → Settings… → Media Folder** and turn on
+**Keep media organized**:
+
+- **When importing**: **Copy files** (originals stay where they are) or **Move files**
+  (originals are moved; anything on a locked or read-only drive is copied instead).
+- **Location**: `~/Music/Cover Flow` by default; **Change…** picks another folder,
+  including one on an external drive.
+- Files are arranged as `Artist/Album/01 Title.ext` (`2-01 Title.ext` on multi-disc
+  albums). Folder names use the album artist, so compilations land in
+  `Various Artists`. Name clashes get a number (`01 Title 2.flac`), and a `.lrc`
+  lyric file beside a track comes along with it.
+- **Organize Existing Music…** brings in tracks you imported before turning the option
+  on, using the same copy/move choice. Karaoke versions prepared for moved tracks need
+  preparing again.
+
+Files already inside the media folder are left where they are, and a file that can’t
+be copied or moved keeps playing from its old location; the import report lists it.
+Removing a track from the collection never deletes its file. On iPad the app always
+keeps its own copies, so this option isn’t needed there.
+
 ## Karaoke
 
 Open **View → Karaoke** (⌘5) for lyrics, preparation and export.

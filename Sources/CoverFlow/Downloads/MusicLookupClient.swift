@@ -21,7 +21,7 @@ struct ArtworkMatch: Identifiable, Sendable {
 }
 
 enum MusicLookupError: LocalizedError {
-    case itemRemoved, noResults, tooLarge, unavailable(Int), invalidResponse, rateLimited(Int)
+    case itemRemoved, noResults, tooLarge, unavailable(Int), invalidResponse, rateLimited(Int), busy(Int)
     var errorDescription: String? {
         switch self {
         case .itemRemoved: return "This track or album was removed from the collection."
@@ -30,7 +30,17 @@ enum MusicLookupError: LocalizedError {
         case .unavailable(let code):
             return code == 404 ? "No artwork is available for this edition. Try another result." : "The service is unavailable (\(code)). Try again later."
         case .invalidResponse: return "The service returned an unreadable response. Try again later."
-        case .rateLimited(let seconds): return "The service asked us to wait \(seconds) seconds before searching again."
+        case .rateLimited(let seconds):
+            return "The service asked us to wait \(seconds) \(seconds == 1 ? "second" : "seconds") before searching again."
+        case .busy:
+            return "The service is busy right now. Try searching again in a moment."
+        }
+    }
+    /// Seconds the service asked us to wait, for errors worth retrying.
+    var retryDelay: Int? {
+        switch self {
+        case .rateLimited(let seconds), .busy(let seconds): return seconds
+        default: return nil
         }
     }
 }
@@ -40,6 +50,8 @@ enum MusicLookupError: LocalizedError {
 actor MusicLookupClient {
     static let shared = MusicLookupClient()
     static var userAgent: String { "CoverFlow/\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.0") (https://github.com/dustalexw/cover-flow)" }
+    static let maxRetries = 3
+    static let maxAutoRetryWait = 5
     private let session: URLSession
     private var pending: Task<Data, Error>?
     private var nextRequest: [String: Date] = [:]
@@ -111,8 +123,19 @@ actor MusicLookupClient {
         let previous = pending
         let work = Task<Data, Error> {
             if let previous { _ = try? await previous.value }
-            try Task.checkCancellation()
-            return try await self.perform(url, limit: limit)
+            // LRCLIB in particular answers brief overloads with 503 + "Retry-After: 1".
+            // Short waits are retried quietly; long ones go back to the user.
+            var attempt = 0
+            while true {
+                try Task.checkCancellation()
+                do { return try await self.perform(url, limit: limit) }
+                catch let error as MusicLookupError {
+                    guard attempt < Self.maxRetries, let wait = error.retryDelay, wait <= Self.maxAutoRetryWait else { throw error }
+                    attempt += 1
+                    // perform() already waits out Retry-After; add a growing pad so retries spread out.
+                    try await Task.sleep(for: .seconds(0.5 * Double(attempt)))
+                }
+            }
         }
         pending = work
         return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
@@ -136,7 +159,8 @@ actor MusicLookupClient {
             date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
             let delay = max(1, Double(value) ?? date.date(from: value)?.timeIntervalSinceNow ?? 5)
             nextRequest[host] = Date().addingTimeInterval(delay)
-            throw MusicLookupError.rateLimited(Int(ceil(delay)))
+            let seconds = Int(ceil(delay))
+            throw response.statusCode == 503 ? MusicLookupError.busy(seconds) : MusicLookupError.rateLimited(seconds)
         }
         guard (200..<300).contains(response.statusCode) else { throw MusicLookupError.unavailable(response.statusCode) }
         guard response.expectedContentLength <= Int64(limit) else { throw MusicLookupError.tooLarge }

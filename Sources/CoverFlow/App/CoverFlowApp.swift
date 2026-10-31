@@ -68,6 +68,7 @@ final class AppEnvironment {
     static let shared = AppEnvironment()
 
     let artwork: ArtworkStore
+    let media: MediaLibrarySettings
     let library: LibraryStore
     let player: PlayerEngine
     let lastfm: LastFmScrobbler
@@ -80,7 +81,8 @@ final class AppEnvironment {
 
     private init() {
         artwork = ArtworkStore(directory: AppPaths.artwork)
-        library = LibraryStore(artwork: artwork)
+        media = MediaLibrarySettings()
+        library = LibraryStore(artwork: artwork, media: media)
         lastfm = LastFmScrobbler()
         player = PlayerEngine(library: library, scrobbler: lastfm)
         state = AppState()
@@ -175,6 +177,7 @@ struct CoverFlowApp: App {
 
         Settings {
             SettingsView()
+                .environmentObject(env.media)
                 .environmentObject(env.lastfm)
                 .environmentObject(env.library)
                 .environmentObject(env.player)

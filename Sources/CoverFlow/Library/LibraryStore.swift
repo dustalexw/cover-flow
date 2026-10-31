@@ -6,6 +6,8 @@ struct ImportProgress: Equatable {
     var done: Int
     var total: Int
     var current: String
+    /// "Importing", or "Copying"/"Moving" while files go into the media folder.
+    var activity = "Importing"
 }
 
 struct ImportReport: Identifiable {
@@ -16,6 +18,10 @@ struct ImportReport: Identifiable {
     var unsupported: [String] = []
     var failed: [String] = []
     var scanned = 0
+    /// Keep media organized: files brought into the media folder, and any that couldn't be.
+    var organized = 0
+    var organizeMode: MediaImportMode = .copy
+    var organizeFailures: [String] = []
 
     var isProblemOnly: Bool { added == 0 }
 
@@ -46,6 +52,13 @@ struct ImportReport: Identifiable {
             let names = failed.prefix(2).joined(separator: "; ")
             out.append("Couldn’t read: \(names)\(failed.count > 2 ? " …" : "")")
         }
+        if organized > 0 {
+            out.append("\(organizeMode.pastTense) \(organized == 1 ? "1 file" : "\(organized) files") to your media folder")
+        }
+        if !organizeFailures.isEmpty {
+            let names = organizeFailures.prefix(2).joined(separator: "; ")
+            out.append("Left in place: \(names)\(organizeFailures.count > 2 ? " …" : "")")
+        }
         return out
     }
 }
@@ -69,16 +82,21 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var isGeneratingDemo = false
 
     let artwork: ArtworkStore
+    /// Keep media organized (macOS). Nil means files are always referenced where they are.
+    let media: MediaLibrarySettings?
     private let libraryURL: URL
     private var albumIndex: [UUID: Int] = [:]
     private var trackToAlbum: [UUID: UUID] = [:]
     private var pendingSave: DispatchWorkItem?
+    /// Identifies the running organize pass, so late progress updates from a finished one are ignored.
+    private var organizeRun: UUID?
     /// Lets the player drop tracks that left the collection.
     var onTracksRemoved: ((Set<UUID>) -> Void)?
 
-    init(artwork: ArtworkStore, libraryURL: URL = AppPaths.library) {
+    init(artwork: ArtworkStore, libraryURL: URL = AppPaths.library, media: MediaLibrarySettings? = nil) {
         self.artwork = artwork
         self.libraryURL = libraryURL
+        self.media = media
     }
 
     // MARK: Lookup
@@ -195,7 +213,12 @@ final class LibraryStore: ObservableObject {
     func presentImportPanel() {
         let panel = NSOpenPanel()
         panel.title = "Import Music"
-        panel.message = "Choose audio files or folders. Cover Flow reads them where they are — nothing is copied or moved."
+        if let media, media.keepOrganized {
+            let verb = media.mode == .copy ? "copied" : "moved"
+            panel.message = "Choose audio files or folders. They’ll be \(verb) into \(media.displayPath) and organized by artist and album."
+        } else {
+            panel.message = "Choose audio files or folders. Cover Flow reads them where they are — nothing is copied or moved."
+        }
         panel.prompt = "Import"
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -264,6 +287,7 @@ final class LibraryStore: ObservableObject {
         var knownFingerprints = Set(tracks.values.map(\.fingerprint))
         let total = found.audio.count
         var touchedAlbums = Set<UUID>()
+        var addedTracks = Set<UUID>()
 
         for (i, url) in found.audio.enumerated() {
             importProgress = ImportProgress(done: i, total: total, current: url.lastPathComponent)
@@ -281,7 +305,8 @@ final class LibraryStore: ObservableObject {
                 }
                 knownPaths.insert(path)
                 knownFingerprints.insert(fingerprint)
-                let albumID = await add(meta: meta, url: url, isDemo: false)
+                let (albumID, trackID) = await add(meta: meta, url: url, isDemo: false)
+                addedTracks.insert(trackID)
                 touchedAlbums.insert(albumID)
                 report.albums.insert(albumID)
                 report.added += 1
@@ -294,6 +319,14 @@ final class LibraryStore: ObservableObject {
         for id in touchedAlbums { finalizeAlbum(id) }
         rebuildIndex()
         saveNow()
+        // Organize after the albums are settled, so folders use the final album artist
+        // (for example "Various Artists") rather than each track's own.
+        if let media, media.keepOrganized, !addedTracks.isEmpty {
+            let outcome = await organize(addedTracks, into: media.folder, mode: media.mode)
+            report.organized = outcome.moved.count
+            report.organizeMode = outcome.copiedInstead > 0 && outcome.copiedInstead == outcome.moved.count ? .copy : media.mode
+            report.organizeFailures = outcome.failures
+        }
         importProgress = nil
         lastReport = report
         if report.added > 0 { Announcer.announce(report.headline) }
@@ -304,9 +337,9 @@ final class LibraryStore: ObservableObject {
         return [m.title?.normalizedKey ?? "", m.artist?.normalizedKey ?? "", m.album?.normalizedKey ?? "", String(d)].joined(separator: "|")
     }
 
-    /// Adds one track, creating or extending its album. Returns the album id.
+    /// Adds one track, creating or extending its album. Returns the album and track ids.
     @discardableResult
-    private func add(meta: ParsedMetadata, url: URL, isDemo: Bool) async -> UUID {
+    private func add(meta: ParsedMetadata, url: URL, isDemo: Bool) async -> (album: UUID, track: UUID) {
         let artist = meta.artist ?? meta.albumArtist ?? "Unknown Artist"
         let folder = url.deletingLastPathComponent()
         let albumTitle = meta.album ?? folder.lastPathComponent
@@ -356,7 +389,7 @@ final class LibraryStore: ObservableObject {
                 albums[j].artworkVersion += 1
             }
         }
-        return albumID
+        return (albumID, track.id)
     }
 
     /// Orders tracks by disc and track number and settles the album's display artist.
@@ -383,6 +416,81 @@ final class LibraryStore: ObservableObject {
             }
         }
         albums[i] = album
+    }
+
+    // MARK: Keep media organized
+
+    /// Brings the given tracks' files into the media folder and points the tracks at
+    /// the new locations. Demo tracks and files already in the folder are skipped.
+    @discardableResult
+    func organize(_ ids: Set<UUID>, into folder: URL, mode: MediaImportMode) async -> MediaOrganizer.Outcome {
+        var items: [MediaOrganizer.Item] = []
+        for album in albums {
+            let list = album.trackIDs.compactMap { tracks[$0] }
+            let multiDisc = Set(list.map { $0.discNumber ?? 1 }).count > 1
+            for track in list where ids.contains(track.id) && !track.isDemo {
+                items.append(MediaOrganizer.Item(
+                    trackID: track.id, source: track.fileURL, artist: album.artist, album: album.title,
+                    title: track.title, discNumber: track.discNumber, trackNumber: track.trackNumber,
+                    multiDisc: multiDisc))
+            }
+        }
+        guard !items.isEmpty else { return MediaOrganizer.Outcome() }
+        let verb = mode == .copy ? "Copying" : "Moving"
+        let run = UUID()
+        organizeRun = run
+        let outcome = await Task.detached(priority: .userInitiated) {
+            MediaOrganizer.perform(items, into: folder, mode: mode) { done, total, name in
+                Task { @MainActor [weak self] in
+                    guard let self, self.organizeRun == run, done < total else { return }
+                    self.importProgress = ImportProgress(done: done, total: total, current: name, activity: verb)
+                }
+            }
+        }.value
+        organizeRun = nil
+        for (id, url) in outcome.moved {
+            tracks[id]?.fileURL = url
+        }
+        if !outcome.moved.isEmpty { saveNow() }
+        return outcome
+    }
+
+    /// Tracks whose files would be brought in by "Organize Existing Music".
+    func tracksOutsideMediaFolder() -> Set<UUID> {
+        guard let media else { return [] }
+        return Set(tracks.values.filter {
+            !$0.isDemo && !MediaOrganizer.isInside($0.fileURL, folder: media.folder) && fileExists($0)
+        }.map(\.id))
+    }
+
+    /// Settings ▸ Organize Existing Music: brings everything already in the collection
+    /// into the media folder using the current copy/move choice.
+    func organizeExistingLibrary() {
+        guard let media, importProgress == nil else {
+            if importProgress != nil { notice = "An import is already running. Try again when it finishes." }
+            return
+        }
+        let ids = tracksOutsideMediaFolder()
+        guard !ids.isEmpty else {
+            notice = "Everything in your collection is already in your media folder."
+            return
+        }
+        importProgress = ImportProgress(done: 0, total: ids.count, current: "Preparing…", activity: media.mode == .copy ? "Copying" : "Moving")
+        Task {
+            let outcome = await organize(ids, into: media.folder, mode: media.mode)
+            importProgress = nil
+            let count = outcome.moved.count
+            let verb = outcome.copiedInstead > 0 && outcome.copiedInstead == count ? MediaImportMode.copy.pastTense : media.mode.pastTense
+            var message = "\(verb) \(count == 1 ? "1 file" : "\(count) files") to \(media.displayPath)."
+            if outcome.copiedInstead > 0 && outcome.copiedInstead < count {
+                message += " \(outcome.copiedInstead) couldn’t be moved, so they were copied."
+            }
+            if !outcome.failures.isEmpty {
+                message += " \(outcome.failures.count) couldn’t be organized and stay where they were: " + outcome.failures.prefix(2).joined(separator: "; ") + (outcome.failures.count > 2 ? " …" : "")
+            }
+            notice = message
+            Announcer.announce(message)
+        }
     }
 
     // MARK: Editing

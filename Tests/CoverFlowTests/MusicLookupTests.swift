@@ -67,6 +67,22 @@ final class MusicLookupTests: XCTestCase {
         do { _ = try await client().lyrics(title: "Song", artist: "Artist", duration: 1); XCTFail() }
         catch MusicLookupError.invalidResponse { }
     }
+    func testBriefOverloadIsRetriedAutomatically() async throws {
+        var calls = 0
+        let record: [String: Any] = ["id":1,"trackName":"Song","artistName":"Artist","albumName":"Album","duration":200,"instrumental":false,"plainLyrics":"Words"]
+        LookupProtocol.handler = { _ in
+            calls += 1
+            if calls < 3 { return (503,["Retry-After":"1"],Data(#"{"name":"ServerOverloaded"}"#.utf8)) }
+            return (200,[:],try JSONSerialization.data(withJSONObject: [record]))
+        }
+        let matches = try await client().lyrics(title: "Song", artist: "Artist", duration: 200)
+        XCTAssertEqual(calls, 3)
+        XCTAssertEqual(matches.map(\.id), [1])
+        calls = 0
+        LookupProtocol.handler = { _ in calls += 1; return (503,["Retry-After":"1"],Data()) }
+        do { _ = try await client().lyrics(title: "Song", artist: "Artist", duration: 200); XCTFail() }
+        catch MusicLookupError.busy { XCTAssertEqual(calls, MusicLookupClient.maxRetries + 1) }
+    }
     func testDownloadedAndImportedPlainLyricsPersistWithoutReplacingAudio() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

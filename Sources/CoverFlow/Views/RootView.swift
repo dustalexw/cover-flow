@@ -148,7 +148,7 @@ struct RootView: View {
                         .progressViewStyle(.circular)
                         .controlSize(.small)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(p.total > 0 ? "Importing \(p.done + 1) of \(p.total)" : "Looking for audio…")
+                        Text(p.total > 0 ? "\(p.activity) \(p.done + 1) of \(p.total)" : "Looking for audio…")
                             .font(.system(size: 11.5, weight: .semibold))
                         Text(p.current).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
                     }
