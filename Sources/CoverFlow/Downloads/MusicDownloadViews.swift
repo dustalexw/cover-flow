@@ -89,10 +89,16 @@ struct LyricsDownloadView: View {
 }
 
 struct ArtworkDownloadView: View {
+    typealias ExtraImage = (kind: AlbumImageKind, disc: Int?, data: Data)
     let album: Album
     let saveDescription: String
     let onUse: (Data) async throws -> Void
+    /// When set, the sheet offers to download the edition's back cover and disc art too.
+    var onUseExtras: (([ExtraImage]) async throws -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("artworkDownload.includeExtras") private var includeExtras = true
+    @State private var extras: [CoverArtExtra] = []
+    @State private var extrasChecked = false
     @State private var title: String
     @State private var artist: String
     @State private var results: [ArtworkMatch] = []
@@ -101,9 +107,20 @@ struct ArtworkDownloadView: View {
     @State private var busy = false
     @State private var message: String?
     @State private var work: Task<Void, Never>?
-    init(album: Album, saveDescription: String, onUse: @escaping (Data) async throws -> Void) {
-        self.album = album; self.saveDescription = saveDescription; self.onUse = onUse
+    init(album: Album, saveDescription: String, onUse: @escaping (Data) async throws -> Void,
+         onUseExtras: (([ExtraImage]) async throws -> Void)? = nil) {
+        self.album = album; self.saveDescription = saveDescription; self.onUse = onUse; self.onUseExtras = onUseExtras
         _title = State(initialValue: album.title); _artist = State(initialValue: album.artist)
+    }
+
+    private var extrasSummary: String? {
+        guard onUseExtras != nil, selected != nil, extrasChecked else { return nil }
+        let back = extras.contains { $0.kind == .back }
+        let discs = extras.filter { $0.kind == .disc }.count
+        var parts: [String] = []
+        if back { parts.append("back cover") }
+        if discs > 0 { parts.append(discs == 1 ? "disc art" : "\(discs) disc images") }
+        return parts.isEmpty ? "No back cover or disc art for this edition." : "This edition also has: " + parts.joined(separator: " and ") + "."
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -129,6 +146,12 @@ struct ArtworkDownloadView: View {
                     ArtworkDownloadPreview(data: imageData).frame(width: 220, height: 220)
                     if let selected { Text(selected.title).font(.callout).multilineTextAlignment(.center) }
                 }.frame(width: 220)
+            }
+            if onUseExtras != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Also download back cover and disc art", isOn: $includeExtras)
+                    if let extrasSummary { Text(extrasSummary).font(.caption).foregroundStyle(.secondary) }
+                }
             }
             if let message { Text(message).font(.callout).foregroundStyle(.secondary) }
             HStack {
@@ -157,21 +180,47 @@ struct ArtworkDownloadView: View {
     }
     private func preview(_ match: ArtworkMatch) {
         guard !busy else { return }
-        selected = match; imageData = nil; busy = true; message = nil
+        selected = match; imageData = nil; busy = true; message = nil; extras = []; extrasChecked = false
+        let wantsExtras = onUseExtras != nil
         work = Task {
             defer { busy = false }
             do {
                 let data = try await MusicLookupClient.shared.cover(match)
                 try Task.checkCancellation(); imageData = data
+                if wantsExtras {
+                    // Listing what else the edition has is optional; a failure just hides the line.
+                    let found = (try? await MusicLookupClient.shared.coverExtras(match)) ?? []
+                    try Task.checkCancellation(); extras = found; extrasChecked = true
+                }
             } catch is CancellationError { } catch { if !Task.isCancelled { message = error.localizedDescription } }
         }
     }
     private func save() {
         guard let imageData, !busy else { return }
         busy = true
+        let wanted = onUseExtras != nil && includeExtras ? extras : []
+        let saveExtras = onUseExtras
         work = Task {
             defer { busy = false }
-            do { try await onUse(imageData); dismiss() }
+            do {
+                try await onUse(imageData)
+                if let saveExtras, !wanted.isEmpty {
+                    var images: [ExtraImage] = []
+                    for extra in wanted {
+                        try Task.checkCancellation()
+                        if let data = try? await MusicLookupClient.shared.extraImage(extra) {
+                            images.append((kind: extra.kind, disc: extra.disc, data: data))
+                        }
+                    }
+                    if images.isEmpty {
+                        message = "The cover was saved, but the back cover and disc art couldn’t be downloaded."
+                        return
+                    }
+                    try await saveExtras(images)
+                }
+                dismiss()
+            }
+            catch is CancellationError { }
             catch { if !Task.isCancelled { message = error.localizedDescription } }
         }
     }

@@ -68,12 +68,37 @@ final class ArtworkStore: @unchecked Sendable {
         try data.write(to: directory.appendingPathComponent(name), options: .atomic)
         // Only remove older versions after the new image is safely stored.
         if let existing = try? FileManager.default.contentsOfDirectory(atPath: directory.path) {
-            for f in existing where f.hasPrefix(albumID.uuidString) && f != name {
+            // Front covers are "<album>-<uuid>.ext"; back and disc art ("<album>_…") stay.
+            for f in existing where f.hasPrefix(albumID.uuidString + "-") && f != name {
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent(f))
             }
         }
         let tint = Self.averageColor(source: src)?.hexString
         return SavedArtwork(file: name, pixelWidth: w, pixelHeight: h, tintHex: tint)
+    }
+
+    /// Writes a back cover or disc image as "<album>_<kind><disc>-<uuid>.ext". Safe off the main thread.
+    func saveExtra(data: Data, albumID: UUID, kind: AlbumImageKind, disc: Int? = nil) throws -> AlbumImage {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(src) > 0,
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else {
+            throw ArtworkError.notAnImage
+        }
+        var w = (props[kCGImagePropertyPixelWidth] as? Int) ?? 0
+        var h = (props[kCGImagePropertyPixelHeight] as? Int) ?? 0
+        if let orientation = props[kCGImagePropertyOrientation] as? Int, orientation >= 5 { swap(&w, &h) }
+        guard w > 0, h > 0 else { throw ArtworkError.notAnImage }
+        let type = (CGImageSourceGetType(src) as String?).flatMap { UTType($0) }
+        let ext = type?.preferredFilenameExtension ?? "img"
+        let label = kind == .back ? "back" : "disc\(disc ?? 1)"
+        let name = "\(albumID.uuidString)_\(label)-\(UUID().uuidString).\(ext)"
+        try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        return AlbumImage(kind: kind, file: name, disc: kind == .disc ? (disc ?? 1) : nil, pixelWidth: w, pixelHeight: h)
+    }
+
+    /// Deletes back/disc image files (never the front cover or generated scenes).
+    func removeExtras(_ images: [AlbumImage]) {
+        for image in images { try? FileManager.default.removeItem(at: fileURL(image.file)) }
     }
 
     func remove(file: String?) {
@@ -119,6 +144,20 @@ final class ArtworkStore: @unchecked Sendable {
     private func image(_ album: Album, pixels: Int) async -> NSImage? {
         guard let file = album.artworkFile, !Task.isCancelled,
               let result = await decoder.image(at: fileURL(file), pixels: pixels),
+              !Task.isCancelled else { return nil }
+        return Self.appKitImage(result)
+    }
+
+    /// Back cover or disc art, decoded to about `pixels` on the long side.
+    @MainActor
+    func cachedImage(_ image: AlbumImage, pixels: CGFloat) -> NSImage? {
+        rasters.value(for: fileURL(image.file), pixels: Self.bucket(for: pixels)).map(Self.appKitImage)
+    }
+
+    @MainActor
+    func image(_ image: AlbumImage, pixels: CGFloat) async -> NSImage? {
+        guard !Task.isCancelled,
+              let result = await decoder.image(at: fileURL(image.file), pixels: Self.bucket(for: pixels)),
               !Task.isCancelled else { return nil }
         return Self.appKitImage(result)
     }

@@ -32,6 +32,25 @@ queue. Your original audio file stays on disk; removing the last track removes
 the empty album. On iPad, touch and hold a track for the same action; only the
 app’s imported copy is deleted.
 
+## Back covers and disc art (macOS)
+
+In Cover Flow, press **F**, Option-click the centred cover, or click **Flip** under it to
+turn the record over. The back cover shows, and any CD or vinyl disc art slides out of
+the sleeve (up to three discs). Albums without a scanned back get a printed back with
+the track list. Browsing to another album turns it back over.
+
+Back and disc art come from:
+- **Import**: images beside the audio named `back`, `back cover`, `inlay`, `rear` or
+  `tray`, and `cd`, `disc`, `disk`, `vinyl`, `media`, `label` or `lp` (optionally
+  numbered, such as `cd2.jpg`). Unnumbered disc art in a disc's folder counts as that
+  disc. Also back cover and media pictures embedded in the tags.
+- **Find Artwork Online…**: with **Also download back cover and disc art** on, the
+  edition's back cover and disc images from the Cover Art Archive are saved too. The
+  preview says what's available.
+
+They are kept with the collection's artwork; the audio files aren't changed.
+**Remove Back & Disc Art** in the album panel's menu removes them.
+
 ## Keep media organized (macOS)
 
 By default Cover Flow plays your files where they are. To keep your music in one

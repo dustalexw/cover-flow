@@ -34,10 +34,13 @@ struct AlbumDetailView: View {
         }
         .sheet(isPresented: $downloadArtwork) {
             if let album = library.album(albumID) {
-                ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to the collection and embedded in supported audio files.") { data in
+                ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to the collection and embedded in supported audio files. Back cover and disc art are kept in the collection and shown when you flip the cover in Cover Flow.", onUse: { data in
                     guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
                     library.replaceArtwork(albumID, with: data)
-                }
+                }, onUseExtras: { images in
+                    guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+                    await library.replaceExtraImages(albumID, with: images)
+                })
             }
         }
         .modifier(RemoveAlbumConfirmation(active: true))
@@ -153,6 +156,7 @@ struct AlbumDetailView: View {
                 Button("Find Artwork Online…") { downloadArtwork = true }
                 Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
+                if album.hasExtraImages { Button("Remove Back & Disc Art") { library.removeExtraImages(album.id) } }
                 Divider()
                 Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
             } label: {

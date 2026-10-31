@@ -90,6 +90,8 @@ final class LibraryStore: ObservableObject {
     private var pendingSave: DispatchWorkItem?
     /// Identifies the running organize pass, so late progress updates from a finished one are ignored.
     private var organizeRun: UUID?
+    /// Album/disc/folder combinations already searched for back and disc art in this import.
+    private var extraArtworkChecked = Set<String>()
     /// Lets the player drop tracks that left the collection.
     var onTracksRemoved: ((Set<UUID>) -> Void)?
 
@@ -278,6 +280,8 @@ final class LibraryStore: ObservableObject {
     }
 
     private func runImport(_ urls: [URL]) async {
+        extraArtworkChecked = []
+        defer { extraArtworkChecked = [] }
         let found = await Task.detached(priority: .userInitiated) { Self.enumerate(urls) }.value
         var report = ImportReport()
         report.unsupported = found.unsupported.map(\.lastPathComponent)
@@ -389,7 +393,24 @@ final class LibraryStore: ObservableObject {
                 albums[j].artworkVersion += 1
             }
         }
+        if !isDemo { await addExtraArtwork(albumID: albumID, audio: url, disc: meta.discNumber ?? 1) }
         return (albumID, track.id)
+    }
+
+    /// Back cover and disc art from the track's folder or tags, for kinds/discs the album lacks.
+    private func addExtraArtwork(albumID: UUID, audio: URL, disc: Int) async {
+        let key = "\(albumID.uuidString)|\(disc)|\(audio.deletingLastPathComponent().path)"
+        guard extraArtworkChecked.insert(key).inserted, let album = album(albumID) else { return }
+        let have = Set((album.extraImages ?? []).map { "\($0.kind.rawValue)\($0.disc ?? 0)" })
+        let store = artwork
+        let saved = await Task.detached(priority: .utility) { () -> [AlbumImage] in
+            ExtraArtworkReader.read(for: audio, trackDisc: disc)
+                .filter { !have.contains("\($0.kind.rawValue)\($0.disc ?? 0)") }
+                .compactMap { try? store.saveExtra(data: $0.data, albumID: albumID, kind: $0.kind, disc: $0.disc) }
+        }.value
+        guard !saved.isEmpty else { return }
+        guard let i = albums.firstIndex(where: { $0.id == albumID }) else { store.removeExtras(saved); return }
+        albums[i].extraImages = (albums[i].extraImages ?? []) + saved
     }
 
     /// Orders tracks by disc and track number and settles the album's display artist.
@@ -590,6 +611,33 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// Saves downloaded back/disc art, replacing the album's existing image of the same
+    /// kind and disc. Returns how many images were saved.
+    @discardableResult
+    func replaceExtraImages(_ id: UUID, with items: [(kind: AlbumImageKind, disc: Int?, data: Data)]) async -> Int {
+        guard album(id) != nil, !items.isEmpty else { return 0 }
+        let store = artwork
+        let payload = items.map { ($0.kind, $0.disc, $0.data) }
+        let saved = await Task.detached(priority: .userInitiated) { () -> [AlbumImage] in
+            payload.compactMap { try? store.saveExtra(data: $0.2, albumID: id, kind: $0.0, disc: $0.1) }
+        }.value
+        guard let i = albumIndex[id] else { store.removeExtras(saved); return 0 }
+        let replaced = Set(saved.map { "\($0.kind.rawValue)\($0.disc ?? 0)" })
+        let old = (albums[i].extraImages ?? []).filter { replaced.contains("\($0.kind.rawValue)\($0.disc ?? 0)") }
+        albums[i].extraImages = (albums[i].extraImages ?? []).filter { !replaced.contains("\($0.kind.rawValue)\($0.disc ?? 0)") } + saved
+        store.removeExtras(old)
+        scheduleSave()
+        return saved.count
+    }
+
+    /// Removes the album's back cover and disc art from the library (audio files untouched).
+    func removeExtraImages(_ id: UUID) {
+        guard let i = albumIndex[id], let images = albums[i].extraImages else { return }
+        artwork.removeExtras(images)
+        albums[i].extraImages = nil
+        scheduleSave()
+    }
+
     func removeArtwork(_ id: UUID) {
         guard let i = albumIndex[id] else { return }
         artwork.remove(file: albums[i].artworkFile)
@@ -614,6 +662,7 @@ final class LibraryStore: ObservableObject {
             albums[index].trackIDs.removeAll { removed.contains($0) }
             if albums[index].trackIDs.isEmpty {
                 artwork.remove(file: albums[index].artworkFile)
+                artwork.removeExtras(albums[index].extraImages ?? [])
             }
         }
         albums.removeAll { affectedAlbums.contains($0.id) && $0.trackIDs.isEmpty }
@@ -629,6 +678,7 @@ final class LibraryStore: ObservableObject {
         var removedTracks = Set<UUID>()
         for album in removing {
             artwork.remove(file: album.artworkFile)
+            artwork.removeExtras(album.extraImages ?? [])
             for t in album.trackIDs {
                 if deleteDemoAudio, let track = tracks[t], track.isDemo { try? FileManager.default.removeItem(at: track.fileURL) }
                 tracks[t] = nil

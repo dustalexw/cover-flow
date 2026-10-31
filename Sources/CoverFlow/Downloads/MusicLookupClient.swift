@@ -13,6 +13,14 @@ struct LyricMatch: Decodable, Identifiable, Sendable {
     var text: String { isSynced ? syncedLyrics! : plainLyrics ?? "" }
 }
 
+/// A back cover or disc (Medium) image listed by the Cover Art Archive.
+struct CoverArtExtra: Sendable, Equatable {
+    let kind: AlbumImageKind
+    /// Disc number for disc art.
+    let disc: Int?
+    let url: URL
+}
+
 struct ArtworkMatch: Identifiable, Sendable {
     let id: UUID
     let title: String
@@ -100,6 +108,66 @@ actor MusicLookupClient {
         return try await fetch(url, limit: 25 * 1024 * 1024)
     }
 
+    /// Back cover and disc images of the release the group's cover comes from. Empty
+    /// when the release has none (or the group has no cover art at all).
+    func coverExtras(_ match: ArtworkMatch) async throws -> [CoverArtExtra] {
+        let url = URL(string: "https://coverartarchive.org/release-group/\(match.id.uuidString.lowercased())")!
+        do {
+            return try Self.parseCoverExtras(try await fetch(url, limit: 2 * 1024 * 1024, accept: "application/json"))
+        } catch MusicLookupError.unavailable(let code) where code == 404 {
+            return []
+        }
+    }
+
+    func extraImage(_ extra: CoverArtExtra) async throws -> Data {
+        try await fetch(extra.url, limit: 25 * 1024 * 1024)
+    }
+
+    /// Reads a Cover Art Archive index: the first "Back" image, and every "Medium" image
+    /// numbered by its comment ("Disc 2", "CD 2") or by its order. Only Cover Art
+    /// Archive / Internet Archive URLs are accepted, upgraded to HTTPS, preferring the
+    /// 1200-pixel thumbnail.
+    nonisolated static func parseCoverExtras(_ data: Data) throws -> [CoverArtExtra] {
+        struct Index: Decodable { let images: [Image] }
+        struct Image: Decodable {
+            let types: [String]?
+            let back: Bool?
+            let image: String?
+            let thumbnails: [String: String]?
+            let comment: String?
+        }
+        guard let index = try? JSONDecoder().decode(Index.self, from: data) else { throw MusicLookupError.invalidResponse }
+        func safeURL(_ string: String?) -> URL? {
+            guard let string, var parts = URLComponents(string: string), let host = parts.host?.lowercased(),
+                  host == "coverartarchive.org" || host == "archive.org" || host.hasSuffix(".archive.org") else { return nil }
+            parts.scheme = "https"
+            return parts.url
+        }
+        func discNumber(_ comment: String?) -> Int? {
+            guard let comment else { return nil }
+            let pattern = try? NSRegularExpression(pattern: #"(?:disc|disk|cd|lp|vinyl|side)\s*([0-9]{1,2})"#, options: [.caseInsensitive])
+            let range = NSRange(comment.startIndex..., in: comment)
+            guard let match = pattern?.firstMatch(in: comment, range: range),
+                  let number = Range(match.range(at: 1), in: comment).flatMap({ Int(comment[$0]) }), number > 0 else { return nil }
+            return number
+        }
+        var extras: [CoverArtExtra] = []
+        var nextDisc = 1
+        for image in index.images {
+            let types = Set((image.types ?? []).map { $0.lowercased() })
+            guard let url = safeURL(image.thumbnails?["1200"] ?? image.thumbnails?["large"] ?? image.image) else { continue }
+            if types.contains("back") || image.back == true {
+                if !extras.contains(where: { $0.kind == .back }) { extras.append(CoverArtExtra(kind: .back, disc: nil, url: url)) }
+            } else if types.contains("medium") {
+                var disc = discNumber(image.comment) ?? nextDisc
+                while extras.contains(where: { $0.kind == .disc && $0.disc == disc }) { disc += 1 }
+                extras.append(CoverArtExtra(kind: .disc, disc: disc, url: url))
+                nextDisc = disc + 1
+            }
+        }
+        return extras
+    }
+
     nonisolated static func lyricsURL(title: String, artist: String) -> URL {
         var parts = URLComponents(string: "https://lrclib.net/api/search")!
         parts.queryItems = [URLQueryItem(name: "track_name", value: title.trimmingCharacters(in: .whitespacesAndNewlines))]
@@ -119,7 +187,7 @@ actor MusicLookupClient {
         return parts.url!
     }
 
-    private func fetch(_ url: URL, limit: Int) async throws -> Data {
+    private func fetch(_ url: URL, limit: Int, accept: String? = nil) async throws -> Data {
         let previous = pending
         let work = Task<Data, Error> {
             if let previous { _ = try? await previous.value }
@@ -128,7 +196,7 @@ actor MusicLookupClient {
             var attempt = 0
             while true {
                 try Task.checkCancellation()
-                do { return try await self.perform(url, limit: limit) }
+                do { return try await self.perform(url, limit: limit, accept: accept) }
                 catch let error as MusicLookupError {
                     guard attempt < Self.maxRetries, let wait = error.retryDelay, wait <= Self.maxAutoRetryWait else { throw error }
                     attempt += 1
@@ -140,14 +208,14 @@ actor MusicLookupClient {
         pending = work
         return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
     }
-    private func perform(_ url: URL, limit: Int) async throws -> Data {
+    private func perform(_ url: URL, limit: Int, accept: String? = nil) async throws -> Data {
         let host = url.host ?? ""
         let delay = (nextRequest[host] ?? .distantPast).timeIntervalSinceNow
         if delay > 0 { try await Task.sleep(for: .seconds(delay)) }
         try Task.checkCancellation()
         var request = URLRequest(url: url)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue(host == "coverartarchive.org" ? "image/*" : "application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept ?? (host == "coverartarchive.org" ? "image/*" : "application/json"), forHTTPHeaderField: "Accept")
         // Set a minimum gap even if the request fails; MB requires at most one per second.
         defer { nextRequest[host] = max(nextRequest[host] ?? .distantPast, Date().addingTimeInterval(host == "musicbrainz.org" ? 1.1 : 0.35)) }
         let (bytes, response) = try await session.bytes(for: request)
