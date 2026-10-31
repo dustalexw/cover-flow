@@ -508,8 +508,39 @@ final class LibraryStore: ObservableObject {
         var discNumber: String
     }
 
+    // MARK: Saving edits to the audio files
+
+    static let writeEditsDefaultsKey = "tags.writeEditsToFiles"
+    /// Settings › Editing: also save album and track edits into the audio files' tags.
+    var writesEditsToFiles: Bool { UserDefaults.standard.bool(forKey: Self.writeEditsDefaultsKey) }
+    private static let placeholders: Set<String> = ["Unknown Artist", "Unknown Album"]
+
+    /// Adds a tag change: the new value, or a removal when the user cleared a value.
+    /// Placeholder names are never written.
+    private static func put(_ key: String, _ new: String?, was old: String?, into fields: inout [String: String]) {
+        let value = (new ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            if !(old ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields[key] = "" }
+        } else if !placeholders.contains(value) {
+            fields[key] = value
+        }
+    }
+
+    private func saveTagsToFiles(_ changes: [(url: URL, fields: [String: String])]) {
+        let changes = changes.filter { !$0.fields.isEmpty }
+        guard !changes.isEmpty else { return }
+        artworkWriteReport = nil
+        Task {
+            let report = await ArtworkTagWriter.shared.writeTags(changes)
+            notice = report.summary
+            if !report.failures.isEmpty { artworkWriteReport = report }
+        }
+    }
+
     func updateAlbum(_ id: UUID, title: String, artist: String, year: String, genre: String, trackEdits: [TrackEdit]) {
         guard let i = albumIndex[id] else { return }
+        let oldAlbum = albums[i]
+        let oldTracks = Dictionary(uniqueKeysWithValues: tracks(of: oldAlbum).map { ($0.id, $0) })
         albums[i].title = title.nonEmpty ?? albums[i].title
         albums[i].artist = artist.nonEmpty ?? albums[i].artist
         albums[i].year = Int(year.trimmingCharacters(in: .whitespaces))
@@ -529,13 +560,36 @@ final class LibraryStore: ObservableObject {
         finalizeAlbum(id)
         rebuildIndex()
         scheduleSave()
+        guard writesEditsToFiles, let album = album(id) else { return }
+        // Album-wide details only when changed (tracks may differ in year or genre);
+        // each track's title and numbers as shown in the editor.
+        let edited = Set(trackEdits.map(\.id))
+        var changes: [(url: URL, fields: [String: String])] = []
+        for track in tracks(of: album) where !track.isDemo {
+            let old = oldTracks[track.id]
+            var fields: [String: String] = [:]
+            if album.title != oldAlbum.title { Self.put("ALBUM", album.title, was: oldAlbum.title, into: &fields) }
+            if album.artist != oldAlbum.artist { Self.put("ALBUMARTIST", album.artist, was: oldAlbum.artist, into: &fields) }
+            if album.year != oldAlbum.year { Self.put("DATE", album.year.map(String.init), was: oldAlbum.year.map(String.init), into: &fields) }
+            if album.genre != oldAlbum.genre { Self.put("GENRE", album.genre, was: oldAlbum.genre, into: &fields) }
+            if track.artist != old?.artist { Self.put("ARTIST", track.artist, was: old?.artist, into: &fields) }
+            if edited.contains(track.id) {
+                Self.put("TITLE", track.title, was: old?.title, into: &fields)
+                Self.put("TRACKNUMBER", track.trackNumber.map(String.init), was: old?.trackNumber.map(String.init), into: &fields)
+                Self.put("DISCNUMBER", track.discNumber.map(String.init), was: old?.discNumber.map(String.init), into: &fields)
+            }
+            changes.append((track.fileURL, fields))
+        }
+        saveTagsToFiles(changes)
     }
 
-    /// Edit Track Info: changes one track in the library (not the audio file).
+    /// Edit Track Info: changes one track in the library, and in the audio file's tags
+    /// when "Save edits to audio files" is on.
     /// Empty title or artist keeps the current value; numbers that don't parse are cleared.
     func updateTrack(_ id: UUID, title: String, artist: String, trackNumber: String, discNumber: String,
                      year: String, genre: String) {
         guard var t = tracks[id] else { return }
+        let old = t
         func number(_ s: String) -> Int? {
             Int(s.trimmingCharacters(in: .whitespaces)).flatMap { $0 > 0 ? $0 : nil }
         }
@@ -554,6 +608,15 @@ final class LibraryStore: ObservableObject {
         }
         rebuildIndex()
         scheduleSave()
+        guard writesEditsToFiles, !t.isDemo else { return }
+        var fields: [String: String] = [:]
+        Self.put("TITLE", t.title, was: old.title, into: &fields)
+        Self.put("ARTIST", t.artist, was: old.artist, into: &fields)
+        Self.put("TRACKNUMBER", t.trackNumber.map(String.init), was: old.trackNumber.map(String.init), into: &fields)
+        Self.put("DISCNUMBER", t.discNumber.map(String.init), was: old.discNumber.map(String.init), into: &fields)
+        Self.put("DATE", t.year.map(String.init), was: old.year.map(String.init), into: &fields)
+        Self.put("GENRE", t.genre, was: old.genre, into: &fields)
+        saveTagsToFiles([(t.fileURL, fields)])
     }
 
     func chooseReplacementArtwork(for id: UUID) {

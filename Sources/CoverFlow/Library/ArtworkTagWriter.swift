@@ -42,9 +42,13 @@ struct EmbeddedArtwork: Sendable {
 struct ArtworkWriteReport: Identifiable, Sendable {
     let id = UUID()
     var updated = 0
+    /// Files that already had the values (tag edits only).
+    var unchanged = 0
     var failures: [String] = []
+    var action = "Artwork embedded in"
     var summary: String {
-        let success = "Artwork embedded in \(updated) audio file\(updated == 1 ? "" : "s")."
+        if updated == 0 && failures.isEmpty && unchanged > 0 { return "The audio files already had these details." }
+        let success = "\(action) \(updated) audio file\(updated == 1 ? "" : "s")."
         return failures.isEmpty ? success : success + " \(failures.count) file\(failures.count == 1 ? " couldn’t" : "s couldn’t") be updated."
     }
 }
@@ -84,10 +88,55 @@ actor ArtworkTagWriter {
         guard supportedExtensions.contains(url.pathExtension.lowercased()) else {
             throw ArtworkTagError(message: "Cover Flow cannot embed artwork in this format.")
         }
-        try writeCopy(at: url, artwork: artwork)
+        _ = try writeCopy(at: url) { path, message in
+            artwork.data.withUnsafeBytes { bytes in
+                cf_artwork_write(path, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                                 artwork.mimeType, Int32(artwork.width), Int32(artwork.height), message, 1024)
+            } ? true : nil
+        }
     }
 
-    private static func writeCopy(at url: URL, artwork: EmbeddedArtwork) throws {
+    /// Writes text tags (TagLib property names → values; "" removes) to each file.
+    /// Values a file already has are left alone, and such files aren't rewritten.
+    func writeTags(_ changes: [(url: URL, fields: [String: String])]) -> ArtworkWriteReport {
+        var report = ArtworkWriteReport(action: "Changes saved to")
+        for change in changes where !change.fields.isEmpty {
+            let url = change.url.resolvingSymlinksInPath().standardizedFileURL
+            do {
+                if try Self.writeTags(change.fields, at: url) { report.updated += 1 } else { report.unchanged += 1 }
+            } catch {
+                report.failures.append("\(change.url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        return report
+    }
+
+    /// Returns whether the file changed.
+    static func writeTags(_ fields: [String: String], at url: URL) throws -> Bool {
+        guard supportedExtensions.contains(url.pathExtension.lowercased()) else {
+            throw ArtworkTagError(message: "Cover Flow can’t write tags in this format.")
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ArtworkTagError(message: "The audio file is missing.")
+        }
+        let entries = fields.sorted { $0.key < $1.key }
+        return try writeCopy(at: url) { path, message in
+            var changed = false
+            let keys = entries.map { strdup($0.key) }, values = entries.map { strdup($0.value) }
+            defer { (keys + values).forEach { free($0) } }
+            let ok = keys.map { UnsafePointer($0) }.withUnsafeBufferPointer { k in
+                values.map { UnsafePointer($0) }.withUnsafeBufferPointer { v in
+                    cf_tags_write(path, k.baseAddress, v.baseAddress, entries.count, &changed, message, 1024)
+                }
+            }
+            return ok ? changed : nil
+        }
+    }
+
+    /// Edits a same-folder copy with `edit` (path, 1024-byte error buffer), then renames it
+    /// over the original. `edit` returns nil on failure, false when nothing needed changing
+    /// (the copy is discarded), true when the copy should replace the file.
+    private static func writeCopy(at url: URL, edit: (String, UnsafeMutablePointer<CChar>) -> Bool?) throws -> Bool {
         let manager = FileManager.default
         let before = try manager.attributesOfItem(atPath: url.path)
         guard before[.type] as? FileAttributeType == .typeRegular else {
@@ -104,11 +153,9 @@ actor ArtworkTagWriter {
         defer { try? manager.removeItem(at: temporary) }
         try manager.copyItem(at: url, to: temporary)
         var message = [CChar](repeating: 0, count: 1024)
-        let saved = artwork.data.withUnsafeBytes { bytes in
-            cf_artwork_write(temporary.path, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
-                             artwork.mimeType, Int32(artwork.width), Int32(artwork.height), &message, message.count)
-        }
-        guard saved else { throw ArtworkTagError(message: String(cString: message)) }
+        let result = message.withUnsafeMutableBufferPointer { edit(temporary.path, $0.baseAddress!) }
+        guard let changed = result else { throw ArtworkTagError(message: String(cString: message)) }
+        guard changed else { return false }
         let handle = try FileHandle(forWritingTo: temporary)
         try handle.synchronize()
         try handle.close()
@@ -121,5 +168,6 @@ actor ArtworkTagWriter {
         guard rename(temporary.path, url.path) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        return true
     }
 }
