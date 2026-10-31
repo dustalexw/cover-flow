@@ -13,45 +13,73 @@ struct MobileVisualizerView: View {
   private var style: VisualizerStyle { VisualizerStyle(rawValue: styleID) ?? .pulse }
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        Picker("Visualizer", selection: $styleID) {
-          ForEach(VisualizerStyle.allCases) { style in Text(style.title).tag(style.rawValue) }
-        }.pickerStyle(.segmented).frame(maxWidth: 420)
-        Spacer()
-        Button { settings = true } label: {
-          Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
-        }.accessibilityLabel("Visualizer settings")
-        .popover(isPresented: $settings) {
-          VStack(alignment: .leading, spacing: 18) {
-            Text("Music Response").font(.headline)
-            Slider(value: $response, in: 0.5...2.5).accessibilityLabel("Music response")
-            Toggle("High quality · 60 fps", isOn: $highQuality)
-            Text("Changes the animation, never your playback volume.").font(.caption).foregroundStyle(.secondary)
-          }.padding(24).frame(width: 300)
+      ViewThatFits(in: .horizontal) {
+        HStack {
+          stylePicker.pickerStyle(.segmented).frame(minWidth: 300, maxWidth: 420)
+          Spacer()
+          visualizerControls
         }
-        Toggle("Auto", isOn: $auto).toggleStyle(.button)
-        Button { player.togglePlayPause() } label: {
-          Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").frame(width: 44, height: 44)
-        }.accessibilityLabel("Play or pause")
+        VStack(alignment: .leading, spacing: 8) {
+          stylePicker.pickerStyle(.menu)
+          HStack {
+            visualizerControls
+            Spacer()
+          }
+        }
       }.padding()
       ZStack {
-        NativeVisualizerSurface(audio: player.visualizerAudio,
+        NativeVisualizerSurface(
+          audio: player.visualizerAudio,
           playing: player.isPlaying && !player.isBuffering, style: style,
           response: Float(response), highQuality: highQuality, onError: { error = $0 })
-        if let error { Text(error).multilineTextAlignment(.center).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+        if let error {
+          Text(error).multilineTextAlignment(.center).padding().background(
+            .regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
       }.accessibilityLabel("Visualizer reacting to bass, mids and treble")
-      if !player.hasTrack { Text("Play a track to see its sound.").font(.caption).foregroundStyle(.secondary).padding() }
+      if !player.hasTrack {
+        Text("Play a track to see its sound.").font(.caption).foregroundStyle(.secondary).padding()
+      }
     }
     .onChange(of: styleID) { _, _ in lastChange = Date() }
     .task(id: reduceMotion) {
       player.visualizerAudio.setEnabled(true)
       while !Task.isCancelled {
         if auto, !reduceMotion, player.isPlaying, Date().timeIntervalSince(lastChange) > 25 {
-          styleID = (style.rawValue + 1) % VisualizerStyle.allCases.count; lastChange = Date()
+          styleID = (style.rawValue + 1) % VisualizerStyle.allCases.count
+          lastChange = Date()
         }
         do { try await Task.sleep(for: .seconds(1)) } catch { break }
       }
       player.visualizerAudio.setEnabled(false)
     }
   }
+  private var stylePicker: some View {
+    Picker("Visualizer style", selection: $styleID) {
+      ForEach(VisualizerStyle.allCases) { Text($0.title).tag($0.rawValue) }
+    }
+  }
+  @ViewBuilder private var visualizerControls: some View {
+    Button {
+      settings = true
+    } label: {
+      Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
+    }.accessibilityLabel("Visualizer settings")
+      .popover(isPresented: $settings) {
+        VStack(alignment: .leading, spacing: 18) {
+          Text("Music Response").font(.headline)
+          Slider(value: $response, in: 0.5...2.5).accessibilityLabel("Music response")
+          Toggle("High quality · 60 fps", isOn: $highQuality)
+          Text("Changes the animation, never your playback volume.").font(.caption).foregroundStyle(
+            .secondary)
+        }.padding(24).frame(idealWidth: 300, maxWidth: 340)
+      }
+    Toggle("Auto", isOn: $auto).toggleStyle(.button)
+    Button {
+      player.togglePlayPause()
+    } label: {
+      Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").frame(width: 44, height: 44)
+    }.accessibilityLabel("Play or pause")
+  }
+
 }

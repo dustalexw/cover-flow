@@ -75,7 +75,7 @@ struct MobileLibraryFile: Codable {
       albums = saved.albums
     } catch {
       notice =
-        "The saved collection could not be opened. Its files are still on this iPad. \(error.localizedDescription)"
+        "The saved collection could not be opened. Its files are still on this device. \(error.localizedDescription)"
     }
   }
   func saveNow() {

@@ -75,30 +75,6 @@ import SwiftUI
     player.saveNow()
   }
 }
-enum MobileTab: String, CaseIterable, Identifiable {
-  case library, queue, lyrics, karaoke, visualizer, settings
-  var id: String { rawValue }
-  var title: String {
-    switch self {
-    case .library: return "Collection"
-    case .queue: return "Up Next"
-    case .lyrics: return "Lyrics"
-    case .karaoke: return "Karaoke"
-    case .visualizer: return "Visualizer"
-    case .settings: return "Settings"
-    }
-  }
-  var icon: String {
-    switch self {
-    case .library: return "square.stack.fill"
-    case .queue: return "text.line.first.and.arrowtriangle.forward"
-    case .lyrics: return "quote.bubble"
-    case .karaoke: return "mic.fill"
-    case .visualizer: return "waveform"
-    case .settings: return "gearshape"
-    }
-  }
-}
 @main struct CoverFlowiPadApp: App {
   @StateObject private var app = MobileEnvironment()
   @Environment(\.scenePhase) private var phase

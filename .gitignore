@@ -17,3 +17,6 @@ iPad/build/
 xcuserdata/
 
 iPad/build-*/
+
+iPhone/build/
+iPhone/build-*/

@@ -34,7 +34,7 @@ struct MobilePlaybackBar: View {
           } label: {
             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title2).frame(
               width: 44, height: 44)
-          }.disabled(!player.hasTrack)
+          }.disabled(!player.hasTrack).accessibilityLabel(player.isPlaying ? "Pause" : "Play")
           Button {
             app.nowPlaying = true
           } label: {
@@ -73,7 +73,7 @@ struct MobilePlaybackBar: View {
               .subheadline.weight(.semibold)
             )
             .lineLimit(2)
-          Text(library.track(player.currentTrackID)?.artist ?? "Cover Flow for iPad").font(.caption)
+          Text(library.track(player.currentTrackID)?.artist ?? "Cover Flow for iOS").font(.caption)
             .foregroundStyle(
               .secondary
             ).lineLimit(1)
@@ -158,36 +158,10 @@ struct MobileTransport: View {
           Text("−" + formatTime(max(0, player.duration - position)))
         }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
       }
-      HStack(spacing: 26) {
-        Button {
-          player.toggleShuffle()
-        } label: {
-          Image(systemName: "shuffle").foregroundStyle(
-            player.shuffle ? MobilePalette.brass : .secondary)
-        }.accessibilityLabel("Shuffle").accessibilityValue(player.shuffle ? "On" : "Off")
-        Button {
-          player.previous()
-        } label: {
-          Image(systemName: "backward.end.fill").font(.title2)
-        }.accessibilityLabel("Previous track")
-        Button {
-          player.togglePlayPause()
-        } label: {
-          Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(
-            .system(size: 64))
-        }.accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-        Button {
-          player.next()
-        } label: {
-          Image(systemName: "forward.end.fill").font(.title2)
-        }.accessibilityLabel("Next track")
-        Button {
-          player.cycleRepeat()
-        } label: {
-          Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(
-            player.repeatMode == .off ? .secondary : MobilePalette.brass)
-        }.accessibilityLabel(player.repeatMode.label)
-      }.buttonStyle(.plain).frame(minHeight: 60)
+      ViewThatFits(in: .horizontal) {
+        controls(spacing: 26)
+        controls(spacing: 4)
+      }
     }.disabled(!player.hasTrack).onChange(of: player.currentTime, initial: true) { _, value in
       if !scrubbing { position = value }
     }.onChange(of: player.currentTrackID) { _, _ in
@@ -195,6 +169,42 @@ struct MobileTransport: View {
       position = player.currentTime
     }
   }
+  private func controls(spacing: CGFloat) -> some View {
+    HStack(spacing: spacing) {
+      Button {
+        player.toggleShuffle()
+      } label: {
+        Image(systemName: "shuffle").foregroundStyle(
+          player.shuffle ? MobilePalette.brass : .secondary
+        ).frame(width: 44, height: 44)
+      }.accessibilityLabel("Shuffle").accessibilityValue(
+        player.shuffle ? "On" : "Off")
+      Button {
+        player.previous()
+      } label: {
+        Image(systemName: "backward.end.fill").font(.title2).frame(width: 44, height: 44)
+      }.accessibilityLabel("Previous track")
+      Button {
+        player.togglePlayPause()
+      } label: {
+        Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill").font(
+          .system(size: 64))
+      }.frame(width: 64, height: 64).accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+      Button {
+        player.next()
+      } label: {
+        Image(systemName: "forward.end.fill").font(.title2).frame(width: 44, height: 44)
+      }.accessibilityLabel("Next track")
+      Button {
+        player.cycleRepeat()
+      } label: {
+        Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(
+          player.repeatMode == .off ? .secondary : MobilePalette.brass
+        ).frame(width: 44, height: 44)
+      }.accessibilityLabel(player.repeatMode.label)
+    }.buttonStyle(.plain).frame(minHeight: 60)
+  }
+
 }
 struct MobileNowPlayingView: View {
   @EnvironmentObject private var library: LibraryStore
@@ -208,15 +218,15 @@ struct MobileNowPlayingView: View {
       GeometryReader { size in
         ScrollView {
           if size.size.width > 780 {
-            HStack(spacing: 40) {
-              art.frame(width: min(size.size.width * 0.48, 580))
+            HStack(alignment: .top, spacing: 24) {
+              art.frame(width: min(size.size.width * 0.44, max(140, size.size.height - 48), 580))
               if !artworkFocus { details.frame(maxWidth: 440) }
             }.frame(maxWidth: .infinity, minHeight: size.size.height).padding(32)
           } else {
             VStack(spacing: 28) {
               art.frame(maxWidth: 480)
               if !artworkFocus { details.frame(maxWidth: 480) }
-            }.padding(28).frame(maxWidth: .infinity)
+            }.padding(20).frame(maxWidth: .infinity)
           }
         }
       }.background {
@@ -273,23 +283,22 @@ struct MobileNowPlayingView: View {
         }.accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
         Slider(value: $player.volume, in: 0...1).accessibilityLabel("Player volume")
       }
-      HStack(spacing: 20) {
-        MobileSourceButton(mode: .instrumental)
-        MobileSourceButton(mode: .vocals)
-        Spacer()
-        Button {
-          app.tab = .lyrics
-          dismiss()
-        } label: {
-          Image(systemName: "quote.bubble").frame(width: 44, height: 44)
-        }.accessibilityLabel("Lyrics")
-        RoutePicker().frame(width: 44, height: 44)
-        Button {
-          app.tab = .queue
-          dismiss()
-        } label: {
-          Image(systemName: "list.bullet").frame(width: 44, height: 44)
-        }.accessibilityLabel("Up Next")
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 12) {
+          sources
+          Spacer()
+          destinations
+        }
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            sources
+            Spacer()
+          }
+          HStack {
+            destinations
+            Spacer()
+          }
+        }
       }
       if karaoke.processing {
         VStack(alignment: .leading, spacing: 6) {
@@ -303,6 +312,30 @@ struct MobileNowPlayingView: View {
       }
     }
   }
+  private var sources: some View {
+    HStack(spacing: 12) {
+      MobileSourceButton(mode: .instrumental)
+      MobileSourceButton(mode: .vocals)
+    }
+  }
+  private var destinations: some View {
+    HStack(spacing: 12) {
+      Button {
+        app.tab = .lyrics
+        dismiss()
+      } label: {
+        Image(systemName: "quote.bubble").frame(width: 44, height: 44)
+      }.accessibilityLabel("Lyrics")
+      RoutePicker().frame(width: 44, height: 44)
+      Button {
+        app.tab = .queue
+        dismiss()
+      } label: {
+        Image(systemName: "list.bullet").frame(width: 44, height: 44)
+      }.accessibilityLabel("Up Next")
+    }
+  }
+
 }
 struct MobileQueueView: View {
   @EnvironmentObject private var player: PlayerEngine

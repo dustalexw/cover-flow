@@ -61,16 +61,16 @@ struct MobileSettingsView: View {
           "Import audio files or folders from Files and iCloud Drive. Cover Flow saves owned copies; deleting the source later won’t remove the imported music."
         ).font(.footnote).foregroundStyle(.secondary)
       }
-      Section("Karaoke on iPad") {
+      Section("Karaoke on iPhone or iPad") {
         Text(
-          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav to use those stems here."
+          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPhone or iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav to use those stems here."
         ).font(.footnote)
         Text("Keep the app open while preparing. No audio or model files are uploaded.").font(
           .footnote
         ).foregroundStyle(.secondary)
       }
       Section("About") {
-        LabeledContent("Cover Flow for iPad", value: "1.0.0")
+        LabeledContent("Cover Flow for iOS", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0")
         Text(
           "Touch Cover Flow · album grid · gapless playback · AirPlay · artwork · synced LRC lyrics · karaoke · Last.fm · audio visualizer"
         ).font(.footnote).foregroundStyle(.secondary)
