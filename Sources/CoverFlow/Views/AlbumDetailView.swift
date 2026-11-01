@@ -44,6 +44,7 @@ struct AlbumDetailView: View {
                                         case .front: file = album.artworkFile
                                         case .back: file = album.backImage?.file
                                         case .disc: file = album.discImages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+                                        case .booklet: file = album.bookletPages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
                                         }
                                         return file.map { library.artwork.fileURL($0) }
                                     }, onUse: { data in
@@ -175,7 +176,7 @@ struct AlbumDetailView: View {
                 }
                 CustomArtworkMenu(album: album)
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
-                if album.hasExtraImages { Button("Remove Back & Disc Art") { library.removeExtraImages(album.id) } }
+                if album.hasExtraImages { Button(album.bookletPages.isEmpty ? "Remove Back & Disc Art" : "Remove Back, Disc & Booklet Art") { library.removeExtraImages(album.id) } }
                 Divider()
                 Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
             } label: {
@@ -402,6 +403,7 @@ struct CustomArtworkMenu: View {
             } else {
                 Button("Disc Art…") { library.chooseExtraArtwork(for: album.id, kind: .disc, disc: discs.first ?? 1) }
             }
+            Button("Booklet Pages…") { library.chooseBookletPages(for: album.id) }
         }
     }
 }

@@ -454,13 +454,14 @@ actor MusicLookupClient {
 
 /// Which artwork an image is for.
 enum ArtworkKind: String, CaseIterable, Identifiable, Sendable {
-    case front, back, disc
+    case front, back, disc, booklet
     var id: String { rawValue }
     var label: String {
         switch self {
         case .front: return "Front Cover"
         case .back: return "Back Cover"
         case .disc: return "Disc Art"
+        case .booklet: return "Booklet"
         }
     }
     var imageKind: AlbumImageKind? {
@@ -468,6 +469,7 @@ enum ArtworkKind: String, CaseIterable, Identifiable, Sendable {
         case .front: return nil
         case .back: return .back
         case .disc: return .disc
+        case .booklet: return .booklet
         }
     }
 }
@@ -476,7 +478,7 @@ enum ArtworkKind: String, CaseIterable, Identifiable, Sendable {
 struct ArtCandidate: Identifiable, Sendable, Equatable {
     var id: URL { url }
     let kind: ArtworkKind
-    /// Disc number for disc art.
+    /// Disc number for disc art, page number for booklet pages.
     let disc: Int?
     /// The image to save (up to 1200 pixels where the service offers sizes).
     let url: URL
@@ -619,7 +621,7 @@ extension MusicLookupClient {
         }
     }
 
-    /// Front, back and disc ("Medium") images of a Cover Art Archive index.
+    /// Front, back, disc ("Medium") and booklet images of a Cover Art Archive index.
     nonisolated static func parseCoverCandidates(_ data: Data, note: String) throws -> [ArtCandidate] {
         struct Index: Decodable { let images: [Image] }
         struct Image: Decodable {
@@ -638,6 +640,7 @@ extension MusicLookupClient {
         }
         let discs = (try? parseCoverExtras(data)) ?? []
         var result: [ArtCandidate] = []
+        var page = 0
         for image in index.images {
             let types = Set((image.types ?? []).map { $0.lowercased() })
             guard let url = archiveURL(image.thumbnails?["1200"] ?? image.thumbnails?["large"] ?? image.image) else { continue }
@@ -648,6 +651,10 @@ extension MusicLookupClient {
                 result.append(ArtCandidate(kind: .front, disc: nil, url: url, previewURL: preview, source: .coverArtArchive, note: label))
             } else if types.contains("back") || image.back == true {
                 result.append(ArtCandidate(kind: .back, disc: nil, url: url, previewURL: preview, source: .coverArtArchive, note: label))
+            } else if types.contains("booklet") {
+                // Booklet scans are listed in page order.
+                page += 1
+                result.append(ArtCandidate(kind: .booklet, disc: page, url: url, previewURL: preview, source: .coverArtArchive, note: note.isEmpty ? "Chosen release" : note))
             } else if types.contains("medium") {
                 // Numbered the same way as parseCoverExtras.
                 let disc = discs.first { $0.kind == .disc && $0.url == url }?.disc ?? 1

@@ -14,10 +14,17 @@ enum ExtraArtworkReader {
     static let maxFileSize = 40 * 1024 * 1024
     private static let backWords: Set<String> = ["back", "backcover", "rear", "inlay", "tray", "traycard", "backinlay", "reverse"]
     private static let discWords: Set<String> = ["cd", "cdart", "disc", "disk", "discart", "vinyl", "media", "label", "lp", "medium"]
+    private static let bookletWords: Set<String> = ["booklet", "insert", "leaflet", "liner", "linernotes"]
+    /// Words that may follow a booklet keyword ("Liner Notes 2", "Booklet Page 3").
+    private static let pageWords: Set<String> = ["notes", "page", "pages", "pg", "p"]
+    /// Folders whose images are all booklet pages ("Booklet/01.jpg").
+    static let bookletFolders: Set<String> = ["booklet", "booklets", "insert", "inserts", "liner notes", "linernotes"]
+    static let maxBookletPages = 40
     /// Words that may follow the keyword ("Back Cover", "CD 2 Art", "Vinyl Side A").
     private static let trailingWords: Set<String> = ["art", "artwork", "image", "scan", "label", "side", "a", "b", "c", "d", "hq", "hires", "large"]
     /// Image folders commonly kept beside the audio ("Scans/Back.jpg").
-    static let artworkFolders: Set<String> = ["scans", "scan", "artwork", "artworks", "art", "covers", "cover", "images", "pictures", "booklet", "extras"]
+    static let artworkFolders: Set<String> = ["scans", "scan", "artwork", "artworks", "art", "covers", "cover", "images", "pictures", "extras",
+                                                "booklet", "booklets", "insert", "inserts", "liner notes", "linernotes"]
 
     /// Lowercased words of a file name, with letter/digit runs split ("CD2" → "cd", "2").
     static func words(_ name: String) -> [String] {
@@ -49,6 +56,12 @@ enum ExtraArtworkReader {
         for index in tokens.indices.reversed() {
             let token = tokens[index]
             let isBack = backWords.contains(token), isDisc = discWords.contains(token)
+            if bookletWords.contains(token) {
+                // "Booklet 03", "Liner Notes 2", "insert_p4".
+                let rest = tokens[(index + 1)...]
+                guard rest.allSatisfy({ Int($0) != nil || pageWords.contains($0) || trailingWords.contains($0) }) else { return nil }
+                return (.booklet, rest.lazy.compactMap { Int($0) }.first.map { min(max(1, $0), maxBookletPages) })
+            }
             guard isBack || isDisc else { continue }
             let rest = tokens[(index + 1)...]
             guard rest.allSatisfy({ Int($0) != nil || trailingWords.contains($0) || ($0 == "cover" && isBack) }) else { return nil }
@@ -92,10 +105,23 @@ enum ExtraArtworkReader {
         }
         var found: [Found] = []
         for place in places {
+            let isBookletFolder = place != folder && bookletFolders.contains(place.lastPathComponent.lowercased())
             for name in entries(place) {
-                guard let match = classify(fileName: name) else { continue }
+                guard let match = classify(fileName: name)
+                        ?? (isBookletFolder && imageExtensions.contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+                            ? (kind: AlbumImageKind.booklet, disc: Int?.none) : nil)
+                else { continue }
                 let kind = match.kind
-                let disc = kind == .disc ? (match.disc ?? trackDisc) : nil
+                let disc: Int?
+                switch kind {
+                case .back: disc = nil
+                case .disc: disc = match.disc ?? trackDisc
+                case .booklet:
+                    // Unnumbered pages follow on in name order.
+                    let used = Set(found.filter { $0.kind == .booklet }.compactMap(\.disc))
+                    guard used.count < maxBookletPages else { continue }
+                    disc = match.disc.flatMap { used.contains($0) ? nil : $0 } ?? (1...maxBookletPages).first { !used.contains($0) }
+                }
                 guard !found.contains(where: { $0.kind == kind && $0.disc == disc }) else { continue }
                 let url = place.appendingPathComponent(name)
                 guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0, size <= maxFileSize,
@@ -106,16 +132,17 @@ enum ExtraArtworkReader {
         return found
     }
 
-    /// Back cover and media pictures embedded in the file's tags. Media pictures are
-    /// numbered from the track's disc in tag order.
+    /// Back cover, media and booklet ("Leaflet Page") pictures embedded in the file's
+    /// tags. Media pictures are numbered from the track's disc, pages from 1, in tag order.
     static func embeddedImages(for audio: URL, trackDisc: Int = 1) -> [Found] {
-        var pictures = [cf_picture](repeating: cf_picture(kind: 0, data: nil, size: 0), count: 8)
+        var pictures = [cf_picture](repeating: cf_picture(kind: 0, data: nil, size: 0), count: 24)
         let count = pictures.withUnsafeMutableBufferPointer { buffer in
             cf_artwork_read_extras(audio.path, buffer.baseAddress, buffer.count)
         }
         defer { pictures.withUnsafeMutableBufferPointer { cf_artwork_free_pictures($0.baseAddress, count) } }
         var found: [Found] = []
         var nextDisc = trackDisc
+        var nextPage = 1
         for picture in pictures.prefix(count) {
             guard let bytes = picture.data, picture.size > 0 else { continue }
             let data = Data(bytes: bytes, count: picture.size)
@@ -124,6 +151,9 @@ enum ExtraArtworkReader {
             } else if picture.kind == 2 {
                 found.append(Found(kind: .disc, disc: nextDisc, data: data))
                 nextDisc += 1
+            } else if picture.kind == 3 {
+                found.append(Found(kind: .booklet, disc: nextPage, data: data))
+                nextPage += 1
             }
         }
         return found

@@ -50,7 +50,11 @@ final class BackAndDiscArtTests: XCTestCase {
         XCTAssertNil(ExtraArtworkReader.classify(fileName: "Album 2 - CD.jpg")?.disc)
         XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Vinyl Side A.jpg")?.kind, .disc)
         XCTAssertNil(ExtraArtworkReader.classify(fileName: "folder.jpg"))
-        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Booklet 03.jpg"))
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Booklet 03.jpg")?.kind, .booklet)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Booklet 03.jpg")?.disc, 3)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "Liner Notes 2.png")?.disc, 2)
+        XCTAssertEqual(ExtraArtworkReader.classify(fileName: "insert.jpg")?.kind, .booklet)
+        XCTAssertNil(ExtraArtworkReader.classify(fileName: "Booklet Front.jpg"))
         XCTAssertEqual(ExtraArtworkReader.discFolderNumber("CD 2"), 2)
         XCTAssertNil(ExtraArtworkReader.discFolderNumber("Scans"))
     }
@@ -121,7 +125,8 @@ final class BackAndDiscArtTests: XCTestCase {
         """
         XCTAssertEqual(MusicLookupClient.releaseID(inIndex: Data(index.utf8)), "bbbbbbbb-0000-0000-0000-000000000000")
         let archive = try MusicLookupClient.parseCoverCandidates(Data(index.utf8), note: "1999 · JP")
-        XCTAssertEqual(archive.map(\.kind), [.front, .back, .disc])
+        XCTAssertEqual(archive.map(\.kind), [.front, .back, .disc, .booklet])
+        XCTAssertEqual(archive[3].disc, 1)
         XCTAssertEqual(archive[0].previewURL?.absoluteString, "https://coverartarchive.org/release/r/1-250.jpg")
         XCTAssertEqual(archive[1].note, "1999 · JP · Spine side")
         XCTAssertEqual(archive[2].disc, 2)
@@ -160,6 +165,22 @@ final class BackAndDiscArtTests: XCTestCase {
         XCTAssertTrue(picks.discs.values.allSatisfy { $0.source == .fanartTV })
         // Without fanart.tv, the archive's disc-2 scan ties TheAudioDB's disc 1; cut-outs win ties.
         XCTAssertEqual(MusicLookupClient.defaultChoices(archive + adb).discs[1]?.source, .theAudioDB)
+    }
+
+    func testBookletFoldersBecomePagesInNameOrder() throws {
+        let album = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: album) }
+        let booklet = album.appendingPathComponent("Booklet", isDirectory: true)
+        try FileManager.default.createDirectory(at: booklet, withIntermediateDirectories: true)
+        try png(.red).write(to: booklet.appendingPathComponent("scan10.jpg"))
+        try png(.green).write(to: booklet.appendingPathComponent("scan2.jpg"))
+        try png(.blue).write(to: album.appendingPathComponent("Booklet 05.png"))
+        let pages = ExtraArtworkReader.folderImages(for: album.appendingPathComponent("01.flac")).filter { $0.kind == .booklet }
+        XCTAssertEqual(pages.map(\.disc), [5, 1, 2])                        // numbered name first, then folder pages in order
+        let store = ArtworkStore(directory: album)
+        let saved = try store.saveExtra(data: png(.red), albumID: UUID(), kind: .booklet, disc: 3)
+        XCTAssertTrue(saved.file.contains("_booklet3-"))
+        XCTAssertEqual(saved.disc, 3)
     }
 
     func testSearchTitlesDropTrailingEditionNotesOnly() {

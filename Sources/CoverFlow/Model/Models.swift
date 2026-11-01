@@ -55,6 +55,10 @@ struct Album: Identifiable, Codable, Hashable {
     var discImages: [AlbumImage] {
         (extraImages ?? []).filter { $0.kind == .disc }.sorted { ($0.disc ?? 1) < ($1.disc ?? 1) }
     }
+    /// Booklet pages in page order.
+    var bookletPages: [AlbumImage] {
+        (extraImages ?? []).filter { $0.kind == .booklet }.sorted { ($0.disc ?? 1) < ($1.disc ?? 1) }
+    }
     var hasExtraImages: Bool { !(extraImages ?? []).isEmpty }
 
     var hasArtwork: Bool { artworkFile != nil }
@@ -67,7 +71,8 @@ struct Album: Identifiable, Codable, Hashable {
 }
 
 enum AlbumImageKind: String, Codable, Hashable, Sendable {
-    case back, disc
+    /// The back cover, a disc (CD/vinyl label), or a page of the booklet (insert).
+    case back, disc, booklet
 }
 
 /// An extra picture of the record: its back cover or a disc label. Stored next to the
@@ -76,7 +81,7 @@ struct AlbumImage: Codable, Hashable, Sendable {
     var kind: AlbumImageKind
     /// File name inside the Artwork folder.
     var file: String
-    /// Disc number for disc art (1 when unknown).
+    /// Disc number for disc art, page number for booklet pages (1 when unknown).
     var disc: Int?
     var pixelWidth: Int
     var pixelHeight: Int

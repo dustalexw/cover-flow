@@ -279,20 +279,50 @@ struct JewelCaseView: View, Animatable {
         .frame(width: size, height: size)
     }
 
-    /// The inside of the lid: the booklet's back page behind the plastic and its tabs.
+    /// The inside of the lid: the booklet (its first page, when the album has booklet
+    /// pages; otherwise a plain page with the title) behind the plastic and its tabs.
     private var lidInside: some View {
         let base = Color(nsColor: NSColor(hex: album.tintHex ?? "") ?? NSColor(white: 0.18, alpha: 1))
+        let pages = album.bookletPages
         return ZStack {
-            LinearGradient(colors: [base.opacity(0.85), Color.black.opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            VStack(spacing: size * 0.02) {
-                Text(album.title)
-                    .font(.system(size: max(7, size * 0.045), weight: .semibold, design: .serif))
-                    .multilineTextAlignment(.center).lineLimit(3)
-                Text(album.artist.uppercased())
-                    .font(.system(size: max(5, size * 0.026), weight: .medium)).tracking(size * 0.003).opacity(0.7)
+            if let first = pages.first {
+                Color(white: 0.07)
+                // A few page edges peek out under a multi-page booklet.
+                ForEach(0..<min(3, max(0, pages.count - 1)), id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color(white: 0.92 - Double(i) * 0.08))
+                        .padding(size * 0.035)
+                        .offset(x: -CGFloat(i + 1) * size * 0.006, y: CGFloat(i + 1) * size * 0.006)
+                }
+                AlbumImageView(image: first, pointSize: size)
+                    .frame(width: size * 0.93, height: size * 0.93)
+                    .clipShape(RoundedRectangle(cornerRadius: 1))
+                if pages.count > 1 {
+                    VStack {
+                        HStack {
+                            Text("\(pages.count) pages")
+                                .font(.system(size: max(6, size * 0.028), weight: .semibold))
+                                .padding(.horizontal, size * 0.02).padding(.vertical, size * 0.006)
+                                .background(.black.opacity(0.55), in: Capsule())
+                                .foregroundStyle(.white.opacity(0.85))
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .padding(size * 0.05)
+                }
+            } else {
+                LinearGradient(colors: [base.opacity(0.85), Color.black.opacity(0.9)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                VStack(spacing: size * 0.02) {
+                    Text(album.title)
+                        .font(.system(size: max(7, size * 0.045), weight: .semibold, design: .serif))
+                        .multilineTextAlignment(.center).lineLimit(3)
+                    Text(album.artist.uppercased())
+                        .font(.system(size: max(5, size * 0.026), weight: .medium)).tracking(size * 0.003).opacity(0.7)
+                }
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(size * 0.14)
             }
-            .foregroundStyle(.white.opacity(0.75))
-            .padding(size * 0.14)
             // The two clips that hold the booklet.
             VStack {
                 Spacer()

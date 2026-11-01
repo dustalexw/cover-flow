@@ -47,7 +47,16 @@ Disc Art**, or by right-clicking the **Flip** button:
 - **Flip to the Back Cover Only**: the same turn, with no disc art.
 - **Open Like a Jewel Case**: the cover becomes a CD case whose lid swings open on its
   hinge, showing the disc (disc 1's art, or a plain silver disc) in the tray and the
-  booklet on the inside of the lid. The button reads **Open**/**Close**.
+  booklet on the inside of the lid: the album's first booklet page (with the page
+  count) when it has a booklet, otherwise a plain page with the title. The button reads
+  **Open**/**Close**.
+
+Booklets (inserts) come from the same places as back and disc art: images named like
+`Booklet 03.jpg`, `Liner Notes 2.png` or `insert.jpg`, every image in a `Booklet` or
+`Inserts` folder (in name order), pictures tagged "Leaflet page" in the audio files, the
+**Booklet** tab of Find Artwork Online (tick **Booklet** under Look for; the Cover Art
+Archive's booklet scans, with **Use All N Pages** to take an edition's whole booklet, or
+page by page with **Add Page**), and **Choose Artwork from File › Booklet Pages…**.
 
 Back and disc art come from:
 - **Your folders**: images whose name ends in `back`, `back cover`, `inlay`, `rear` or
