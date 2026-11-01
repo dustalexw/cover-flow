@@ -47,6 +47,19 @@ struct Album: Identifiable, Codable, Hashable {
     var userEdited: Bool
     /// Optional so libraries saved before album customization still decode unchanged.
     var appearance: AlbumAppearance? = nil
+    /// Back cover and disc (CD/vinyl label) art. Optional so older libraries decode unchanged.
+    var extraImages: [AlbumImage]? = nil
+
+    var backImage: AlbumImage? { extraImages?.first { $0.kind == .back } }
+    /// Disc art in disc order (disc 1 first).
+    var discImages: [AlbumImage] {
+        (extraImages ?? []).filter { $0.kind == .disc }.sorted { ($0.disc ?? 1) < ($1.disc ?? 1) }
+    }
+    /// Booklet pages in page order.
+    var bookletPages: [AlbumImage] {
+        (extraImages ?? []).filter { $0.kind == .booklet }.sorted { ($0.disc ?? 1) < ($1.disc ?? 1) }
+    }
+    var hasExtraImages: Bool { !(extraImages ?? []).isEmpty }
 
     var hasArtwork: Bool { artworkFile != nil }
     var artworkAspect: CGFloat {
@@ -55,6 +68,23 @@ struct Album: Identifiable, Codable, Hashable {
     }
     var artworkKey: String { "\(id.uuidString)-\(artworkVersion)" }
     var panelAppearance: AlbumAppearance { appearance ?? AlbumAppearance() }
+}
+
+enum AlbumImageKind: String, Codable, Hashable, Sendable {
+    /// The back cover, a disc (CD/vinyl label), or a page of the booklet (insert).
+    case back, disc, booklet
+}
+
+/// An extra picture of the record: its back cover or a disc label. Stored next to the
+/// front cover in the Artwork folder.
+struct AlbumImage: Codable, Hashable, Sendable {
+    var kind: AlbumImageKind
+    /// File name inside the Artwork folder.
+    var file: String
+    /// Disc number for disc art, page number for booklet pages (1 when unknown).
+    var disc: Int?
+    var pixelWidth: Int
+    var pixelHeight: Int
 }
 
 struct AlbumAppearance: Codable, Hashable {

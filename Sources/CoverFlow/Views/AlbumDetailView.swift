@@ -9,6 +9,7 @@ struct AlbumDetailView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var downloadArtwork = false
+    @State private var downloadKind: ArtworkKind = .front
     @State private var trackToRemove: Track?
     @State private var confirmingTrackRemoval = false
 
@@ -34,10 +35,27 @@ struct AlbumDetailView: View {
         }
         .sheet(isPresented: $downloadArtwork) {
             if let album = library.album(albumID) {
-                ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to the collection and embedded in supported audio files.") { data in
+                ArtworkDownloadView(album: album, saveDescription: "A new front cover is also embedded in supported audio files. Back covers and disc art are kept in the collection and shown when you flip the cover in Cover Flow.",
+                                    discCount: library.discNumbers(of: album).max() ?? 1, initialKind: downloadKind,
+                                    currentImage: { kind, disc in
+                                        guard let album = library.album(albumID) else { return nil }
+                                        let file: String?
+                                        switch kind {
+                                        case .front: file = album.artworkFile
+                                        case .back: file = album.backImage?.file
+                                        case .disc: file = album.discImages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+                                        case .booklet: file = album.bookletPages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+                                        }
+                                        return file.map { library.artwork.fileURL($0) }
+                                    }, onUse: { data in
                     guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
                     library.replaceArtwork(albumID, with: data)
-                }
+                }, onUseExtras: { images in
+                    guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+                    await library.replaceExtraImages(albumID, with: images)
+                }, onRemoveExtras: { items in
+                    library.removeExtraImages(albumID, only: items)
+                })
             }
         }
         .modifier(RemoveAlbumConfirmation(active: true))
@@ -150,9 +168,15 @@ struct AlbumDetailView: View {
                 Divider()
                 Button("Edit Album Info…") { state.editAlbum = IDRef(id: album.id) }
                 Button("Colors & Scene…") { state.appearanceAlbum = IDRef(id: album.id) }
-                Button("Find Artwork Online…") { downloadArtwork = true }
-                Button("Replace Artwork…") { library.chooseReplacementArtwork(for: album.id) }
+                Button("Find Artwork Online…") { downloadKind = .front; downloadArtwork = true }
+                if !album.isDemo {
+                    Button("Find Back Cover & Disc Art Online…") { downloadKind = library.album(album.id)?.backImage == nil ? .back : .disc; downloadArtwork = true }
+                    Button("Fill In Missing Back & Disc Art Automatically") { library.findExtraArt([album.id]) }
+                        .disabled(library.importProgress != nil)
+                }
+                CustomArtworkMenu(album: album)
                 if album.hasArtwork && !album.isDemo { Button("Remove Artwork") { library.removeArtwork(album.id) } }
+                if album.hasExtraImages { Button(album.bookletPages.isEmpty ? "Remove Back & Disc Art" : "Remove Back, Disc & Booklet Art") { library.removeExtraImages(album.id) } }
                 Divider()
                 Button("Remove from Collection…", role: .destructive) { state.confirmRemoval = IDRef(id: album.id) }
             } label: {
@@ -358,6 +382,28 @@ struct AlbumEditView: View {
             LibraryStore.TrackEdit(id: $0.id, title: $0.title,
                                    trackNumber: $0.trackNumber.map(String.init) ?? "",
                                    discNumber: $0.discNumber.map(String.init) ?? "")
+        }
+    }
+}
+
+/// Choose any kind of artwork from an image file: front cover, back cover, or disc art.
+struct CustomArtworkMenu: View {
+    let album: Album
+    @EnvironmentObject private var library: LibraryStore
+
+    var body: some View {
+        Menu("Choose Artwork from File") {
+            Button("Front Cover…") { library.chooseReplacementArtwork(for: album.id) }
+            Button("Back Cover…") { library.chooseExtraArtwork(for: album.id, kind: .back, disc: nil) }
+            let discs = library.discNumbers(of: album).sorted()
+            if discs.count > 1 {
+                ForEach(discs, id: \.self) { number in
+                    Button("Disc \(number) Art…") { library.chooseExtraArtwork(for: album.id, kind: .disc, disc: number) }
+                }
+            } else {
+                Button("Disc Art…") { library.chooseExtraArtwork(for: album.id, kind: .disc, disc: discs.first ?? 1) }
+            }
+            Button("Booklet Pages…") { library.chooseBookletPages(for: album.id) }
         }
     }
 }

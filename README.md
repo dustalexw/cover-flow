@@ -32,6 +32,68 @@ queue. Your original audio file stays on disk; removing the last track removes
 the empty album. On iPad, touch and hold a track for the same action; only the
 app’s imported copy is deleted.
 
+## Back covers and disc art (macOS)
+
+In Cover Flow, press **F**, Option-click the centred cover, or click **Flip** under it to
+turn the record over. The back cover shows, and any CD or vinyl disc art slides out of
+the sleeve (up to three discs). Albums without a scanned back get a printed back with
+the track list. Browsing to another album turns it back over.
+
+Choose how covers turn over in **View › Turning Covers Over**, **Settings › Back Covers &
+Disc Art**, or by right-clicking the **Flip** button:
+- **Flip, with Discs Sliding Out** (the default, as above).
+- **Flip, with a Spinning Disc**: the same turn; the disc slides out and keeps turning
+  (a plain silver disc when there's no disc art). Reduce Motion keeps it still.
+- **Flip to the Back Cover Only**: the same turn, with no disc art.
+- **Open Like a Jewel Case**: the cover becomes a CD case whose lid swings open on its
+  hinge, showing the disc (disc 1's art, or a plain silver disc) in the tray and the
+  booklet on the inside of the lid: the album's first booklet page (with the page
+  count; a scan of a spread or fold-out is cropped to its left-most page, the one that
+  faces the disc in a real case) when it has a booklet, otherwise a plain page with the title. The button reads
+  **Open**/**Close**.
+
+Booklets (inserts) come from the same places as back and disc art: images named like
+`Booklet 03.jpg`, `Liner Notes 2.png` or `insert.jpg`, every image in a `Booklet` or
+`Inserts` folder (in name order), pictures tagged "Leaflet page" in the audio files, the
+**Booklet** tab of Find Artwork Online (tick **Booklet** under Look for; the Cover Art
+Archive's booklet scans, with **Use All N Pages** to take an edition's whole booklet, or
+page by page with **Add Page**), and **Choose Artwork from File › Booklet Pages…**.
+
+Back and disc art come from:
+- **Your folders**: images whose name ends in `back`, `back cover`, `inlay`, `rear` or
+  `tray`, or in `cd`, `cdart`, `disc`, `disk`, `vinyl`, `media`, `label` or `lp`
+  (optionally numbered, such as `Album - CD2.jpg` or `Disc 1 Label.png`). Cover Flow
+  looks beside the audio, in `Scans`, `Artwork`, `Covers`, `Art` or `Images` subfolders,
+  and in the album folder above a per-disc folder like `CD2`. Unnumbered disc art in a
+  disc's folder counts as that disc. Also back cover and media pictures embedded in the
+  tags. Albums already in the collection are looked through once, automatically.
+- **Online**: the Cover Art Archive (the release MusicBrainz chose for the album, then
+  other editions with back or disc scans), TheAudioDB, and fanart.tv's disc art when you
+  add a free personal API key in Settings › Back Covers & Disc Art. Cut-out disc art is
+  preferred to photos of discs unless the archive has scans of more discs.
+- **Find Artwork Online…** (album menu) opens already searching for the album (notes
+  like "(Deluxe Edition)" or "(declipped)" are left out of the search) and picks the
+  matching result. It has **Front Cover**, **Back Cover** and **Disc Art** tabs, each
+  showing the album's **current** image first, then every image found. Choose what to
+  **Look for** (front, back, disc) and which **Sources** to ask: the Cover Art Archive
+  (each edition with scans, labelled by year and country), TheAudioDB, and fanart.tv.
+  Only those are searched; sources are asked in parallel and their images appear as each
+  one answers. Click an image to replace the current one, use **Choose File…**, **Keep
+  Current**, or **Remove** a back cover or disc. Kinds the album lacks are filled in for
+  you (one disc image for a single-disc album, even if a source lists art for several
+  discs; **Add Disc** adds more); existing art is only replaced when you pick something. **Save Artwork** saves it
+  all at once. **Find Back Cover & Disc Art Online…** opens the window on the back cover
+  tab.
+- **Fill In Missing Back & Disc Art Automatically** (album menu, grid right-click, or
+  **File › Find Missing Back Covers & Disc Art** for the whole collection) does the
+  same without asking, only for what an album lacks and only for albums MusicBrainz
+  matches by title and artist.
+- **Choose Artwork from File** (album menu and grid right-click) sets the front cover,
+  back cover, or any disc's art from an image file.
+
+They are kept with the collection's artwork; the audio files aren't changed.
+**Remove Back & Disc Art** in the album panel's menu removes them.
+
 ## Keep media organized (macOS)
 
 By default Cover Flow plays your files where they are. To keep your music in one

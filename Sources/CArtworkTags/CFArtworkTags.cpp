@@ -10,6 +10,8 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <cstdio>
 #include <exception>
+#include <cstdlib>
+#include <cstring>
 
 static TagLib::String nativeString(const TagLib::ByteVector &bytes) {
     auto string = CFStringCreateWithBytes(nullptr, reinterpret_cast<const UInt8 *>(bytes.data()), bytes.size(), kCFStringEncodingUTF8, false);
@@ -104,4 +106,37 @@ bool cf_artwork_write(const char *path, const unsigned char *data, size_t size,
         return true;
     } catch(const std::exception &e) { return fail(e.what()); }
     catch(...) { return fail("Unexpected error writing artwork tags."); }
+}
+
+size_t cf_artwork_read_extras(const char *path, cf_picture *out, size_t max) {
+    if(!path || !out || max == 0) return 0;
+    size_t count = 0;
+    try {
+        TagLib::FileRef ref(path, false);
+        if(ref.isNull() || !ref.file()->isValid()) return 0;
+        for(const auto &picture : ref.file()->complexProperties("PICTURE")) {
+            if(count >= max) break;
+            const auto type = picture.value("pictureType").value<TagLib::String>();
+            const int kind = type == "Back Cover" ? 1 : type == "Media" ? 2 : type == "Leaflet Page" ? 3 : 0;
+            if(!kind) continue;
+            const auto data = picture.value("data").value<TagLib::ByteVector>();
+            if(data.isEmpty() || data.size() >= 12 * 1024 * 1024) continue;
+            auto *copy = static_cast<unsigned char *>(std::malloc(data.size()));
+            if(!copy) break;
+            std::memcpy(copy, data.data(), data.size());
+            out[count++] = cf_picture{kind, copy, static_cast<size_t>(data.size())};
+        }
+    } catch(...) {
+        // Unreadable tags just mean no extra pictures.
+    }
+    return count;
+}
+
+void cf_artwork_free_pictures(cf_picture *pictures, size_t count) {
+    if(!pictures) return;
+    for(size_t i = 0; i < count; ++i) {
+        std::free(pictures[i].data);
+        pictures[i].data = nullptr;
+        pictures[i].size = 0;
+    }
 }
