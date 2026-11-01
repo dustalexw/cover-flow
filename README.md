@@ -42,6 +42,8 @@ the track list. Browsing to another album turns it back over.
 Choose how covers turn over in **View › Turning Covers Over**, **Settings › Back Covers &
 Disc Art**, or by right-clicking the **Flip** button:
 - **Flip, with Discs Sliding Out** (the default, as above).
+- **Flip, with a Spinning Disc**: the same turn; the disc slides out and keeps turning
+  (a plain silver disc when there's no disc art). Reduce Motion keeps it still.
 - **Flip to the Back Cover Only**: the same turn, with no disc art.
 - **Open Like a Jewel Case**: the cover becomes a CD case whose lid swings open on its
   hinge, showing the disc (disc 1's art, or a plain silver disc) in the tray and the

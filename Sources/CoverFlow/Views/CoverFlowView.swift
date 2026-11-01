@@ -421,6 +421,8 @@ struct CoverItem: View {
             ZStack {
                 if turnStyle == .flipWithDiscs && !album.discImages.isEmpty {
                     DiscStack(album: album, size: size, out: flipped, reduceMotion: reduceMotion)
+                } else if turnStyle == .flipWithSpinningDisc {
+                    DiscStack(album: album, size: size, out: flipped, reduceMotion: reduceMotion, spin: true)
                 }
                 sleeve
                     .overlay(Color.black.opacity((scheme == .dark ? 0.4 : 0.22) * shade).allowsHitTesting(false))
@@ -460,6 +462,8 @@ struct AlbumCaption: View {
         switch turnStyle {
         case .jewelCase:
             return isFlipped ? "Close the case (F)" : "Open the jewel case to see the disc (F or Option-click). Right-click for other styles."
+        case .flipWithSpinningDisc:
+            return isFlipped ? "Show the front cover (F)" : "Turn the cover over; the disc slides out and spins (F or Option-click). Right-click for other styles."
         case .backOnly:
             return isFlipped ? "Show the front cover (F)" : "Turn the cover over to see the back (F or Option-click). Right-click for other styles."
         case .flipWithDiscs:

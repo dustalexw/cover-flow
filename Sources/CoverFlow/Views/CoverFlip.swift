@@ -145,13 +145,30 @@ struct DiscStack: View {
     let size: CGFloat
     let out: Bool
     let reduceMotion: Bool
+    /// Discs keep turning while they're out (with a plain silver disc for albums
+    /// without disc art).
+    var spin = false
 
     var body: some View {
         let discs = Array(album.discImages.prefix(3))
         let diameter = size * 0.94
         ZStack {
+            if spin && discs.isEmpty {
+                SpinningDisc(spinning: out && !reduceMotion) {
+                    PlainDisc(album: album, size: diameter)
+                }
+                .frame(width: diameter, height: diameter)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+                .offset(x: out ? size * 0.42 : 0)
+                .opacity(out ? 1 : 0)
+                .accessibilityHidden(true)
+            }
             ForEach(Array(discs.indices.reversed()), id: \.self) { i in
-                AlbumImageView(image: discs[i], pointSize: diameter, fill: true)
+                SpinningDisc(spinning: spin && out && !reduceMotion, offset: Double(i) * 47) {
+                    AlbumImageView(image: discs[i], pointSize: diameter, fill: true)
+                }
                     .frame(width: diameter, height: diameter)
                     .clipShape(Circle())
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
@@ -168,10 +185,26 @@ struct DiscStack: View {
     }
 }
 
+/// Turns its content steadily (about 20 rpm) while `spinning`; still otherwise.
+struct SpinningDisc<Content: View>: View {
+    let spinning: Bool
+    var offset: Double = 0
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: nil, paused: !spinning)) { context in
+            let degrees = spinning ? (context.date.timeIntervalSinceReferenceDate * 120 + offset).truncatingRemainder(dividingBy: 360) : 0
+            content.rotationEffect(.degrees(degrees))
+        }
+    }
+}
+
 /// What turning a cover over (F, Option-click, or the Flip button) shows.
 enum CoverTurnStyle: String, CaseIterable, Identifiable {
     /// Turn the sleeve over; disc art slides out to the right.
     case flipWithDiscs = "flip"
+    /// Turn the sleeve over; the disc slides out and keeps turning.
+    case flipWithSpinningDisc = "spin"
     /// Turn the sleeve over to the back cover only.
     case backOnly = "back"
     /// Open it like a CD jewel case: the lid swings open on its hinge and the disc
@@ -183,6 +216,7 @@ enum CoverTurnStyle: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .flipWithDiscs: return "Flip, with Discs Sliding Out"
+        case .flipWithSpinningDisc: return "Flip, with a Spinning Disc"
         case .backOnly: return "Flip to the Back Cover Only"
         case .jewelCase: return "Open Like a Jewel Case"
         }
