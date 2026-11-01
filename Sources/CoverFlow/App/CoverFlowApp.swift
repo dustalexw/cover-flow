@@ -194,6 +194,7 @@ struct AppCommands: Commands {
     @ObservedObject var state: AppState
     @ObservedObject var library: LibraryStore
     @ObservedObject var albumView: AlbumViewController
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -235,6 +236,9 @@ struct AppCommands: Commands {
                         if state.sortOrder == order { Label(order.label, systemImage: "checkmark") } else { Text(order.label) }
                     }
                 }
+            }
+            Picker("Turning Covers Over", selection: $turnStyle) {
+                ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
             }
             Divider()
             Button(state.showQueue ? "Hide Queue" : "Show Queue") { state.showQueue.toggle() }
