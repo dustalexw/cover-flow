@@ -48,7 +48,8 @@ Disc Art**, or by right-clicking the **Flip** button:
 - **Open Like a Jewel Case**: the cover becomes a CD case whose lid swings open on its
   hinge, showing the disc (disc 1's art, or a plain silver disc) in the tray and the
   booklet on the inside of the lid: the album's first booklet page (with the page
-  count) when it has a booklet, otherwise a plain page with the title. The button reads
+  count; a scan of a spread or fold-out is cropped to its left-most page, the one that
+  faces the disc in a real case) when it has a booklet, otherwise a plain page with the title. The button reads
   **Open**/**Close**.
 
 Booklets (inserts) come from the same places as back and disc art: images named like
