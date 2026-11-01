@@ -312,7 +312,7 @@ private struct LidMotion: ViewModifier {
     let angle: Double
     let openness: Double
     let reduceMotion: Bool
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
         if reduceMotion {
             content.opacity(1 - openness)
         } else {
