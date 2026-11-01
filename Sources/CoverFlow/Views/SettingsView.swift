@@ -34,6 +34,7 @@ struct SettingsView: View {
     @State private var organizeCount = 0
     @AppStorage(ExtraArtSettings.fanartKeyDefaultsKey) private var fanartKey = ""
     @AppStorage(LibraryStore.writeEditsDefaultsKey) private var writeEditsToFiles = false
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
 
     var body: some View {
         Form {
@@ -91,6 +92,9 @@ struct SettingsView: View {
             }
 
             Section("Back Covers & Disc Art") {
+                Picker("When turning a cover over", selection: $turnStyle) {
+                    ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
+                }
                 Text("Flip a cover in Cover Flow (F or ⌥-click) to see its back and its discs. Cover Flow looks for images named like “Back.jpg” or “CD1.png” beside your music (and in Scans or Artwork folders), pictures embedded in the files, and online in the Cover Art Archive and TheAudioDB.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

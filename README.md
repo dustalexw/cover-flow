@@ -39,6 +39,16 @@ turn the record over. The back cover shows, and any CD or vinyl disc art slides 
 the sleeve (up to three discs). Albums without a scanned back get a printed back with
 the track list. Browsing to another album turns it back over.
 
+Choose how covers turn over in **View › Turning Covers Over**, **Settings › Back Covers &
+Disc Art**, or by right-clicking the **Flip** button:
+- **Flip, with Discs Sliding Out** (the default, as above).
+- **Flip, with a Spinning Disc**: the same turn; the disc slides out and keeps turning
+  (a plain silver disc when there's no disc art). Reduce Motion keeps it still.
+- **Flip to the Back Cover Only**: the same turn, with no disc art.
+- **Open Like a Jewel Case**: the cover becomes a CD case whose lid swings open on its
+  hinge, showing the disc (disc 1's art, or a plain silver disc) in the tray and the
+  booklet on the inside of the lid. The button reads **Open**/**Close**.
+
 Back and disc art come from:
 - **Your folders**: images whose name ends in `back`, `back cover`, `inlay`, `rear` or
   `tray`, or in `cd`, `cdart`, `disc`, `disk`, `vinyl`, `media`, `label` or `lp`

@@ -130,6 +130,7 @@ struct CoverFlowView: View {
     @State private var selectionDragStart: Int?
     /// The album turned over to show its back cover (only ever the centred one).
     @State private var flippedAlbumID: UUID?
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
 
@@ -146,7 +147,7 @@ struct CoverFlowView: View {
                 artworkStage(size: size, unit: unit)
 
                 AlbumCaption(album: current, compact: compactCaption, onPlay: playCurrent, onTracks: openCurrent,
-                             isFlipped: current != nil && current?.id == flippedAlbumID, onFlip: toggleFlip)
+                             isFlipped: current != nil && current?.id == flippedAlbumID, onFlip: toggleFlip, turnStyle: turnStyle)
                     .frame(height: captionHeight)
                     .padding(.top, CoverFlowLayout.captionSpacing)
 
@@ -210,7 +211,7 @@ struct CoverFlowView: View {
     private func artworkStage(size: CGFloat, unit: CGFloat) -> some View {
         CoverFlowStage(position: flow.position, albums: albums, coverSize: size,
                        playingAlbumID: player.currentAlbumID, isPlaying: player.isPlaying,
-                       reduceMotion: reduceMotion, flippedAlbumID: flippedAlbumID) { index in
+                       reduceMotion: reduceMotion, flippedAlbumID: flippedAlbumID, turnStyle: turnStyle) { index in
             handleTap(index)
         }
         .frame(maxWidth: .infinity)
@@ -323,6 +324,7 @@ struct CoverFlowStage: View, Animatable {
     let isPlaying: Bool
     let reduceMotion: Bool
     var flippedAlbumID: UUID? = nil
+    var turnStyle: CoverTurnStyle = .flipWithDiscs
     let onTap: (Int) -> Void
 
     var animatableData: Double {
@@ -342,7 +344,7 @@ struct CoverFlowStage: View, Animatable {
                     CoverItem(album: albums[i], size: coverSize,
                               isPlayingAlbum: albums[i].id == playingAlbumID, isPlaying: isPlaying,
                               emphasis: max(0, 1 - abs(d)), shade: min(abs(d), 1),
-                              flipped: albums[i].id == flippedAlbumID, reduceMotion: reduceMotion)
+                              flipped: albums[i].id == flippedAlbumID, reduceMotion: reduceMotion, turnStyle: turnStyle)
                         .modifier(CoverTransform(d: d, size: coverSize, reduceMotion: reduceMotion))
                         .zIndex(-abs(d))
                         .onTapGesture { onTap(i) }
@@ -397,22 +399,30 @@ struct CoverItem: View {
     /// Turned over to show the back cover, with any disc art slid out to the right.
     var flipped = false
     var reduceMotion = false
+    /// How turning the cover over looks (Settings › Back Covers & Disc Art).
+    var turnStyle: CoverTurnStyle = .flipWithDiscs
     @Environment(\.colorScheme) private var scheme
 
-    private var sleeve: some View {
-        FlippableCover(angle: flipped ? 180 : 0, reduceMotion: reduceMotion) {
-            ArtworkView(album: album, pointSize: size, cornerRadius: 3)
-        } back: {
-            BackCoverView(album: album, size: size)
+    @ViewBuilder private var sleeve: some View {
+        if turnStyle == .jewelCase {
+            JewelCaseView(openness: flipped ? 1 : 0, album: album, size: size, reduceMotion: reduceMotion)
+        } else {
+            FlippableCover(angle: flipped ? 180 : 0, reduceMotion: reduceMotion) {
+                ArtworkView(album: album, pointSize: size, cornerRadius: 3)
+            } back: {
+                BackCoverView(album: album, size: size)
+            }
+            .frame(width: size, height: size)
         }
-        .frame(width: size, height: size)
     }
 
     var body: some View {
         VStack(spacing: CoverFlowLayout.reflectionSpacing) {
             ZStack {
-                if !album.discImages.isEmpty {
+                if turnStyle == .flipWithDiscs && !album.discImages.isEmpty {
                     DiscStack(album: album, size: size, out: flipped, reduceMotion: reduceMotion)
+                } else if turnStyle == .flipWithSpinningDisc {
+                    DiscStack(album: album, size: size, out: flipped, reduceMotion: reduceMotion, spin: true)
                 }
                 sleeve
                     .overlay(Color.black.opacity((scheme == .dark ? 0.4 : 0.22) * shade).allowsHitTesting(false))
@@ -441,10 +451,27 @@ struct AlbumCaption: View {
     let onTracks: () -> Void
     var isFlipped = false
     var onFlip: (() -> Void)? = nil
+    var turnStyle: CoverTurnStyle = .flipWithDiscs
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerEngine
     @EnvironmentObject private var state: AppState
     @Environment(\.colorScheme) private var scheme
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyleSetting: CoverTurnStyle = .flipWithDiscs
+
+    private func flipHelp(_ album: Album) -> String {
+        switch turnStyle {
+        case .jewelCase:
+            return isFlipped ? "Close the case (F)" : "Open the jewel case to see the disc (F or Option-click). Right-click for other styles."
+        case .flipWithSpinningDisc:
+            return isFlipped ? "Show the front cover (F)" : "Turn the cover over; the disc slides out and spins (F or Option-click). Right-click for other styles."
+        case .backOnly:
+            return isFlipped ? "Show the front cover (F)" : "Turn the cover over to see the back (F or Option-click). Right-click for other styles."
+        case .flipWithDiscs:
+            return isFlipped ? "Show the front cover (F)" : (album.hasExtraImages
+                ? "Turn the cover over to see the back and disc art (F or Option-click). Right-click for other styles."
+                : "Turn the cover over (F or Option-click). Right-click for other styles.")
+        }
+    }
 
     var body: some View {
         let layout = compact
@@ -493,12 +520,20 @@ struct AlbumCaption: View {
                         .help("Show the track list (Return)")
                         if let onFlip {
                             Button(action: onFlip) {
-                                Label(isFlipped ? "Front" : "Flip", systemImage: "rectangle.2.swap")
+                                if turnStyle == .jewelCase {
+                                    Label(isFlipped ? "Close" : "Open", systemImage: "opticaldisc")
+                                } else {
+                                    Label(isFlipped ? "Front" : "Flip", systemImage: "rectangle.2.swap")
+                                }
                             }
                             .buttonStyle(PillButtonStyle())
-                            .help(isFlipped ? "Show the front cover (F)" : (album.hasExtraImages
-                                  ? "Turn the cover over to see the back and disc art (F or Option-click)"
-                                  : "Turn the cover over (F or Option-click)"))
+                            .help(flipHelp(album))
+                            .contextMenu {
+                                Picker("When Turning a Cover Over", selection: $turnStyleSetting) {
+                                    ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
+                                }
+                                .pickerStyle(.inline)
+                            }
                         }
                         if isCurrent {
                             HStack(spacing: 6) {
