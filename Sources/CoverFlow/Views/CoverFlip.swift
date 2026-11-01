@@ -294,9 +294,7 @@ struct JewelCaseView: View, Animatable {
                         .padding(size * 0.035)
                         .offset(x: -CGFloat(i + 1) * size * 0.006, y: CGFloat(i + 1) * size * 0.006)
                 }
-                AlbumImageView(image: first, pointSize: size)
-                    .frame(width: size * 0.93, height: size * 0.93)
-                    .clipShape(RoundedRectangle(cornerRadius: 1))
+                BookletPageView(page: first, side: size * 0.93)
                 if pages.count > 1 {
                     VStack {
                         HStack {
@@ -423,5 +421,35 @@ struct PlainDisc: View {
             .offset(y: -size * 0.16)
             Circle().fill(Color(white: 0.75)).frame(width: size * 0.2, height: size * 0.2)
         }
+    }
+}
+
+/// One booklet page as it sits in the lid. A scan of several pages side by side (a
+/// spread or fold-out, much wider than tall) is cropped to its left-most page, the
+/// outside back page that faces the disc when the booklet is in the case; a single
+/// page is shown whole.
+struct BookletPageView: View {
+    let page: AlbumImage
+    let side: CGFloat
+
+    /// Width over height; spreads are 1.3 or wider.
+    static func isSpread(_ page: AlbumImage) -> Bool {
+        page.pixelHeight > 0 && Double(page.pixelWidth) / Double(page.pixelHeight) >= 1.3
+    }
+
+    var body: some View {
+        Group {
+            if Self.isSpread(page) {
+                let aspect = CGFloat(page.pixelWidth) / CGFloat(max(1, page.pixelHeight))
+                AlbumImageView(image: page, pointSize: side * aspect)
+                    .frame(width: side * aspect, height: side)
+                    .frame(width: side, height: side, alignment: .leading)
+                    .clipped()
+            } else {
+                AlbumImageView(image: page, pointSize: side)
+                    .frame(width: side, height: side)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 1))
     }
 }
