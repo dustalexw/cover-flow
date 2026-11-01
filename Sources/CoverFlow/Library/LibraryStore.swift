@@ -805,6 +805,42 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    /// Choose Artwork from File › Booklet Pages: the chosen images, in name order,
+    /// become the album's booklet (replacing any it had). It's shown inside the lid
+    /// when a cover opens like a jewel case.
+    func chooseBookletPages(for id: UUID) {
+        guard let album = album(id) else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Booklet Pages"
+        panel.message = "Choose the scanned pages of the booklet for “\(album.title)”, in any order; they’re sorted by name (page 1 first)."
+        panel.prompt = "Use Pages"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.begin { [weak self] response in
+            guard response == .OK else { return }
+            let urls = panel.urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task {
+                    let pages = await Task.detached(priority: .userInitiated) { () -> [Data] in
+                        urls.prefix(40).compactMap { url in
+                            guard let data = try? Data(contentsOf: url), data.count <= 40 * 1024 * 1024 else { return nil }
+                            return data
+                        }
+                    }.value
+                    guard !pages.isEmpty else { self.notice = "Couldn’t read those image files."; return }
+                    let old = self.album(id)?.bookletPages.compactMap(\.disc) ?? []
+                    let saved = await self.replaceExtraImages(id, with: pages.enumerated().map { (kind: AlbumImageKind.booklet, disc: Optional($0.offset + 1), data: $0.element) })
+                    let extra = old.filter { $0 > pages.count }.map { (kind: AlbumImageKind.booklet, disc: Optional($0)) }
+                    self.removeExtraImages(id, only: extra)
+                    self.notice = saved > 0
+                        ? "Saved a \(saved)-page booklet. Open the cover like a jewel case (View › Turning Covers Over) to see it."
+                        : "Couldn’t use those files as booklet pages."
+                }
+            }
+        }
+    }
+
     func replaceArtwork(_ id: UUID, with url: URL) {
         replaceArtwork(id, load: { try Data(contentsOf: url) })
     }
@@ -881,8 +917,8 @@ final class LibraryStore: ObservableObject {
     /// Removes particular back/disc images (a nil disc matches disc 1).
     func removeExtraImages(_ id: UUID, only items: [(kind: AlbumImageKind, disc: Int?)]) {
         guard let i = albumIndex[id], let images = albums[i].extraImages, !items.isEmpty else { return }
-        let keys = Set(items.map { "\($0.kind.rawValue)\($0.kind == .disc ? ($0.disc ?? 1) : 0)" })
-        let gone = images.filter { keys.contains("\($0.kind.rawValue)\($0.kind == .disc ? ($0.disc ?? 1) : 0)") }
+        let keys = Set(items.map { "\($0.kind.rawValue)\($0.kind == .back ? 0 : ($0.disc ?? 1))" })
+        let gone = images.filter { keys.contains("\($0.kind.rawValue)\($0.kind == .back ? 0 : ($0.disc ?? 1))") }
         guard !gone.isEmpty else { return }
         artwork.removeExtras(gone)
         let rest = images.filter { image in !gone.contains { $0.file == image.file } }

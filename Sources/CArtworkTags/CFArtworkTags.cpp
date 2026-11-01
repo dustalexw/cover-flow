@@ -117,7 +117,7 @@ size_t cf_artwork_read_extras(const char *path, cf_picture *out, size_t max) {
         for(const auto &picture : ref.file()->complexProperties("PICTURE")) {
             if(count >= max) break;
             const auto type = picture.value("pictureType").value<TagLib::String>();
-            const int kind = type == "Back Cover" ? 1 : type == "Media" ? 2 : 0;
+            const int kind = type == "Back Cover" ? 1 : type == "Media" ? 2 : type == "Leaflet Page" ? 3 : 0;
             if(!kind) continue;
             const auto data = picture.value("data").value<TagLib::ByteVector>();
             if(data.isEmpty() || data.size() >= 12 * 1024 * 1024) continue;

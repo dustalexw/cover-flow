@@ -116,6 +116,7 @@ struct ArtworkDownloadView: View {
     @AppStorage("artworkDownload.wantFront") private var wantFront = true
     @AppStorage("artworkDownload.wantBack") private var wantBack = true
     @AppStorage("artworkDownload.wantDisc") private var wantDisc = true
+    @AppStorage("artworkDownload.wantBooklet") private var wantBooklet = false
     @AppStorage("artworkDownload.useArchive") private var useArchive = true
     @AppStorage("artworkDownload.useAudioDB") private var useAudioDB = true
     @AppStorage("artworkDownload.useFanart") private var useFanart = true
@@ -134,6 +135,10 @@ struct ArtworkDownloadView: View {
     @State private var front: Choice = .keep
     @State private var back: Choice = .keep
     @State private var discs: [Int: Choice] = [:]
+    /// Booklet pages by page number.
+    @State private var pages: [Int: Choice] = [:]
+    @State private var page = 1
+    @State private var addedPages = 1
     /// Choices Cover Flow made, which it may change as more sources answer.
     @State private var autoPicked: Set<String> = []
     @State private var tab: ArtworkKind
@@ -168,7 +173,12 @@ struct ArtworkDownloadView: View {
     private func wants(_ kind: ArtworkKind) -> Bool {
         guard kinds.contains(kind) else { return false }
         if kinds.count == 1 { return true }
-        switch kind { case .front: return wantFront; case .back: return wantBack; case .disc: return wantDisc }
+        switch kind {
+        case .front: return wantFront
+        case .back: return wantBack
+        case .disc: return wantDisc
+        case .booklet: return wantBooklet
+        }
     }
     private var sources: [ArtSource] {
         var list: [ArtSource] = []
@@ -177,8 +187,8 @@ struct ArtworkDownloadView: View {
         if useFanart && !fanartKey.trimmingCharacters(in: .whitespaces).isEmpty { list.append(.fanartTV) }
         return list
     }
-    /// Other archive editions are only worth the requests for back and disc art.
-    private var needsEditions: Bool { wants(.back) || wants(.disc) }
+    /// Other archive editions are only worth the requests for back, disc and booklet art.
+    private var needsEditions: Bool { wants(.back) || wants(.disc) || wants(.booklet) }
     private var busy: Bool { searching || saving }
 
     /// Images from the sources that are on, for the kinds you want, without duplicates.
@@ -197,14 +207,27 @@ struct ArtworkDownloadView: View {
 
     // MARK: Choices
 
-    private func key(_ kind: ArtworkKind, _ disc: Int?) -> String { kind == .disc ? "disc\(disc ?? 1)" : kind.rawValue }
-    private var currentKey: String { key(tab, disc) }
+    /// Booklet pages: the album's, any chosen, and ones added with Add Page.
+    private var pageSlots: [Int] {
+        let have = album.bookletPages.compactMap(\.disc).max() ?? 1
+        let chosen = pages.filter { $0.value != .keep }.keys.max() ?? 1
+        return Array(1...min(40, max(have, chosen, addedPages)))
+    }
+
+    /// Disc or page number of the open tab (nil for the front and back).
+    private var selectedNumber: Int? { tab == .disc ? disc : tab == .booklet ? page : nil }
+
+    private func key(_ kind: ArtworkKind, _ number: Int?) -> String {
+        kind == .disc || kind == .booklet ? "\(kind.rawValue)\(number ?? 1)" : kind.rawValue
+    }
+    private var currentKey: String { key(tab, selectedNumber) }
 
     private func hasCurrent(_ kind: ArtworkKind, _ disc: Int?) -> Bool {
         switch kind {
         case .front: return album.hasArtwork
         case .back: return album.backImage != nil
         case .disc: return album.discImages.contains { ($0.disc ?? 1) == (disc ?? 1) }
+        case .booklet: return album.bookletPages.contains { ($0.disc ?? 1) == (disc ?? 1) }
         }
     }
 
@@ -213,6 +236,7 @@ struct ArtworkDownloadView: View {
         case .front: return front
         case .back: return back
         case .disc: return discs[disc ?? 1] ?? .keep
+        case .booklet: return pages[disc ?? 1] ?? .keep
         }
     }
 
@@ -221,12 +245,13 @@ struct ArtworkDownloadView: View {
         case .front: front = value
         case .back: back = value
         case .disc: discs[disc ?? 1] = value
+        case .booklet: pages[disc ?? 1] = value
         }
         if auto { autoPicked.insert(key(kind, disc)) } else { autoPicked.remove(key(kind, disc)) }
     }
 
-    private var currentChoice: Choice { choice(tab, disc) }
-    private func setChoice(_ value: Choice) { set(tab, tab == .disc ? disc : nil, value) }
+    private var currentChoice: Choice { choice(tab, selectedNumber) }
+    private func setChoice(_ value: Choice) { set(tab, selectedNumber, value) }
 
     /// Candidates for the open tab; disc art for the chosen disc first.
     private var tabCandidates: [ArtCandidate] {
@@ -242,6 +267,7 @@ struct ArtworkDownloadView: View {
         if onUseExtras != nil {
             if back != .keep { result.append((.back, nil, back)) }
             for number in discs.keys.sorted() where discs[number] != .keep { result.append((.disc, number, discs[number]!)) }
+            for number in pages.keys.sorted() where pages[number] != .keep { result.append((.booklet, number, pages[number]!)) }
         }
         return result
     }
@@ -249,7 +275,13 @@ struct ArtworkDownloadView: View {
     private var summary: String {
         guard !plan.isEmpty else { return "Nothing will change yet. Pick images below, or choose files." }
         let parts = plan.map { item -> String in
-            let what = item.kind == .disc ? "disc \(item.disc ?? 1)" : item.kind == .front ? "front" : "back"
+            let what: String
+            switch item.kind {
+            case .front: what = "front"
+            case .back: what = "back"
+            case .disc: what = "disc \(item.disc ?? 1)"
+            case .booklet: what = "booklet page \(item.disc ?? 1)"
+            }
             switch item.choice {
             case .keep: return what
             case .remove: return "remove \(what)"
@@ -325,11 +357,11 @@ struct ArtworkDownloadView: View {
             message = nil
             setChoice(.file(name: url.lastPathComponent, data: data))
         }
-        .task(id: currentKey) { await loadCurrent(tab, tab == .disc ? disc : nil) }
+        .task(id: currentKey) { await loadCurrent(tab, selectedNumber) }
         .task { if !searched { search(autoSelect: true) } }
         .onChange(of: sources) { _ in refreshSources() }
         .onChange(of: needsEditions) { _ in refreshSources() }
-        .onChange(of: [wantFront, wantBack, wantDisc]) { _ in applyDefaults(); loadPreviews() }
+        .onChange(of: [wantFront, wantBack, wantDisc, wantBooklet]) { _ in applyDefaults(); loadPreviews() }
         .onChange(of: tab) { _ in loadPreviews() }
         .onDisappear(perform: cancelAll)
     }
@@ -342,6 +374,7 @@ struct ArtworkDownloadView: View {
                     Toggle("Front", isOn: $wantFront)
                     Toggle("Back", isOn: $wantBack)
                     Toggle("Disc", isOn: $wantDisc)
+                    Toggle("Booklet", isOn: $wantBooklet)
                 }
             }
             HStack(spacing: 10) {
@@ -427,12 +460,32 @@ struct ArtworkDownloadView: View {
                             .help("Add art for another disc, shown beside the first when you flip the cover.")
                         }
                     }
+                    if tab == .booklet {
+                        HStack {
+                            if pageSlots.count > 1 {
+                                Picker("Page", selection: $page) {
+                                    ForEach(pageSlots, id: \.self) { Text("Page \($0)").tag($0) }
+                                }
+                                .frame(width: 150)
+                            }
+                            Button("Add Page") {
+                                addedPages = (pageSlots.last ?? 1) + 1
+                                page = addedPages
+                            }
+                            .disabled(saving || pageSlots.count >= 40)
+                        }
+                        if let edition = bookletEdition {
+                            Button("Use All \(edition.pages.count) Pages\(edition.label.isEmpty ? "" : " (\(edition.label))")") { useBooklet(edition.pages) }
+                                .disabled(saving)
+                                .help("Use this edition’s scanned booklet as the album’s booklet, page by page. It sits inside the lid when you open the jewel case.")
+                        }
+                    }
                     Text(choiceTitle).font(.headline)
                     Text(choiceDetail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Choose File…") { importing = true }
                         if currentChoice != .keep { Button("Keep Current") { setChoice(.keep) } }
-                        if tab != .front, onRemoveExtras != nil, hasCurrent(tab, disc), currentChoice != .remove {
+                        if tab != .front, onRemoveExtras != nil, hasCurrent(tab, selectedNumber), currentChoice != .remove {
                             Button("Remove") { setChoice(.remove) }
                         }
                     }
@@ -458,10 +511,10 @@ struct ArtworkDownloadView: View {
             Text("No \(tab.label.lowercased()) found in the sources that are on. Choose a file, or try another result.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        if selected != nil && (!tabCandidates.isEmpty || hasCurrent(tab, disc)) {
+        if selected != nil && (!tabCandidates.isEmpty || hasCurrent(tab, selectedNumber)) {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 10) {
-                    if hasCurrent(tab, disc) { currentTile }
+                    if hasCurrent(tab, selectedNumber) { currentTile }
                     ForEach(tabCandidates) { tile($0) }
                     if !loading.isEmpty && wants(tab) {
                         VStack { ProgressView().controlSize(.small) }.frame(width: 92, height: 92)
@@ -483,9 +536,9 @@ struct ArtworkDownloadView: View {
     }
 
     private var choiceTitle: String {
-        let what = tab == .disc ? "Disc \(disc)" : tab.label
+        let what = tab == .disc ? "Disc \(disc)" : tab == .booklet ? "Booklet page \(page)" : tab.label
         switch currentChoice {
-        case .keep: return hasCurrent(tab, disc) ? "\(what): current" : "\(what): none yet"
+        case .keep: return hasCurrent(tab, selectedNumber) ? "\(what): current" : "\(what): none yet"
         case .remove: return "\(what): will be removed"
         case .online(let candidate): return "\(what): \(candidate.source.rawValue)"
         case .file(let name, _): return "\(what): \(name)"
@@ -495,7 +548,7 @@ struct ArtworkDownloadView: View {
     private var choiceDetail: String {
         switch currentChoice {
         case .keep:
-            return hasCurrent(tab, disc) ? "This is what the album has now. Pick an image below or choose a file to replace it."
+            return hasCurrent(tab, selectedNumber) ? "This is what the album has now. Pick an image below or choose a file to replace it."
                                          : "Pick an image below or choose a file."
         case .remove:
             return "It’s removed from the collection when you save."
@@ -506,6 +559,28 @@ struct ArtworkDownloadView: View {
         case .file:
             return "Your image file. Replaces the current image when you save."
         }
+    }
+
+    /// The booklet scans of one edition: the one the chosen page comes from, else the
+    /// first edition with a booklet.
+    private var bookletEdition: (label: String, pages: [ArtCandidate])? {
+        let all = candidates.filter { $0.kind == .booklet }
+        guard !all.isEmpty else { return nil }
+        let chosenNote: String? = { if case .online(let c) = currentChoice, c.kind == .booklet { return c.note } else { return nil } }()
+        let note = chosenNote ?? all[0].note
+        let edition = all.filter { $0.note == note }.sorted { ($0.disc ?? 1) < ($1.disc ?? 1) }
+        guard edition.count > 1 else { return nil }
+        return (note, edition)
+    }
+
+    /// Fills pages 1…n from an edition's scans; the album's later pages are removed.
+    private func useBooklet(_ scans: [ArtCandidate]) {
+        for (i, scan) in scans.prefix(40).enumerated() { set(.booklet, i + 1, .online(scan)) }
+        let count = min(40, scans.count)
+        for old in album.bookletPages.compactMap(\.disc) where old > count { set(.booklet, old, onRemoveExtras == nil ? .keep : .remove) }
+        for number in pages.keys where number > count && !hasCurrent(.booklet, number) { set(.booklet, number, .keep) }
+        addedPages = max(addedPages, count)
+        page = 1
     }
 
     private var currentTile: some View {
@@ -534,7 +609,8 @@ struct ArtworkDownloadView: View {
                 }
                 .frame(width: 92, height: 92)
                 .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(chosen ? Color.accentColor : .clear, lineWidth: 3))
-                Text(candidate.kind == .disc ? "Disc \(candidate.disc ?? 1) · \(candidate.source.rawValue)" : candidate.source.rawValue)
+                Text(candidate.kind == .disc ? "Disc \(candidate.disc ?? 1) · \(candidate.source.rawValue)"
+                     : candidate.kind == .booklet ? "p. \(candidate.disc ?? 1) · \(candidate.source.rawValue)" : candidate.source.rawValue)
                     .font(.caption2.weight(chosen ? .semibold : .regular)).lineLimit(1)
                 Text(candidate.note.isEmpty ? " " : candidate.note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -595,8 +671,8 @@ struct ArtworkDownloadView: View {
         previewWork?.cancel()
         selected = match; found = [:]; loading = []; message = nil
         for kind in kinds {
-            for number in (kind == .disc ? Array(discs.keys) : [0]) {
-                let disc: Int? = kind == .disc ? number : nil
+            for number in (kind == .disc ? Array(discs.keys) : kind == .booklet ? Array(pages.keys) : [0]) {
+                let disc: Int? = kind == .disc || kind == .booklet ? number : nil
                 if case .online = choice(kind, disc) { set(kind, disc, .keep) }
             }
         }
@@ -678,7 +754,8 @@ struct ArtworkDownloadView: View {
                 var removals: [(kind: AlbumImageKind, disc: Int?)] = []
                 var failed: [String] = []
                 for (i, item) in items.enumerated() {
-                    let name = item.kind == .disc ? "disc \(item.disc ?? 1)" : item.kind.label.lowercased()
+                    let name = item.kind == .disc ? "disc \(item.disc ?? 1)"
+                        : item.kind == .booklet ? "booklet page \(item.disc ?? 1)" : item.kind.label.lowercased()
                     let data: Data
                     switch item.choice {
                     case .keep: continue

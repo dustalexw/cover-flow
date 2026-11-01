@@ -90,10 +90,10 @@ final class ArtworkStore: @unchecked Sendable {
         guard w > 0, h > 0 else { throw ArtworkError.notAnImage }
         let type = (CGImageSourceGetType(src) as String?).flatMap { UTType($0) }
         let ext = type?.preferredFilenameExtension ?? "img"
-        let label = kind == .back ? "back" : "disc\(disc ?? 1)"
+        let label = kind == .back ? "back" : kind == .disc ? "disc\(disc ?? 1)" : "booklet\(disc ?? 1)"
         let name = "\(albumID.uuidString)_\(label)-\(UUID().uuidString).\(ext)"
         try data.write(to: directory.appendingPathComponent(name), options: .atomic)
-        return AlbumImage(kind: kind, file: name, disc: kind == .disc ? (disc ?? 1) : nil, pixelWidth: w, pixelHeight: h)
+        return AlbumImage(kind: kind, file: name, disc: kind == .back ? nil : (disc ?? 1), pixelWidth: w, pixelHeight: h)
     }
 
     /// Deletes back/disc image files (never the front cover or generated scenes).
