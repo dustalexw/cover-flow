@@ -26,9 +26,9 @@ float circularWave(device const float *waves, float a) {
 }
 float3 palette(float x) { return 0.55 + 0.45*cos(6.28318*(float3(0.05,0.33,0.58)+x)); }
 float glow(float distance, float width) { return exp(-abs(distance)/max(0.0001f,width)); }
-// A crisp, anti-aliased line core: full strength within `half` of the curve, fading
+// A crisp, anti-aliased line core: full strength within `radius` of the curve, fading
 // to nothing over about one device pixel, so edges stay sharp at any resolution.
-float core(float distance, float half, float px) { return 1 - smoothstep(half, half + px*1.25f, abs(distance)); }
+float core(float distance, float radius, float px) { return 1 - smoothstep(radius, radius + px*1.25f, abs(distance)); }
 fragment float4 visualizerFragment(VertexOut in [[stage_in]], constant Uniforms &u [[buffer(0)]],
                                     device const float *bands [[buffer(1)]], device const float *waves [[buffer(2)]]) {
     float2 uv = in.uv;
