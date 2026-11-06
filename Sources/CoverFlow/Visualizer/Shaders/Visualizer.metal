@@ -3,10 +3,11 @@ using namespace metal;
 
 // size, time, style, audio = (bass, mid, treble, level), onset, motion (0 with Reduce
 // Motion), beat (1 on a beat, decaying), flux (how fast the spectrum changes), drive (a
-// clock that runs faster with louder, busier music) and hue (steps on every beat).
+// clock that runs faster with louder, busier music), hue (steps on every beat) and
+// swell (the beat eased in and out, for styles that should breathe rather than jump).
 struct Uniforms {
     float2 size; float time; float style; float4 audio;
-    float onset; float motion; float beat; float flux; float drive; float hue; float2 padding;
+    float onset; float motion; float beat; float flux; float drive; float hue; float swell; float spare;
 };
 struct VertexOut { float4 position [[position]]; float2 uv; };
 vertex VertexOut visualizerVertex(uint id [[vertex_id]]) {
@@ -85,13 +86,42 @@ fragment float4 visualizerFragment(VertexOut in [[stage_in]], constant Uniforms 
             color += palette(a + float(j) * 0.16f + u.hue) * core(r - orbit, px * 0.3f, px) * (0.05f + treble * 0.2f);
         }
     } else if (style == 1) {                        // Aurora
-        for (int j = 0; j < 5; j++) {
+        // Curtains of light: each ribbon has a sharp, bright lower edge and rays that
+        // fade upward. Everything moves on smooth noise and eased audio (no raw
+        // waveform, no instant beat jumps), so it flows instead of shaking.
+        float swell = u.swell * u.motion;
+        color = mix(float3(0.004f, 0.002f, 0.02f), float3(0.0f, 0.012f, 0.03f), uv.y) + color * 0.6f;
+        for (int j = 0; j < 4; j++) {
             float f = float(j);
-            float line = sin(p.x * (2 + f * 0.4f) + d * (0.35f + f * 0.07f) + f * 0.8f) * (0.08f + bass * 0.12f + kick * 0.05f) + (f - 2) * 0.06f;
-            line += wave(waves, uv.x) * (0.05f + mid * 0.07f);
-            float dist = p.y - line;
-            float3 tint = palette(uv.x * 0.3f + f * 0.13f + d * 0.02f + u.hue);
-            color += tint * (glow(dist, 0.035f + level * 0.03f) * (0.08f + level * 0.45f + kick * 0.2f) + core(dist, px * 0.55f, px) * (0.45f + treble * 0.9f));
+            float x = p.x;
+            float drift = d * (0.05f + f * 0.012f);
+            float flow = fbm(float2(x * 0.8f + f * 3.1f + drift, drift * 0.7f + f * 1.7f));
+            float sway = sin(x * (1.1f + f * 0.23f) + d * (0.16f + f * 0.03f) + f * 1.9f);
+            float y0 = -0.16f + f * 0.075f + (flow - 0.5f) * (0.42f + bass * 0.22f + swell * 0.12f) + sway * (0.05f + mid * 0.04f);
+            float dy = p.y - y0;
+            // Long fade upward, a soft edge below.
+            float curtain = dy >= 0 ? exp(-dy * (4.2f - mid * 1.6f - swell)) : exp(dy * 38);
+            // Rays: fine vertical striations that slide sideways.
+            float rays = 0.45f + 0.55f * fbm(float2(x * 16 + f * 7 + drift * 6, d * 0.12f + f));
+            rays *= 0.75f + 0.25f * sin(x * 60 + d * 0.8f + f * 4);
+            // Each part of the curtain glows with the spectrum beneath it (softened).
+            float bx = clamp(uv.x * 0.8f + 0.1f, 0.0f, 1.0f);
+            float e = (band(bands, bx - 0.02f) + band(bands, bx) + band(bands, bx + 0.02f)) / 3;
+            float intensity = curtain * rays * (0.14f + level * 0.55f + e * 0.65f + swell * 0.35f);
+            // Psychedelic colour: shifts with height, position, time and every beat.
+            float hueShift = u.hue + f * 0.17f + max(0.0f, dy) * 1.4f + x * 0.12f + d * 0.015f;
+            float3 tint = mix(acid(hueShift), palette(hueShift + 0.3f), 0.35f);
+            color += tint * intensity * (1.1f - f * 0.15f);
+            // The bright lower edge, crisp but steady.
+            color += mix(tint, float3(1), 0.35f) * (core(dy, px * 0.6f, px) * 0.5f + glow(dy, 0.006f) * 0.35f) * (0.25f + treble * 0.55f + swell * 0.3f);
+        }
+        // A faint reflection on still water at the bottom.
+        float horizon = -0.38f;
+        if (p.y < horizon) {
+            float mirrorY = 2 * horizon - p.y;
+            float shimmer = 0.5f + 0.5f * noise(float2(p.x * 30, p.y * 120 + d * 2));
+            color += mix(float3(0.1f, 0.6f, 0.5f), acid(u.hue + p.x * 0.2f), 0.5f)
+                   * exp(-(mirrorY + 0.1f) * 3) * 0.12f * shimmer * (0.4f + level);
         }
     } else if (style == 2) {                        // Spectrum
         float x = clamp(uv.x * 0.92f + 0.04f, 0.0f, 1.0f), col = floor(x * 64);
