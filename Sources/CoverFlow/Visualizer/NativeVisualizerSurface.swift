@@ -120,6 +120,12 @@ final class MetalVisualizerRenderer: NSObject, MTKViewDelegate {
         var audio: SIMD4<Float>
         var onset: Float
         var motion: Float
+        var beat: Float
+        var flux: Float
+        /// Animation clock that runs faster when the music is louder or busier.
+        var drive: Float
+        /// Colour offset that steps on every beat and glides between them.
+        var hue: Float
         var padding = SIMD2<Float>.zero
     }
     private let audio: VisualizerAudioBuffer
@@ -130,6 +136,10 @@ final class MetalVisualizerRenderer: NSObject, MTKViewDelegate {
     private let inFlight = DispatchSemaphore(value: 3)
     private var lastTime = CACurrentMediaTime()
     private var animationTime: Double = 0
+    private var driveTime: Double = 0
+    private var hue: Double = 0
+    private var hueTarget: Double = 0
+    private var seenBeats = 0
     var playing = false
     var style = VisualizerStyle.pulse
     var response: Float = 1.25
@@ -182,10 +192,23 @@ final class MetalVisualizerRenderer: NSObject, MTKViewDelegate {
             let frames = audio.drain(into: pointer)
             signal.update(UnsafeBufferPointer(pointer), frames: frames, elapsed: elapsed, playing: playing, response: response)
         }
+        if playing {
+            // Loud, busy passages speed the motion up; beats give it a shove.
+            let push = 0.35 + 1.5 * Double(signal.level) + 1.2 * Double(signal.flux) + 1.4 * Double(signal.beat)
+            driveTime += elapsed * push
+            if signal.beatCount != seenBeats {
+                seenBeats = signal.beatCount
+                hueTarget += 0.11 + 0.08 * Double(signal.bass)
+            }
+            hue += (hueTarget - hue) * (1 - exp(-elapsed / 0.25))
+        }
         var uniforms = Uniforms(size: SIMD2(Float(view.drawableSize.width), Float(view.drawableSize.height)),
-                                time: Float(animationTime), style: Float(style.rawValue),
+                                time: Float(animationTime.truncatingRemainder(dividingBy: 3600)), style: Float(style.rawValue),
                                 audio: SIMD4(signal.bass, signal.mid, signal.treble, signal.level),
-                                onset: signal.onset, motion: reduceMotion ? 0 : 1)
+                                onset: signal.onset, motion: reduceMotion ? 0 : 1,
+                                beat: signal.beat, flux: signal.flux,
+                                drive: Float(driveTime.truncatingRemainder(dividingBy: 3600)),
+                                hue: Float(hue.truncatingRemainder(dividingBy: 1)))
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
         signal.bands.withUnsafeBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 1) }
