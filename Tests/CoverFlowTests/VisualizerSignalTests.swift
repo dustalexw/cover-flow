@@ -89,6 +89,28 @@ final class VisualizerSignalTests: XCTestCase {
         XCTAssertTrue(out.prefix(frames * 2).allSatisfy { $0 == 2 })
     }
 
+    func testBeatsAreDetectedOnKicksButNotOnASteadyTone() {
+        let signal = VisualizerSignal()
+        let silence = [Float](repeating: 0, count: 2048 * 2)
+        let kick = tone(70, amplitude: 0.6)
+        var beats = 0
+        for bar in 0..<6 {
+            // A kick, then a quarter second of near-silence, like a four-on-the-floor beat.
+            let before = signal.beatCount
+            feed(kick, into: signal)
+            if signal.beatCount > before { beats += 1; XCTAssertGreaterThan(signal.beat, 0.9, "bar \(bar)") }
+            for _ in 0..<15 { feed(silence.map { $0 + 0.0005 }, into: signal) }
+        }
+        XCTAssertGreaterThanOrEqual(beats, 5)
+        // A steady tone stops triggering once it has started.
+        let steady = VisualizerSignal()
+        for _ in 0..<5 { feed(tone(70, amplitude: 0.6), into: steady) }
+        let after = steady.beatCount
+        for _ in 0..<60 { feed(tone(70, amplitude: 0.6), into: steady) }
+        XCTAssertEqual(steady.beatCount, after)
+        XCTAssertLessThan(steady.beat, 0.05)
+    }
+
     func testSilenceAndInvalidSamplesRemainFiniteAndDark() {
         let signal = VisualizerSignal()
         feed([.nan, .infinity, -.infinity, 0], into: signal)
@@ -120,7 +142,8 @@ final class VisualizerSignalTests: XCTestCase {
             let command = try XCTUnwrap(queue.makeCommandBuffer())
             let encoder = try XCTUnwrap(command.makeRenderCommandEncoder(descriptor: pass))
             let value: Float = active ? 0.8 : 0
-            let uniforms: [Float] = [Float(width),Float(height),1,Float(style),value,value,value,value,value,1,0,0]
+            // size, time, style, audio ×4, onset, motion, beat, flux, drive, hue, padding ×2
+            let uniforms: [Float] = [Float(width),Float(height),1,Float(style),value,value,value,value,value,1,value,value,2,0.2,0,0]
             let bands = (0..<64).map { value * (0.2 + 0.8 * abs(sin(Float($0) * 0.13))) * exp(-Float($0) * 0.01) }
             let wave = (0..<512).map { active ? sin(Float($0) * 0.1) * 0.5 : 0 }
             encoder.setRenderPipelineState(pipeline)

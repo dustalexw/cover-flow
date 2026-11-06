@@ -3,8 +3,14 @@ import Foundation
 
 enum VisualizerStyle: Int, CaseIterable, Identifiable {
     case pulse, aurora, spectrum, nebula
+    /// Psychedelic: a mirrored fractal mandala, and melting, swirling liquid colour.
+    case kaleidoscope, liquid
+    /// Spacey: a jump to hyperspace, and a spiral galaxy.
+    case hyperspace, galaxy
     var id: Int { rawValue }
-    var title: String { ["Pulse", "Aurora", "Spectrum", "Nebula"][rawValue] }
+    var title: String {
+        ["Pulse", "Aurora", "Spectrum", "Nebula", "Kaleidoscope", "Liquid", "Hyperspace", "Galaxy"][rawValue]
+    }
 }
 
 /// Analyses only the visualizer's copy of the PCM; playback gain is never changed.
@@ -37,6 +43,10 @@ final class VisualizerSignal {
     private var rightImaginary = [Float](repeating: 0, count: VisualizerSignal.fftSize)
     private var magnitude = [Float](repeating: 0, count: VisualizerSignal.fftSize / 2)
     private var targets = [Float](repeating: 0, count: VisualizerSignal.bandCount)
+    private var previousTargets = [Float](repeating: 0, count: VisualizerSignal.bandCount)
+    private var fluxMean: Float = 0
+    private var fluxVariance: Float = 0
+    private var sinceBeat: Double = 1
     private var position = 0
     private var gain: Float = 1
     private var lastEnergy: Float = 0
@@ -50,6 +60,12 @@ final class VisualizerSignal {
     private(set) var treble: Float = 0
     private(set) var level: Float = 0
     private(set) var onset: Float = 0
+    /// 1 on each detected beat (a kick or strong low-end attack), then decays in ~0.2 s.
+    private(set) var beat: Float = 0
+    /// Beats so far; lets visuals change colour or direction on every hit.
+    private(set) var beatCount = 0
+    /// How fast the spectrum is changing right now (spectral flux), 0…1.
+    private(set) var flux: Float = 0
 
     func update(_ samples: UnsafeBufferPointer<Float>, frames: Int, elapsed: Double,
                 playing: Bool, response: Float = 1.25) {
@@ -92,8 +108,9 @@ final class VisualizerSignal {
             for bin in bins { peak = max(peak, magnitude[bin]) }
             // A fixed dB floor keeps true silence dark while preserving quiet detail.
             targets[band] = audible * min(1, max(0, (20 * log10(max(0.00001, peak)) + 66) / 60))
-            bands[band] = approach(bands[band], targets[band], dt, attack: 0.012, release: 0.18)
+            bands[band] = approach(bands[band], targets[band], dt, attack: 0.008, release: 0.13)
         }
+        detectBeat(dt)
         bass = envelope(bass, Self.bassBands, dt)
         mid = envelope(mid, Self.midBands, dt)
         treble = envelope(treble, Self.trebleBands, dt)
@@ -105,6 +122,37 @@ final class VisualizerSignal {
         lastEnergy = energy
         updateWave(scale: scale, dt: dt)
     }
+
+    /// Beats are moments when the low end rises much faster than it has been: spectral
+    /// flux in the bass and low mids above an adaptive threshold (mean + 1.6 standard
+    /// deviations of recent flux), at most about five a second.
+    private func detectBeat(_ dt: Double) {
+        var low: Float = 0, all: Float = 0
+        for band in targets.indices {
+            let rise = max(0, targets[band] - previousTargets[band])
+            all += rise
+            if band < Self.lowBandLimit { low += rise }
+            previousTargets[band] = targets[band]
+        }
+        low /= Float(Self.lowBandLimit)
+        all /= Float(targets.count)
+        flux = approach(flux, min(1, all * 14), dt, attack: 0.01, release: 0.15)
+        let k = Float(1 - exp(-dt / 0.6))
+        let threshold = fluxMean + 1.6 * sqrt(max(0, fluxVariance))
+        sinceBeat += dt
+        if low > threshold && low > 0.02 && sinceBeat > 0.18 {
+            beat = 1
+            beatCount &+= 1
+            sinceBeat = 0
+        } else {
+            beat *= Float(exp(-dt / 0.2))
+        }
+        let delta = low - fluxMean
+        fluxMean += k * delta
+        fluxVariance = (1 - k) * (fluxVariance + k * delta * delta)
+    }
+    /// Bands below ~250 Hz count toward beats.
+    private static let lowBandLimit = (0..<bandCount).first { frequency($0) > 250 } ?? 16
 
     /// The waveform starts at a rising zero crossing, like an oscilloscope's trigger, so
     /// a steady tone holds still instead of sliding sideways every frame, and each
@@ -146,12 +194,15 @@ final class VisualizerSignal {
     private func resetHistory() {
         for i in left.indices { left[i] = 0; right[i] = 0 }
         position = 0; gain = 1; lastEnergy = 0; hasWave = false
+        for i in previousTargets.indices { previousTargets[i] = 0 }
+        fluxMean = 0; fluxVariance = 0; sinceBeat = 1
     }
     private func decay(_ dt: Double) {
         let factor = Float(exp(-dt / 0.12))
         for i in bands.indices { bands[i] *= factor }
         for i in wave.indices { wave[i] *= factor }
         bass *= factor; mid *= factor; treble *= factor; level *= factor; onset *= factor
+        beat *= factor; flux *= factor
         lastEnergy *= factor
     }
 }
