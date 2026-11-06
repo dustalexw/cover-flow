@@ -431,7 +431,8 @@ that both architectures are present before signing the package.
 ## Music visualizer
 
 Click the waveform button or press **⌘3**. The default native Metal renderer has
-eight styles: **Pulse**, **Aurora**, **Spectrum** and **Nebula**; the psychedelic
+eight styles: **Pulse**, **Aurora** (flowing, colour-shifting curtains of light with
+rays and a reflection on still water), **Spectrum** and **Nebula**; the psychedelic
 **Kaleidoscope** (a mirrored, morphing fractal mandala with petals from the
 spectrum) and **Liquid** (melting, swirling colour with contour lines and bass
 ripples); and the spacey **Hyperspace** (stars streaking past, faster as the music
