@@ -55,7 +55,8 @@ CFVisualizer *cf_visualizer_create(const char *path) {
         v->lock(v->instance, true); // The app manages preset timing and selection.
         v->duration(v->instance, 2.5);
         v->fps(v->instance, 60);
-        v->mesh(v->instance, 96, 72);
+        // A finer warp mesh: smoother, less blocky motion on Retina-sized windows.
+        v->mesh(v->instance, 144, 108);
         v->failed(v->instance, presetFailed, v);
     } catch (const std::exception &e) { v->error = e.what(); }
     return v;
@@ -87,4 +88,7 @@ void cf_visualizer_render(CFVisualizer *v, const float *samples, unsigned frames
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         v->render(v->instance);
     } catch (const std::exception &e) { v->error = e.what(); }
+}
+void cf_visualizer_set_fps(CFVisualizer *v, int fps) {
+    if (v && v->instance && fps > 0) v->fps(v->instance, fps);
 }

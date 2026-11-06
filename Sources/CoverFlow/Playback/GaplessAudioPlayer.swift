@@ -12,6 +12,9 @@ struct AudioSource: Equatable, Sendable {
 @MainActor
 final class GaplessAudioPlayer {
     let visualizerAudio = VisualizerAudioBuffer()
+    /// Feeds the visualizer every output cycle (~10 ms) instead of the mixer tap's
+    /// 100 ms batches; the tap stays installed as the fallback.
+    private lazy var outputTap = OutputRenderTap(audio: visualizerAudio)
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private let outputMixer = AVAudioMixerNode()
@@ -71,6 +74,8 @@ final class GaplessAudioPlayer {
         updateVolume()
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             Task { @MainActor in
+                // A new output device may render in a different format; reattach.
+                self?.outputTap.uninstall()
                 guard let self, let source = self.source else { return }
                 self.load(source, autoplay: self.wantsPlayback, at: self.currentTime)
             }
@@ -238,7 +243,10 @@ final class GaplessAudioPlayer {
         #if os(iOS)
         try AVAudioSession.sharedInstance().setActive(true)
         #endif
-        if !engine.isRunning { try engine.start() }
+        if !engine.isRunning {
+            try engine.start()
+            outputTap.install(on: engine)
+        }
         // Every stem must be armed before the shared start time reaches the
         // render thread. Cold multi-node starts need more headroom on slower Macs.
         let lead = source?.stemFiles?.isEmpty == false ? 0.15 : 0.03

@@ -17,7 +17,9 @@ struct MilkDropSurface: NSViewRepresentable {
 final class MilkDropGLView: NSOpenGLView {
     private weak var controller: VisualizerController?
     private var visualizer: OpaquePointer?
-    private var timer: Timer?
+    /// Fires in step with the screen's refresh (120 Hz on ProMotion), unlike a timer.
+    private var frameLink: CADisplayLink?
+    private var renderedFPS = 0
     private var loadedRevision = -1
     private var audio = Array(repeating: Float(0), count: 8192)
     private var lastSize = NSSize.zero
@@ -43,7 +45,9 @@ final class MilkDropGLView: NSOpenGLView {
         guard visualizer == nil else { return }
         guard openGLContext != nil else { report("This display couldn’t create a visualizer context."); return }
         openGLContext?.makeCurrentContext()
-        var interval: GLint = 1
+        // The display link already paces frames; waiting for vsync again inside
+        // flushBuffer would stall the main thread and drop every other frame.
+        var interval: GLint = 0
         openGLContext?.setValues(&interval, for: .swapInterval)
         let library = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/libprojectM-4.dylib")
         visualizer = cf_visualizer_create(library.path)
@@ -55,13 +59,16 @@ final class MilkDropGLView: NSOpenGLView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        timer?.invalidate()
-        guard window != nil else { timer = nil; return }
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.renderFrame() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        frameLink?.invalidate()
+        frameLink = nil
+        guard window != nil else { return }
+        let link = displayLink(target: self, selector: #selector(displayLinkFired(_:)))
+        link.add(to: .main, forMode: .common)
+        frameLink = link
+    }
+
+    @objc private func displayLinkFired(_ link: CADisplayLink) {
+        renderFrame()
     }
 
     func updatePreset() {
@@ -82,7 +89,14 @@ final class MilkDropGLView: NSOpenGLView {
               window.occlusionState.contains(.visible), controller?.isOpen == true else { return }
         controller?.tick()
         updatePreset()
+        // Tell projectM the real frame rate so its motion runs at the right speed.
+        if let visualizer, let fps = window.screen?.maximumFramesPerSecond, fps > 0, fps != renderedFPS {
+            renderedFPS = fps
+            openGLContext?.makeCurrentContext()
+            cf_visualizer_set_fps(visualizer, Int32(fps))
+        }
         needsDisplay = true
+        displayIfNeeded()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -114,8 +128,8 @@ final class MilkDropGLView: NSOpenGLView {
         DispatchQueue.main.async { [weak self] in self?.controller?.error = message }
     }
     func shutdown() {
-        timer?.invalidate()
-        timer = nil
+        frameLink?.invalidate()
+        frameLink = nil
         openGLContext?.makeCurrentContext()
         cf_visualizer_destroy(visualizer)
         visualizer = nil
