@@ -51,6 +51,44 @@ final class VisualizerSignalTests: XCTestCase {
         XCTAssertEqual(slow.level, fast.level, accuracy: 0.0001)
         XCTAssertEqual(slow.bass, fast.bass, accuracy: 0.0001)
     }
+    func testWaveformHoldsStillOnASteadyTone() {
+        // Feed a 440 Hz tone in uneven chunks, as audio callbacks arrive; the trigger
+        // keeps each frame's waveform starting at a rising zero crossing.
+        let signal = VisualizerSignal()
+        let all = (0..<48_000).flatMap { index -> [Float] in
+            let value = 0.2 * sin(2 * Float.pi * 440 * Float(index) / 48_000)
+            return [value, value]
+        }
+        var offset = 0
+        var starts: [Float] = []
+        for chunk in [301, 799, 512, 1024, 433, 857, 600, 777, 512, 960] {
+            let slice = Array(all[(offset * 2)..<((offset + chunk) * 2)])
+            offset += chunk
+            feed(slice, into: signal)
+            starts.append(signal.wave[0])
+        }
+        // After the first frames ease in, the start sits at the crossing every time.
+        for value in starts.suffix(5) { XCTAssertEqual(value, 0, accuracy: 0.08) }
+        XCTAssertGreaterThan(signal.wave[20], signal.wave[0])
+    }
+
+    func testOutputCyclesTakeOverFromTheMixerTap() {
+        let buffer = VisualizerAudioBuffer()
+        buffer.setEnabled(true)
+        let ones = [Float](repeating: 1, count: 256), twos = [Float](repeating: 2, count: 256)
+        // Without output cycles the tap feeds the visualizer.
+        ones.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256) }
+        var out = [Float](repeating: 0, count: 8192)
+        XCTAssertEqual(out.withUnsafeMutableBufferPointer { buffer.drain(into: $0) }, 256)
+        // Once output cycles arrive, tap buffers are ignored (no double counting).
+        twos.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256, fromOutput: true) }
+        ones.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256) }
+        XCTAssertTrue(buffer.receivesOutputCycles)
+        let frames = out.withUnsafeMutableBufferPointer { buffer.drain(into: $0) }
+        XCTAssertEqual(frames, 256)
+        XCTAssertTrue(out.prefix(frames * 2).allSatisfy { $0 == 2 })
+    }
+
     func testSilenceAndInvalidSamplesRemainFiniteAndDark() {
         let signal = VisualizerSignal()
         feed([.nan, .infinity, -.infinity, 0], into: signal)

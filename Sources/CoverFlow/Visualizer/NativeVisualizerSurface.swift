@@ -33,12 +33,16 @@ struct NativeVisualizerSurface: UIViewRepresentable {
 
 extension NativeVisualizerSurface {
     @MainActor fileprivate func makeView(renderer: MetalVisualizerRenderer) -> MTKView {
-        let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
+        let view = VisualizerMTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         view.colorPixelFormat = .bgra8Unorm_srgb
         view.clearColor = MTLClearColorMake(0.003, 0.006, 0.016, 1)
         view.framebufferOnly = true
         view.autoResizeDrawable = true
         view.preferredFramesPerSecond = 60
+        #if os(macOS)
+        // Show every frame as soon as it's drawn rather than waiting on Core Animation.
+        (view.layer as? CAMetalLayer)?.displaySyncEnabled = true
+        #endif
         do { try renderer.prepare(view) }
         catch { DispatchQueue.main.async { onError(error.localizedDescription) } }
         configure(view, renderer: renderer)
@@ -48,8 +52,63 @@ extension NativeVisualizerSurface {
     @MainActor fileprivate func configure(_ view: MTKView, renderer: MetalVisualizerRenderer) {
         renderer.playing = playing; renderer.style = style; renderer.response = response
         renderer.reduceMotion = reduceMotion
-        view.preferredFramesPerSecond = renderer.reduceMotion ? 15 : (highQuality ? 60 : 30)
+        if let view = view as? VisualizerMTKView {
+            view.rate = reduceMotion ? .reduced : (highQuality ? .display : .balanced)
+        } else {
+            view.preferredFramesPerSecond = reduceMotion ? 15 : (highQuality ? 60 : 30)
+        }
     }
+}
+
+/// An MTKView that always renders at the screen's full pixel density and, in High
+/// quality, at the display's own refresh rate (120 Hz on ProMotion screens).
+final class VisualizerMTKView: MTKView {
+    enum Rate { case display, balanced, reduced }
+    var rate: Rate = .display { didSet { applyRate() } }
+
+    private func applyRate() {
+        switch rate {
+        case .reduced: preferredFramesPerSecond = 15
+        case .balanced: preferredFramesPerSecond = 30
+        case .display:
+            #if os(macOS)
+            preferredFramesPerSecond = max(60, window?.screen?.maximumFramesPerSecond ?? 60)
+            #else
+            preferredFramesPerSecond = max(60, window?.screen.maximumFramesPerSecond ?? 60)
+            #endif
+        }
+    }
+
+    #if os(macOS)
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        matchBacking()
+        applyRate()
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        matchBacking()
+        applyRate()
+    }
+    /// Keeps the drawable at device pixels, so lines are drawn sharp rather than
+    /// rendered small and scaled up.
+    private func matchBacking() {
+        guard let scale = window?.backingScaleFactor else { return }
+        layer?.contentsScale = scale
+        let size = convertToBacking(bounds).size
+        if size.width > 0, size.height > 0, drawableSize != size { drawableSize = size }
+    }
+    override func layout() {
+        super.layout()
+        matchBacking()
+    }
+    #else
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        contentScaleFactor = window?.screen.nativeScale ?? contentScaleFactor
+        applyRate()
+    }
+    #endif
 }
 
 @MainActor
