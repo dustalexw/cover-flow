@@ -357,10 +357,23 @@ that both architectures are present before signing the package.
 ## Music visualizer
 
 Click the waveform button or press **⌘3**. The default native Metal renderer has
-four styles: **Pulse**, **Aurora**, **Spectrum** and **Nebula**. It renders at the
-window’s backing resolution, with antialiased lines, layered glow and color
-mapping that preserves highlights. The High setting targets 60 fps; Balanced
-uses 30 fps. Actual performance depends on the Mac and window size.
+eight styles: **Pulse**, **Aurora** (flowing, colour-shifting curtains of light with
+rays and a reflection on still water), **Spectrum** and **Nebula**; the psychedelic
+**Kaleidoscope** (a mirrored, morphing fractal mandala with petals from the
+spectrum) and **Liquid** (melting, swirling colour with contour lines and bass
+ripples); and the spacey **Hyperspace** (stars streaking past, faster as the music
+gets louder) and **Galaxy** (a spiral galaxy whose core swells with the bass,
+with a ring of the spectrum in orbit). It renders at the window’s backing
+resolution, with antialiased lines, layered glow and color mapping that preserves
+highlights. The High setting follows the display’s refresh rate (120 Hz on
+ProMotion); Balanced uses 30 fps. Actual performance depends on the Mac and window
+size.
+
+Every style reacts to beats: kicks are detected from sudden rises in the low end
+(an adaptive threshold, so steady bass doesn't keep triggering), and each one
+punches the picture (shockwave rings, zooms, flares) and steps the colours. Motion
+runs faster in loud, busy passages and slows in quiet ones. Audio comes from each
+output cycle, about 10 ms at a time, so the picture moves with what you hear.
 
 Bass, midrange, treble and transients drive separate visual elements. The analyser
 combines stereo power after the FFT, keeps quiet recordings visible, and avoids

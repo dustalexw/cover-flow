@@ -51,6 +51,66 @@ final class VisualizerSignalTests: XCTestCase {
         XCTAssertEqual(slow.level, fast.level, accuracy: 0.0001)
         XCTAssertEqual(slow.bass, fast.bass, accuracy: 0.0001)
     }
+    func testWaveformHoldsStillOnASteadyTone() {
+        // Feed a 440 Hz tone in uneven chunks, as audio callbacks arrive; the trigger
+        // keeps each frame's waveform starting at a rising zero crossing.
+        let signal = VisualizerSignal()
+        let all = (0..<48_000).flatMap { index -> [Float] in
+            let value = 0.2 * sin(2 * Float.pi * 440 * Float(index) / 48_000)
+            return [value, value]
+        }
+        var offset = 0
+        var starts: [Float] = []
+        for chunk in [301, 799, 512, 1024, 433, 857, 600, 777, 512, 960] {
+            let slice = Array(all[(offset * 2)..<((offset + chunk) * 2)])
+            offset += chunk
+            feed(slice, into: signal)
+            starts.append(signal.wave[0])
+        }
+        // After the first frames ease in, the start sits at the crossing every time.
+        for value in starts.suffix(5) { XCTAssertEqual(value, 0, accuracy: 0.08) }
+        XCTAssertGreaterThan(signal.wave[20], signal.wave[0])
+    }
+
+    func testOutputCyclesTakeOverFromTheMixerTap() {
+        let buffer = VisualizerAudioBuffer()
+        buffer.setEnabled(true)
+        let ones = [Float](repeating: 1, count: 256), twos = [Float](repeating: 2, count: 256)
+        // Without output cycles the tap feeds the visualizer.
+        ones.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256) }
+        var out = [Float](repeating: 0, count: 8192)
+        XCTAssertEqual(out.withUnsafeMutableBufferPointer { buffer.drain(into: $0) }, 256)
+        // Once output cycles arrive, tap buffers are ignored (no double counting).
+        twos.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256, fromOutput: true) }
+        ones.withUnsafeBufferPointer { buffer.append(left: $0.baseAddress!, right: $0.baseAddress!, frames: 256) }
+        XCTAssertTrue(buffer.receivesOutputCycles)
+        let frames = out.withUnsafeMutableBufferPointer { buffer.drain(into: $0) }
+        XCTAssertEqual(frames, 256)
+        XCTAssertTrue(out.prefix(frames * 2).allSatisfy { $0 == 2 })
+    }
+
+    func testBeatsAreDetectedOnKicksButNotOnASteadyTone() {
+        let signal = VisualizerSignal()
+        let silence = [Float](repeating: 0, count: 2048 * 2)
+        let kick = tone(70, amplitude: 0.6)
+        var beats = 0
+        for bar in 0..<6 {
+            // A kick, then a quarter second of near-silence, like a four-on-the-floor beat.
+            let before = signal.beatCount
+            feed(kick, into: signal)
+            if signal.beatCount > before { beats += 1; XCTAssertGreaterThan(signal.beat, 0.9, "bar \(bar)") }
+            for _ in 0..<15 { feed(silence.map { $0 + 0.0005 }, into: signal) }
+        }
+        XCTAssertGreaterThanOrEqual(beats, 5)
+        // A steady tone stops triggering once it has started.
+        let steady = VisualizerSignal()
+        for _ in 0..<5 { feed(tone(70, amplitude: 0.6), into: steady) }
+        let after = steady.beatCount
+        for _ in 0..<60 { feed(tone(70, amplitude: 0.6), into: steady) }
+        XCTAssertEqual(steady.beatCount, after)
+        XCTAssertLessThan(steady.beat, 0.05)
+    }
+
     func testSilenceAndInvalidSamplesRemainFiniteAndDark() {
         let signal = VisualizerSignal()
         feed([.nan, .infinity, -.infinity, 0], into: signal)
@@ -82,7 +142,8 @@ final class VisualizerSignalTests: XCTestCase {
             let command = try XCTUnwrap(queue.makeCommandBuffer())
             let encoder = try XCTUnwrap(command.makeRenderCommandEncoder(descriptor: pass))
             let value: Float = active ? 0.8 : 0
-            let uniforms: [Float] = [Float(width),Float(height),1,Float(style),value,value,value,value,value,1,0,0]
+            // size, time, style, audio ×4, onset, motion, beat, flux, drive, hue, padding ×2
+            let uniforms: [Float] = [Float(width),Float(height),1,Float(style),value,value,value,value,value,1,value,value,2,0.2,0,0]
             let bands = (0..<64).map { value * (0.2 + 0.8 * abs(sin(Float($0) * 0.13))) * exp(-Float($0) * 0.01) }
             let wave = (0..<512).map { active ? sin(Float($0) * 0.1) * 0.5 : 0 }
             encoder.setRenderPipelineState(pipeline)

@@ -12,6 +12,8 @@ const char *cf_visualizer_error(CFVisualizer *visualizer);
 bool cf_visualizer_load(CFVisualizer *visualizer, const char *preset, bool transition);
 void cf_visualizer_resize(CFVisualizer *visualizer, size_t width, size_t height);
 void cf_visualizer_render(CFVisualizer *visualizer, const float *samples, unsigned frames);
+// The display's refresh rate, so preset motion keeps its speed at 60 or 120 Hz.
+void cf_visualizer_set_fps(CFVisualizer *visualizer, int fps);
 #ifdef __cplusplus
 }
 #endif
