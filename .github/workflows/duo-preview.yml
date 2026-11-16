@@ -45,7 +45,7 @@ jobs:
           export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
           set -x
           TYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if 'Duo' in d['name']]; print(t[0] if t else '')")
-          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable']]; print(r[-1])")
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable'] and any('Duo' in d['name'] for d in x.get('supportedDeviceTypes',[]))]; print(r[-1])")
           echo "type=$TYPE runtime=$RUNTIME"
           test -n "$TYPE"
           UDID=$(xcrun simctl create duo "$TYPE" "$RUNTIME")
