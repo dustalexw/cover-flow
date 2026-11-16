@@ -74,11 +74,14 @@ struct Demucs {
         if (session.GetInputCount()!=1 || session.GetOutputCount()!=1) throw std::runtime_error("This is not a Demucs stem model.");
         Ort::AllocatorWithDefaultOptions allocator;
         input = session.GetInputNameAllocated(0,allocator).get(); output = session.GetOutputNameAllocated(0,allocator).get();
-        auto in = session.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo();
+        // Keep each TypeInfo alive: the shape info is a view into it.
+        auto inputType = session.GetInputTypeInfo(0);
+        auto in = inputType.GetTensorTypeAndShapeInfo();
         auto dims = in.GetShape();
         if (in.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || dims.size()!=3 || (dims[0]>=0 && dims[0]!=1) || dims[1]!=2) throw std::runtime_error("This is not a Demucs stem model.");
         segment = dims[2] > 0 ? dims[2] : 343980;
-        auto out = session.GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo();
+        auto outputType = session.GetOutputTypeInfo(0);
+        auto out = outputType.GetTensorTypeAndShapeInfo();
         auto odims = out.GetShape();
         if (out.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || odims.size()!=4) throw std::runtime_error("This is not a Demucs stem model.");
         stems = odims[1] > 0 ? odims[1] : (hint == 4 || hint == 6 ? hint : 0);
