@@ -63,7 +63,7 @@ struct MobileSettingsView: View {
       }
       Section("Karaoke on iPhone or iPad") {
         Text(
-          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPhone or iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav, or a whole Demucs stem set for instrument isolation and Stem Mix."
+          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Demucs (4 or 6 stems) downloads once from Karaoke → Add and separates drums, bass, guitar, piano, vocals and other on this device. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPhone or iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav, or a whole Demucs stem set for instrument isolation and Stem Mix."
         ).font(.footnote)
         Text("Keep the app open while preparing. No audio or model files are uploaded.").font(
           .footnote

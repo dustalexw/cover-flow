@@ -85,8 +85,20 @@ struct MobileStemButtons: View {
   @EnvironmentObject private var player: PlayerEngine
   @EnvironmentObject private var karaoke: MobileKaraokeStore
   @State private var mixing = false
+  /// A Demucs model that can prepare instrument stems: the selected one, or another added one.
+  private var demucs: MobileKaraokeModel? {
+    if let selected = karaoke.selected, selected.backend == .demucs { return selected }
+    return karaoke.models.last { $0.backend == .demucs }
+  }
   private var instruments: [AudioStem] {
-    (karaoke.audio?.availableStems ?? []).filter { $0 != .vocals && $0 != .instrumental }
+    let prepared = (karaoke.audio?.availableStems ?? []).filter {
+      $0 != .vocals && $0 != .instrumental
+    }
+    if !prepared.isEmpty { return prepared }
+    // Not prepared yet: offer the Demucs model's stems; tapping one prepares them all.
+    return (demucs?.stems ?? []).compactMap(AudioStem.init(rawValue:)).filter {
+      $0 != .vocals && $0 != .instrumental
+    }
   }
   var body: some View {
     if !instruments.isEmpty {
@@ -107,6 +119,9 @@ struct MobileStemButtons: View {
               .accessibilityLabel(player.karaokePlayback == mode ? "Original audio" : "Only \(stem.title)")
               .accessibilityValue(player.karaokePlayback == mode ? "Selected" : "")
             }
+            if karaoke.processing {
+              ProgressView(value: karaoke.progress).frame(width: 60)
+            }
             Divider().frame(height: 28)
             Button {
               mixing = true
@@ -126,6 +141,13 @@ struct MobileStemButtons: View {
   }
   private func select(_ mode: KaraokePlayback) {
     guard let track = player.currentTrack else { return }
+    // Like the Mac: an instrument choice switches to Demucs when needed, then
+    // prepares every stem and plays the chosen one from the current position.
+    if mode != .original, karaoke.audio?.availableStems.contains(where: { $0.rawValue == mode.rawValue }) != true,
+      let demucs, karaoke.selectedID != demucs.id
+    {
+      karaoke.select(demucs.id, player: player)
+    }
     let engine = player
     karaoke.request(mode, track: track) { [weak engine] mode, audio in
       guard let engine, engine.currentTrackID == track.id else { return }

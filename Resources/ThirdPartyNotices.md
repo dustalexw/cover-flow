@@ -125,3 +125,10 @@ The runtime includes inference dependencies julius (MIT), safetensors (Apache-2.
 and tqdm (MPL-2.0/MIT), whose license files accompany their distribution metadata.
 Optional Demucs CLI, audio codecs, training and quantization dependencies are not
 installed; Cover Flow uses its native decoder and a restricted safetensors loader.
+
+## HTDemucs ONNX models (iPhone and iPad)
+
+The iPhone and iPad apps can download HTDemucs exported to ONNX
+(`adowu/htdemucs-onnx`, `adowu/htdemucs-6s-onnx` on Hugging Face), derived from
+Meta's Demucs by Rouard, Massa and Défossez. MIT license. The models are downloaded
+on request and verified by SHA-256; they are not bundled with the app.

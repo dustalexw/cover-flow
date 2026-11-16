@@ -114,6 +114,14 @@ struct MobileKaraokeView: View {
         if modelBusy || karaoke.importingModel { ProgressView() }
         Menu {
           Button("Add Model…", systemImage: "plus") { importModel = true }
+          Button(
+            "Download Demucs · 4 stems (\(MobileKaraokeStore.demucs4.megabytes) MB)",
+            systemImage: "arrow.down.circle"
+          ) { Task { await karaoke.download(MobileKaraokeStore.demucs4, player: player) } }
+          Button(
+            "Download Demucs · 6 stems, adds guitar & piano (\(MobileKaraokeStore.demucs6.megabytes) MB)",
+            systemImage: "arrow.down.circle"
+          ) { Task { await karaoke.download(MobileKaraokeStore.demucs6, player: player) } }
           Button("Import Prepared Stems or Demucs Set…", systemImage: "square.and.arrow.down") {
             stemTrack = player.currentTrack
             importStems = true
@@ -125,7 +133,14 @@ struct MobileKaraokeView: View {
           }
         } label: {
           Label("Add", systemImage: "plus")
-        }.disabled(karaoke.processing || karaoke.importingModel || modelBusy)
+        }.disabled(
+          karaoke.processing || karaoke.importingModel || modelBusy || karaoke.downloading != nil)
+      }
+      if let downloading = karaoke.downloading {
+        HStack(spacing: 10) {
+          ProgressView()
+          Text("Downloading \(downloading)…").font(.caption)
+        }
       }
       if !karaoke.models.isEmpty || karaoke.audio != nil {
         Picker(
@@ -137,10 +152,12 @@ struct MobileKaraokeView: View {
           ForEach(karaoke.models) { Text($0.name).tag(Optional($0.id)) }
         }.pickerStyle(.menu).disabled(karaoke.processing || karaoke.importingModel || modelBusy)
       }
-      if karaoke.selected != nil {
+      if let selected = karaoke.selected {
         Text(
-          karaoke.selected?.backend == .mdx
-            ? "MDX · Core ML GPU preferred · CPU fallback" : "Converted waveform model · Core ML"
+          selected.backend == .demucs
+            ? "HTDemucs · \((selected.stems ?? []).map(\.capitalized).joined(separator: ", ")) · on-device CPU"
+            : selected.backend == .mdx
+              ? "MDX · Core ML GPU preferred · CPU fallback" : "Converted waveform model · Core ML"
         ).font(.caption).foregroundStyle(.secondary)
       } else if karaoke.audio != nil {
         Text("Imported prepared stems").font(.caption).foregroundStyle(.secondary)

@@ -15,6 +15,64 @@ import Foundation
   @Published private(set) var progress = 0.0
   @Published private(set) var stage = ""
   @Published var error: String?
+  /// The built-in model being downloaded, if any.
+  @Published private(set) var downloading: String?
+
+  /// HTDemucs ONNX exports (MIT), pinned to a revision and verified by SHA-256.
+  struct BuiltInModel {
+    let title: String
+    let filename: String
+    let url: URL
+    let sha256: String
+    let megabytes: Int
+  }
+  static let demucs4 = BuiltInModel(
+    title: "Demucs · 4 stems", filename: "htdemucs_fp16weights.onnx",
+    url: URL(
+      string:
+        "https://huggingface.co/adowu/htdemucs-onnx/resolve/e6b688a9a9f977e2efaba79d0f18b9b0cfc606ea/htdemucs_fp16weights.onnx"
+    )!,
+    sha256: "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a", megabytes: 166)
+  static let demucs6 = BuiltInModel(
+    title: "Demucs · 6 stems", filename: "htdemucs_6s_fp16weights.onnx",
+    url: URL(
+      string:
+        "https://huggingface.co/adowu/htdemucs-6s-onnx/resolve/d83893853e32af79f4ddc8d97d7e513eb5058d14/htdemucs_6s_fp16weights.onnx"
+    )!,
+    sha256: "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869", megabytes: 136)
+
+  /// Downloads a Demucs model once, verifies it and adds it to the selector.
+  func download(_ builtIn: BuiltInModel, player: PlayerEngine) async {
+    guard downloading == nil, !processing, !importingModel else { return }
+    if let existing = models.first(where: { $0.digest == builtIn.sha256 }) {
+      select(existing.id, player: player)
+      return
+    }
+    downloading = builtIn.title
+    defer { downloading = nil }
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "ModelDownload-" + UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    do {
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      let (temporary, response) = try await URLSession.shared.download(from: builtIn.url)
+      guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        throw NativeKaraokeError.message("The \(builtIn.title) download failed. Try again later.")
+      }
+      let file = folder.appendingPathComponent(builtIn.filename)
+      try FileManager.default.moveItem(at: temporary, to: file)
+      let digest = try await Task.detached(priority: .userInitiated) {
+        try MobileKaraokeModel.digest(file)
+      }.value
+      guard digest == builtIn.sha256 else {
+        throw NativeKaraokeError.message("The downloaded model didn’t match its checksum.")
+      }
+      try await importModel(file)
+      player.setKaraokePlayback(.original)
+    } catch {
+      self.error = error.localizedDescription
+    }
+  }
   private var worker: Task<Void, Never>?
   private var cancellation: NativeKaraokeCancellation?
   private var currentTrack: Track?
@@ -89,7 +147,19 @@ import Foundation
         }
       }.value
       let ext = source.pathExtension.lowercased()
-      let backend: MobileKaraokeModel.Backend = ext == "onnx" ? .mdx : .coreML
+      var backend: MobileKaraokeModel.Backend = ext == "onnx" ? .mdx : .coreML
+      var stems: [String]?
+      if ext == "onnx" {
+        // HTDemucs exports take a stereo waveform and return 4 or 6 stems; MDX
+        // models take spectra and fail this check.
+        let count = await Task.detached(priority: .userInitiated) {
+          (try? CFDemucsRuntime(path: destination.path))?.stemCount
+        }.value
+        if let count, let names = DemucsSeparation.stemNames(count: count) {
+          backend = .demucs
+          stems = names
+        }
+      }
       guard ["onnx", "mlmodel", "mlmodelc", "mlpackage"].contains(ext) else {
         throw NativeKaraokeError.message(
           "Add an ONNX MDX or converted Core ML model. The iPad cannot execute raw Python/PyTorch checkpoint files."
@@ -97,7 +167,7 @@ import Foundation
       }
       let catalog = Bundle.main.url(forResource: "mdx-model-data", withExtension: "json")
       let parameters: MDXParameters?
-      if backend == .mdx {
+      if backend == .mdx && stems == nil {
         guard let config = settings ?? catalog else {
           throw NativeKaraokeError.message("Import this model’s matching UVR JSON settings.")
         }
@@ -116,9 +186,11 @@ import Foundation
         try? FileManager.default.removeItem(at: folder)
       } else {
         let model = MobileKaraokeModel(
-          id: id, name: source.deletingPathExtension().lastPathComponent,
+          id: id,
+          name: stems.map { "Demucs · \($0.count) stems" }
+            ?? source.deletingPathExtension().lastPathComponent,
           filename: source.lastPathComponent, digest: digest, parameters: parameters,
-          backend: backend)
+          backend: backend, stems: stems)
         models.append(model)
         selectedID = id
       }
@@ -281,13 +353,14 @@ import Foundation
     let folder = root.appendingPathComponent(key, isDirectory: true)
     var audio = KaraokeAudio(
       key: key, trackID: track.id, frames: frames, sampleRate: 44100, modelSHA256: model.digest,
-      directory: job)
+      directory: job, stemNames: model.backend == .demucs ? model.stems : nil)
     try audio.validate()
     // Never move the potentially huge source/scratch files into the saved stems.
     let staging = root.appendingPathComponent(".saved-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: staging) }
-    for name in ["vocals.wav", "instrumental.wav"] {
+    let names = Set(["vocals", "instrumental"] + (audio.stemNames ?? [])).map { $0 + ".wav" }
+    for name in names {
       try FileManager.default.moveItem(
         at: job.appendingPathComponent(name), to: staging.appendingPathComponent(name))
     }

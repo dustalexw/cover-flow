@@ -58,7 +58,7 @@ phone layout. iPad uses the same expanded layout as the inner display.
 | Find Lyrics / Artwork Online | ✓ |
 | Synced lyrics, offsets, line seeking | ✓ |
 | Karaoke: MDX ONNX incl. Inst_HQ_5, Core ML | ✓ Native, Core ML GPU with CPU fallback |
-| Demucs instruments and Stem Mix | ✓ Playback, isolation buttons, Stem Mix (levels, mute, multi-solo, reset) and stem export for Demucs sets prepared on the Mac and imported (**Karaoke → Add → Import Prepared Stems or Demucs Set…**, choose the stem WAVs or their folder) |
+| Demucs instruments and Stem Mix | ✓ On-device HTDemucs (4 stems, or 6 with guitar and piano): **Karaoke → Add → Download Demucs**, then tap an instrument icon. Also imports Demucs sets prepared on the Mac. Isolation buttons, Stem Mix (levels, mute, multi-solo, reset) and stem export |
 | Visualizer: four Metal styles, Auto, full screen, ← → | ✓ |
 | Last.fm | ✓ |
 | Keyboard shortcuts | ✓ ⌘P, ⌘← ⌘→, ⌥⌘← ⌥⌘→, ⌘↑ ⌘↓, ⌥⌘↓, ⌃⌘S, ⌃⌘R, ⌘1–⌘5, ⌘U, ⌘L, ⌘F, ⇧⌘A, ⌥⌘1/2/3, ⌘, |
@@ -66,9 +66,10 @@ phone layout. iPad uses the same expanded layout as the inner display.
 
 Not available on iPhone, and why:
 
-- **Running Demucs or Becruily (PyTorch) separation on the phone.** These need the
-  Mac's Python/PyTorch runtime. Prepare on the Mac and import the stems; MDX ONNX
-  and converted Core ML models do run on the phone.
+- **Becruily (PyTorch) separation on the phone.** It needs the Mac's Python/PyTorch
+  runtime; prepare on the Mac and import the stems. Demucs, MDX ONNX and converted
+  Core ML models run on the phone. Demucs runs on the CPU (about a 7.8-second
+  chunk at a time), so a song takes a few minutes; keep the app open meanwhile.
 - **MilkDrop / projectM presets.** projectM targets desktop OpenGL; the four native
   Metal styles are available instead.
 - **Stable Diffusion scene refinement** (Extend/Subtle/Ornate). The 1.6 GB Mac
