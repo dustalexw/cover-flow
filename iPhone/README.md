@@ -22,8 +22,8 @@ display gets the layout that fits it:
 | Display and pose | Size classes | Cover Flow |
 | --- | --- | --- |
 | Outer display, closed | Compact width | Phone layout: Collection, Up Next, Lyrics and Karaoke tabs with Visualizer and Settings under More, and the mini-player above the tabs |
-| Inner display, open flat | Regular × regular | Mac-like layout: sidebar, Cover Flow or Grid with the album's tracks beside it, and a full-width player bar |
-| Inner display, book (fold vertical) | Regular × regular | Two pages: covers on the left, the album panel on the right. The sidebar tucks away (tap the sidebar button to show it). The player bar keeps track info on the left page and every control on the right page |
+| Inner display, open flat | Regular × regular | Cover Flow or Grid fills the display, with a full-width player bar; albums open over it. The sidebar button shows Up Next, Lyrics, Karaoke, Visualizer and Settings |
+| Inner display, book (fold vertical) | Regular × regular | Cover Flow still fills the display. The player bar keeps track info on the left page and every control on the right page; Album View, Karaoke and Immersive put content on one page and controls on the other |
 | Inner display, tabletop (fold horizontal) | Regular × regular | **Album View stands up**: artwork, titles and the current lyric lines above the fold; transport, volume, karaoke and stems below it. **Browse** returns to the collection until you change pose |
 
 Details:
@@ -32,9 +32,10 @@ Details:
   Karaoke page (controls on one page, lyrics on the other) and Immersive Album View
   (cover on one page or above the fold) read the fold from SwiftUI's reserved
   regions. Grids in book posture use an even number of columns.
+- **Background playback.** Music keeps playing when you leave the app, lock the
+  phone or fold it, with lock-screen and Control Center controls.
 - **Folding and unfolding keeps your place.** The selected tab, focused cover,
-  playback and Album View carry over. An album open in a sheet on the outer display
-  moves into the side panel when you unfold; folding again doesn't pop a sheet up.
+  playback, an open album and Album View carry over.
 - **Hinge effect.** Partly folded like a laptop, the covers lean back slightly with
   the hinge angle, like records on a shelf. It is only an effect: layout never
   depends on the angle, and Reduce Motion turns it off.
@@ -48,7 +49,7 @@ phone layout. iPad uses the same expanded layout as the inner display.
 | Mac feature | iPhone / iPhone Duo |
 | --- | --- |
 | Cover Flow, Grid, search, sort, multi-album selection | ✓ Touch, plus ← → Home End Page Up/Down and Return with a keyboard |
-| Album track panel | ✓ Beside the covers on the inner display; a sheet on the outer display |
+| Album track panel | ✓ Opens over Cover Flow |
 | Album View: Compact, Large, Immersive | ✓ Player bar, Album View sheet, and full-screen Immersive with auto-hiding controls, F for artwork focus and Escape to close |
 | Immersive artwork scenes | ✓ Same scene generator as the Mac, around the cover's actual position; regenerated per layout and pose |
 | Gapless playback, queue, shuffle, repeat | ✓ |

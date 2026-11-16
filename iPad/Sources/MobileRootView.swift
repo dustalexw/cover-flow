@@ -188,7 +188,9 @@ struct MobileImportToolbar: ToolbarContent {
 struct MobileExpandedShell: View {
   let importFiles: (Bool) -> Void
   @EnvironmentObject private var app: MobileEnvironment
-  @State private var columns: NavigationSplitViewVisibility = .automatic
+  /// The sidebar starts tucked away so Cover Flow fills the display; the sidebar
+  /// button brings it back.
+  @State private var columns: NavigationSplitViewVisibility = .detailOnly
   /// Set when the person leaves the tabletop player to browse; cleared when the pose changes.
   @State private var tabletopBrowsing = false
   var body: some View {
@@ -201,10 +203,8 @@ struct MobileExpandedShell: View {
         }
       }
       .environment(\.foldGeometry, fold)
-      .onChange(of: fold.posture, initial: true) { old, posture in
+      .onChange(of: fold.posture) { old, posture in
         if posture != old { tabletopBrowsing = false }
-        // Book posture: two pages, browser and album, with the sidebar tucked away.
-        columns = posture == .book ? .detailOnly : .automatic
       }
     }
   }
@@ -236,48 +236,7 @@ struct MobileExpandedShell: View {
     .safeAreaInset(edge: .bottom, spacing: 0) { MobilePlaybackBar(fold: fold) }
   }
   @ViewBuilder private var detail: some View {
-    if app.tab == .library {
-      MobileLibraryPanes(importFiles: importFiles)
-    } else {
-      MobileDestination(tab: app.tab, inlineAlbums: false, importFiles: importFiles)
-    }
-  }
-}
-
-/// The collection with album tracks beside it, like the Mac's album panel. Narrow
-/// windows fall back to the sheet.
-struct MobileLibraryPanes: View {
-  let importFiles: (Bool) -> Void
-  @EnvironmentObject private var app: MobileEnvironment
-  @EnvironmentObject private var library: LibraryStore
-  @EnvironmentObject private var player: PlayerEngine
-  var body: some View {
-    FoldReader { fold in
-      if fold.prefersTwoPanes {
-        FoldSplit(ratio: 0.56) {
-          MobileCollectionView(importFiles: importFiles, inlineAlbums: true)
-        } trailing: {
-          if let id = app.albumPanel, library.album(id) != nil {
-            MobileAlbumView(albumID: id, embedded: true) { app.albumPanel = nil }
-              .id(id)
-          } else {
-            ContentUnavailableView {
-              Label("Choose an album", systemImage: "square.stack.3d.up")
-            } description: {
-              Text("Its tracks appear here, beside your covers.")
-            } actions: {
-              if let playing = player.currentAlbumID {
-                Button("Show Playing Album") {
-                  app.albumPanel = playing
-                  app.revealPlaying += 1
-                }
-              }
-            }
-          }
-        }
-      } else {
-        MobileCollectionView(importFiles: importFiles, inlineAlbums: false)
-      }
-    }
+    // Cover Flow takes the whole display; albums open over it.
+    MobileDestination(tab: app.tab, inlineAlbums: false, importFiles: importFiles)
   }
 }

@@ -33,21 +33,22 @@ import SwiftUI
     switch layout {
     case .expanded:
       if tab == .more { tab = .settings }
-      if let id = albumSheet {
-        albumPanel = id
-        albumSheet = nil
-      }
     case .compact:
       // The panel stays remembered for the next unfold; nothing pops up on the small display.
       break
     }
   }
   init() {
+    // Background playback needs the .playback category. The long-form policy
+    // (music, podcasts) doesn't accept category options and throws if given any,
+    // which used to leave the default category — audio that stops in the
+    // background and on lock. AirPlay and Bluetooth are allowed by default.
+    let session = AVAudioSession.sharedInstance()
     do {
-      try AVAudioSession.sharedInstance().setCategory(
-        .playback, mode: .default, policy: .longFormAudio,
-        options: [.allowAirPlay, .allowBluetoothA2DP])
-    } catch {}
+      try session.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
+    } catch {
+      try? session.setCategory(.playback, mode: .default, options: [])
+    }
     let library = LibraryStore()
     let scrobbler = LastFmScrobbler()
     self.library = library

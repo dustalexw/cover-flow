@@ -40,7 +40,9 @@ struct MobileCoverLayout {
   init(width: Double, height: Double) {
     let w = width.isFinite && width > 0 ? width : 320
     let h = height.isFinite && height > 0 ? height : 300
-    coverSide = max(80, min(340, w * 0.72, max(80, h - 150)))
+    // Wide displays (iPhone Duo's inner display, iPad) get large covers that fill the stage.
+    let wide = w >= 600
+    coverSide = max(80, min(wide ? 560 : 340, w * (wide ? 0.5 : 0.72), max(80, h - 150)))
     stageHeight = max(h, coverSide + 142)
   }
   static func snapOffset(predicted: Double, step: Double, count: Int) -> Double {

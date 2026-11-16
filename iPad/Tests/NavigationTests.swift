@@ -18,7 +18,7 @@ final class NavigationTests: XCTestCase {
     for (width, height) in [(320.0, 350.0), (390, 540), (844, 140), (1024, 650)] {
       let layout = MobileCoverLayout(width: width, height: height)
       XCTAssertLessThanOrEqual(layout.coverSide, width * 0.72)
-      XCTAssertLessThanOrEqual(layout.coverSide, 340)
+      XCTAssertLessThanOrEqual(layout.coverSide, width >= 600 ? 560 : 340)
       XCTAssertGreaterThanOrEqual(layout.stageHeight, layout.coverSide + 142)
       XCTAssertGreaterThanOrEqual(layout.stageHeight, height)
     }
