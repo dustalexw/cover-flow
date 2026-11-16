@@ -80,6 +80,15 @@ import SwiftUI
           engine.play(albumID: first.id)
           engine.pause()
         }
+        // -CoverFlowShow albumView | immersive | album | <tab> opens that view for review.
+        switch UserDefaults.standard.string(forKey: "CoverFlowShow") ?? "" {
+        case "albumView": self.nowPlaying = true
+        case "immersive": self.immersive = true
+        case "album":
+          self.albumPanel = library.albums.first?.id
+          self.albumSheet = library.albums.first?.id
+        case let value: if let tab = MobileTab(rawValue: value) { self.tab = tab }
+        }
       }
     }
     let albumIDs = Set(library.albums.map(\.id))

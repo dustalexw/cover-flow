@@ -58,18 +58,29 @@ jobs:
           sleep 25
           xcrun simctl io "$UDID" screenshot shots/01-default.png || true
           xcrun simctl io "$UDID" enumerate 2>&1 | tee shots/displays.txt || true
-          xcrun simctl io "$UDID" screenshot --display=1 shots/outer.png || true
-          xcrun simctl io "$UDID" screenConfig --display=3 2>&1 | tee shots/screenconfig.txt || true
-          xcrun simctl io "$UDID" screenConfig --display=3 help 2>&1 | tee -a shots/screenconfig.txt || true
-          xcrun simctl io "$UDID" screenConfig --display=1 2>&1 | tee -a shots/screenconfig.txt || true
-          xcrun simctl io "$UDID" screenshot --display=3 shots/inner.png 2>&1 || true
-          for arg in "power off" "off" "state off" "disconnect"; do
-            xcrun simctl io "$UDID" screenConfig --display=1 $arg 2>&1 | tee -a shots/screenconfig.txt || true
-          done
-          sleep 10
-          xcrun simctl io "$UDID" screenshot --display=3 shots/inner-2.png 2>&1 || true
-          ls /Applications/Xcode_27.2.app/Contents/Developer/usr/bin/ | tee shots/devtools.txt
-          xcrun simctl help 2>&1 | tee shots/simctl-help.txt
+          BUNDLE=app.coverflow.player.iphone
+          shoot() { # name display [CoverFlowShow]
+            xcrun simctl terminate "$UDID" $BUNDLE 2>/dev/null || true
+            if [ -n "${3:-}" ]; then xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession -CoverFlowShow "$3"
+            else xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession; fi
+            sleep 12
+            xcrun simctl io "$UDID" screenshot --display=$2 "shots/$1.png" 2>&1 || true
+          }
+          shoot outer-collection 1
+          shoot outer-album 1 album
+          shoot outer-albumview 1 albumView
+          # Unfold: the outer display off, the inner display on.
+          xcrun simctl io "$UDID" screenConfig --display=1 power off 2>&1 | tee shots/screenconfig.txt || true
+          xcrun simctl io "$UDID" screenConfig --display=3 power on 2>&1 | tee -a shots/screenconfig.txt || true
+          sleep 8
+          shoot inner-collection 3
+          shoot inner-album 3 album
+          shoot inner-albumview 3 albumView
+          shoot inner-immersive 3 immersive
+          shoot inner-karaoke 3 karaoke
+          xcrun simctl io "$UDID" screenConfig --display=3 geometry 2853x2007 2>&1 | tee -a shots/screenconfig.txt || true
+          sleep 6
+          shoot inner-landscape 3 album
       - uses: actions/upload-artifact@v4
         if: always()
         with:
