@@ -72,7 +72,10 @@ import SwiftUI
     if ProcessInfo.processInfo.arguments.contains("-CoverFlowDemoSession") {
       let engine = player
       Task { @MainActor in
-        if library.albums.isEmpty { await library.addDemoCollection() }
+        if library.albums.isEmpty {
+          await library.addDemoCollection()
+          library.lastReport = nil
+        }
         if let first = library.albums.first, engine.currentTrackID == nil {
           engine.play(albumID: first.id)
           engine.pause()

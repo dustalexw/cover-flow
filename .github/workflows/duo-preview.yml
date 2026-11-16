@@ -58,13 +58,18 @@ jobs:
           sleep 25
           xcrun simctl io "$UDID" screenshot shots/01-default.png || true
           xcrun simctl io "$UDID" enumerate 2>&1 | tee shots/displays.txt || true
-          for d in internal external 1 2; do xcrun simctl io "$UDID" screenshot --display=$d "shots/02-display-$d.png" 2>&1 || true; done
-          xcrun simctl ui "$UDID" 2>&1 | tee shots/ui-help.txt || true
-          for posture in closed folded open flat book tabletop halfOpen partiallyOpen; do
-            xcrun simctl ui "$UDID" posture $posture 2>&1 | tee -a shots/posture.txt || true
-            xcrun simctl ui "$UDID" hinge $posture 2>&1 | tee -a shots/posture.txt || true
+          xcrun simctl io "$UDID" screenshot --display=1 shots/outer.png || true
+          xcrun simctl io "$UDID" screenConfig --display=3 2>&1 | tee shots/screenconfig.txt || true
+          xcrun simctl io "$UDID" screenConfig --display=3 help 2>&1 | tee -a shots/screenconfig.txt || true
+          xcrun simctl io "$UDID" screenConfig --display=1 2>&1 | tee -a shots/screenconfig.txt || true
+          xcrun simctl io "$UDID" screenshot --display=3 shots/inner.png 2>&1 || true
+          for arg in "power off" "off" "state off" "disconnect"; do
+            xcrun simctl io "$UDID" screenConfig --display=1 $arg 2>&1 | tee -a shots/screenconfig.txt || true
           done
-          xcrun simctl spawn "$UDID" log show --last 2m --predicate 'process == "Cover Flow"' --style compact 2>/dev/null | tail -80 > shots/app-log.txt || true
+          sleep 10
+          xcrun simctl io "$UDID" screenshot --display=3 shots/inner-2.png 2>&1 || true
+          ls /Applications/Xcode_27.2.app/Contents/Developer/usr/bin/ | tee shots/devtools.txt
+          xcrun simctl help 2>&1 | tee shots/simctl-help.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
