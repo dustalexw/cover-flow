@@ -15,7 +15,7 @@ permissions:
 jobs:
   screenshots:
     runs-on: xcode-27
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 27.1 or later
@@ -90,7 +90,13 @@ jobs:
             else xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession; fi
             sleep 15
             xcrun simctl io "$UDID" screenshot "shots/$1.png" 2>&1 || true
+            xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -i coverflow > "shots/$1-running.txt" || echo "not running" > "shots/$1-running.txt"
           }
+          xcrun simctl launch --stdout="$PWD/shots/pad-stdout.txt" --stderr="$PWD/shots/pad-stderr.txt" "$UDID" $BUNDLE -CoverFlowDemoSession || true
+          sleep 20
+          xcrun simctl io "$UDID" screenshot shots/expanded-first.png || true
+          xcrun simctl spawn "$UDID" log show --last 3m --predicate 'process == "Cover Flow"' --style compact 2>/dev/null | tail -150 > shots/pad-log.txt || true
+          cp ~/Library/Logs/DiagnosticReports/*Cover* shots/ 2>/dev/null || true
           shootpad expanded-collection
           shootpad expanded-album album
           shootpad expanded-albumview albumView
