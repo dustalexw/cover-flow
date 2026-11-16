@@ -55,8 +55,10 @@ phone layout. iPad uses the same expanded layout as the inner display.
 | Gapless playback, queue, shuffle, repeat | ✓ |
 | Formats: Opus, Vorbis, Speex, Monkey's Audio, WavPack, WMA, DSD, Musepack, TTA, TAK, Shorten, DTS, Wave64, Matroska/WebM | ✓ With the iOS FFmpeg build (`build-ios-native.sh`); Opus and the system formats otherwise |
 | Replace Artwork embeds the cover in audio files | ✓ With the iOS TagLib build, in the app's imported copies only (never in Files/iCloud originals) |
-| Find Lyrics / Artwork Online | ✓ |
-| Synced lyrics, offsets, line seeking | ✓ |
+| Find Lyrics / Artwork Online | ✓ Find Artwork Online has Front, Back, Disc and Booklet tabs and the same sources (Cover Art Archive editions, TheAudioDB, fanart.tv) |
+| Turning covers over: back covers, disc art, booklets | ✓ Flip button under the centred cover, tap the cover in an album, or F. All four styles: flip with discs sliding out, flip with a spinning disc, back only, and open like a jewel case with the booklet in the lid. Art is found beside imported music, in tags (with TagLib), online, or chosen from Files |
+| Synced lyrics, offsets, line seeking | ✓ With word-by-word highlighting for enhanced LRC |
+| Lyripass: library lyrics status, Get Lyrics for many tracks, editor, export | ✓ **Lyrics → ⋯ → Lyrics Library**: synced/plain/missing for every track, Get Lyrics from LRCLIB for missing, unsynced or all tracks, and export .lrc or .txt to Files. **Edit & Sync Lyrics**: plain editing, tap-along line sync, ±0.1 s nudges, word timings, slow-down to 50%, checks, LRC import and paste |
 | Karaoke: MDX ONNX incl. Inst_HQ_5, Core ML | ✓ Native, Core ML GPU with CPU fallback |
 | Demucs instruments and Stem Mix | ✓ On-device HTDemucs (4 stems, or 6 with guitar and piano): **Karaoke → Add → Download Demucs**, then tap an instrument icon. Also imports Demucs sets prepared on the Mac. Isolation buttons, Stem Mix (levels, mute, multi-solo, reset) and stem export |
 | Visualizer: four Metal styles, Auto, full screen, ← → | ✓ |
@@ -93,5 +95,7 @@ Not available on iPhone, and why:
 | ⇧⌘A; ⌥⌘1/2/3 | Album View; Compact / Large / Immersive |
 | In Immersive Album View | Space, ← →, F artwork focus, Escape close |
 | In Karaoke | 1/2/3 Original/Karaoke/Vocals, P prepare |
+| In Cover Flow | F turns the centred cover over |
+| In the lyrics editor | ⌘Return syncs the selected line; Space times the next word in Word Timings |
 
 Features and native model requirements are documented in [the mobile guide](../iPad/README.md).

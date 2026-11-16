@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// An album's tracks and actions. Presented as a sheet on compact displays, and as
 /// the trailing pane beside the browser on wide displays such as iPhone Duo's inner
@@ -16,6 +17,10 @@ struct MobileAlbumView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var editing = false
   @State private var downloadArtwork = false
+  @State private var downloadKind: ArtworkKind = .front
+  /// Which kind of picture "Choose Artwork from Files" is picking.
+  @State private var choosingExtra: (kind: AlbumImageKind, disc: Int?)?
+  @State private var choosingFiles = false
   @State private var appearance = false
   @State private var remove = false
   @State private var photo: PhotosPickerItem?
@@ -79,12 +84,11 @@ struct MobileAlbumView: View {
           }
           ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 32) {
-              MobileArtwork(album: album, pixels: 1400).frame(width: 300)
+              MobileFlipArtwork(album: album, size: 300)
               header(album).frame(minWidth: 200)
             }
             VStack(alignment: .leading, spacing: 24) {
-              MobileArtwork(album: album, pixels: 1000).frame(maxWidth: 340).frame(
-                maxWidth: .infinity)
+              MobileFlipArtwork(album: album, size: 320).frame(maxWidth: .infinity)
               header(album)
             }
           }
@@ -131,10 +135,66 @@ struct MobileAlbumView: View {
             Color(hex: $0).relativeLuminance < 0.179 ? ColorScheme.dark : .light
           } ?? schemeFallback)
         .sheet(isPresented: $downloadArtwork) {
-          ArtworkDownloadView(album: album, saveDescription: artworkTags.saveDescription) { data in
-            guard library.album(album.id) != nil else { throw MusicLookupError.itemRemoved }
-            try library.setArtwork(album.id, data: data)
-            artworkTags.embed(data, album: album.id)
+          ArtworkDownloadView(
+            album: album,
+            saveDescription: artworkTags.saveDescription
+              + " Back covers, disc art and booklets stay in the collection and show when you flip the cover.",
+            discCount: library.discNumbers(of: album).max() ?? 1, initialKind: downloadKind,
+            currentImage: { kind, disc in
+              guard let album = library.album(albumID) else { return nil }
+              let file: String?
+              switch kind {
+              case .front: file = album.artworkFile
+              case .back: file = album.backImage?.file
+              case .disc: file = album.discImages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+              case .booklet: file = album.bookletPages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+              }
+              return file.map { library.artwork.fileURL($0) }
+            },
+            onUse: { data in
+              guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+              try library.setArtwork(albumID, data: data)
+              artworkTags.embed(data, album: albumID)
+            },
+            onUseExtras: { images in
+              guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+              await library.replaceExtraImages(albumID, with: images)
+            },
+            onRemoveExtras: { items in library.removeExtraImages(albumID, only: items) })
+        }
+        .fileImporter(
+          isPresented: $choosingFiles, allowedContentTypes: [.image],
+          allowsMultipleSelection: choosingExtra?.kind == .booklet
+        ) { result in
+          guard let target = choosingExtra, case .success(let urls) = result, !urls.isEmpty else { return }
+          let sorted = urls.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+          }
+          Task {
+            let pages = await Task.detached(priority: .userInitiated) { () -> [Data] in
+              sorted.prefix(40).compactMap { url in
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url), data.count <= 40 * 1024 * 1024 else { return nil }
+                return data
+              }
+            }.value
+            guard !pages.isEmpty else {
+              library.notice = "Couldn’t read that image file."
+              return
+            }
+            if target.kind == .booklet {
+              let saved = await library.setBookletPages(albumID, pages: pages)
+              library.notice = saved > 0
+                ? "Saved a \(saved)-page booklet. Open the cover like a jewel case to see it."
+                : "Couldn’t use those files as booklet pages."
+            } else {
+              let saved = await library.replaceExtraImages(
+                albumID, with: [(kind: target.kind, disc: target.disc, data: pages[0])])
+              library.notice = saved > 0
+                ? "Saved. Flip the cover to see it."
+                : "Couldn’t use that file as artwork. Choose a JPEG, PNG, HEIC or other image."
+            }
           }
         }
         .sheet(isPresented: $editing) { MobileAlbumEditor(album: album) }
@@ -174,20 +234,54 @@ struct MobileAlbumView: View {
       }
       Button("Edit Album", systemImage: "pencil") { editing = true }
       Button("Colors & Scene", systemImage: "paintpalette") { appearance = true }
-      Button("Find Artwork Online…", systemImage: "photo.badge.magnifyingglass") { downloadArtwork = true }
+      Button("Find Artwork Online…", systemImage: "photo.badge.magnifyingglass") {
+        downloadKind = .front
+        downloadArtwork = true
+      }
+      if !album.isDemo {
+        Button("Find Back Cover & Disc Art Online…", systemImage: "opticaldisc") {
+          downloadKind = album.backImage == nil ? .back : .disc
+          downloadArtwork = true
+        }
+        Button("Fill In Missing Back & Disc Art", systemImage: "wand.and.stars") {
+          library.findExtraArt([album.id])
+        }.disabled(library.extraArtProgress != nil || library.importing)
+      }
       PhotosPicker(selection: $photo, matching: .images) {
         Label("Replace Artwork", systemImage: "photo")
+      }
+      Menu("Choose Artwork from Files", systemImage: "folder") {
+        Button("Back Cover…") { chooseFiles(.back, nil) }
+        let discs = library.discNumbers(of: album).sorted()
+        if discs.count > 1 {
+          ForEach(discs, id: \.self) { number in
+            Button("Disc \(number) Art…") { chooseFiles(.disc, number) }
+          }
+        } else {
+          Button("Disc Art…") { chooseFiles(.disc, discs.first ?? 1) }
+        }
+        Button("Booklet Pages…") { chooseFiles(.booklet, nil) }
       }
       if album.hasArtwork {
         Button("Remove Artwork", systemImage: "photo.badge.minus") {
           library.removeArtwork(album.id)
         }
       }
+      if album.hasExtraImages {
+        Button(
+          album.bookletPages.isEmpty ? "Remove Back & Disc Art" : "Remove Back, Disc & Booklet Art",
+          systemImage: "rectangle.badge.minus"
+        ) { library.removeExtraImages(album.id) }
+      }
       Divider()
       Button("Remove Album", systemImage: "trash", role: .destructive) { remove = true }
     } label: {
       Image(systemName: "ellipsis.circle").font(embedded ? .title2 : .body).frame(width: 44, height: 44)
     }.accessibilityLabel("Album actions")
+  }
+  private func chooseFiles(_ kind: AlbumImageKind, _ disc: Int?) {
+    choosingExtra = (kind, disc)
+    choosingFiles = true
   }
   private func header(_ album: Album) -> some View {
     VStack(alignment: .leading, spacing: 14) {

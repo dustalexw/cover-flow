@@ -11,6 +11,7 @@ import SwiftUI
   private var observers: [NSObjectProtocol] = []
   private var resumeAfterInterruption = false
   let artworkTags: MobileArtworkTagging
+  let lyricsLibrary = MobileLyricsLibrary()
   @Published var tab: MobileTab = .library
   /// Album View: Large (sheet) and Immersive (full screen). Compact is the playback bar.
   @Published var nowPlaying = false
@@ -142,7 +143,7 @@ import SwiftUI
         app.player
       ).environmentObject(app.scrobbler).environmentObject(app.lyrics).environmentObject(
         app.karaoke
-      ).environmentObject(app.artworkTags)
+      ).environmentObject(app.artworkTags).environmentObject(app.lyricsLibrary)
       .tint(MobilePalette.brass)
       .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
       .onChange(of: phase) { _, value in if value != .active { app.save() } }

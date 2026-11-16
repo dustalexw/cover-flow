@@ -81,6 +81,16 @@ struct MobileRootView: View {
     .onChange(of: player.currentTrackID, initial: true) { _, _ in
       karaoke.refresh(player.currentTrack)
     }
+    .overlay(alignment: .bottom) {
+      if let progress = library.extraArtProgress {
+        HStack(spacing: 10) {
+          ProgressView()
+          Text(progress).font(.caption).lineLimit(1)
+        }
+        .padding(12).background(.regularMaterial, in: Capsule()).padding(.bottom, 90)
+        .frame(maxWidth: 600)
+      }
+    }
     .overlay(alignment: .top) {
       if library.importing {
         HStack {

@@ -224,7 +224,16 @@ final class GaplessPlaybackTests: XCTestCase {
             samples.append(contentsOf: UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
         }
         var tapped = Array(repeating: Float(0), count: 8192)
-        let tappedFrames = tapped.withUnsafeMutableBufferPointer { visualizerAudio.drain(into: $0) }
+        var tappedFrames = 0
+        // The tap hands its buffers over asynchronously; on a slow runner they can arrive
+        // after rendering ends. Render a little more and wait briefly before checking.
+        for _ in 0..<40 where tappedFrames == 0 {
+            tappedFrames = tapped.withUnsafeMutableBufferPointer { visualizerAudio.drain(into: $0) }
+            if tappedFrames == 0 {
+                _ = try engine.renderOffline(1_024, to: output)
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
         XCTAssertGreaterThan(tappedFrames, 0)
         XCTAssertTrue(tapped.prefix(tappedFrames * 2).contains { abs($0) > 0.15 })
         // A constant signal makes even one inserted zero frame observable.

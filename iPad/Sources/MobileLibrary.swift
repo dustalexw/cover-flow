@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 
 struct MobileImportReport: Identifiable {
   let id = UUID()
@@ -25,6 +26,8 @@ struct MobileLibraryFile: Codable {
   @Published private(set) var importLabel = ""
   @Published var lastReport: MobileImportReport?
   @Published var notice: String?
+  /// What “Find Back Covers & Disc Art” is doing, while it runs.
+  @Published var extraArtProgress: String?
   let artwork = ArtworkStore()
   var onTracksRemoved: ((Set<UUID>) -> Void)?
   var onMetadataChanged: (() -> Void)?
@@ -102,6 +105,7 @@ struct MobileLibraryFile: Codable {
     }
     var report = MobileImportReport()
     var fingerprints = Set(tracks.values.map(\.fingerprint))
+    var extraChecked = Set<String>()
     let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
     defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
     let discovered = await Task.detached(priority: .userInitiated) { Self.enumerate(urls) }.value
@@ -161,6 +165,12 @@ struct MobileLibraryFile: Codable {
         if albums[albumIndex].artworkFile == nil {
           let art = meta.artwork ?? MetadataReader.folderArtwork(near: source)
           if let art { try? setArtwork(albums[albumIndex].id, data: art) }
+        }
+        // Back covers, disc art and booklets beside the original file or in its tags.
+        let disc = max(1, meta.discNumber ?? 1)
+        let extraKey = "\(albums[albumIndex].id)|\(disc)|\(source.deletingLastPathComponent().path)"
+        if extraChecked.insert(extraKey).inserted {
+          await addLocalExtraArtwork(albumID: albums[albumIndex].id, audio: source, disc: disc)
         }
         report.added += 1
         if report.added % 10 == 0 { saveNow() }
@@ -284,6 +294,7 @@ struct MobileLibraryFile: Codable {
     }
     let emptyAlbums = albums.filter { affectedAlbums.contains($0.id) && $0.trackIDs.isEmpty }
     for album in emptyAlbums {
+      artwork.removeExtras(album.extraImages ?? [])
       if let artworkFile = album.artworkFile {
         try? FileManager.default.removeItem(
           at: AppPaths.artwork.appendingPathComponent((artworkFile as NSString).lastPathComponent))
@@ -296,7 +307,7 @@ struct MobileLibraryFile: Codable {
 }
 
 final class ArtworkStore: @unchecked Sendable {
-  private let cache = NSCache<NSString, UIImage>()
+  let cache = NSCache<NSString, UIImage>()
   init() {
     cache.totalCostLimit = 80 * 1024 * 1024
     cache.countLimit = 180
@@ -323,5 +334,233 @@ final class ArtworkStore: @unchecked Sendable {
       cache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * 4))
     }
     return image
+  }
+}
+
+// MARK: Back covers, disc art and booklets (as on the Mac)
+
+extension ArtworkStore {
+  func fileURL(_ name: String) -> URL { AppPaths.artwork.appendingPathComponent((name as NSString).lastPathComponent) }
+
+  /// Writes a back cover, disc or booklet image as "<album>_<kind><n>-<uuid>.ext",
+  /// the same names the Mac uses. Safe off the main thread.
+  func saveExtra(data: Data, albumID: UUID, kind: AlbumImageKind, disc: Int? = nil) throws -> AlbumImage {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0,
+      let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+    else { throw CocoaError(.fileReadCorruptFile) }
+    var width = (props[kCGImagePropertyPixelWidth] as? Int) ?? 0
+    var height = (props[kCGImagePropertyPixelHeight] as? Int) ?? 0
+    if let orientation = props[kCGImagePropertyOrientation] as? Int, orientation >= 5 { swap(&width, &height) }
+    guard width > 0, height > 0 else { throw CocoaError(.fileReadCorruptFile) }
+    let type = (CGImageSourceGetType(source) as String?).flatMap { UTType($0) }
+    let ext = type?.preferredFilenameExtension ?? "img"
+    let label = kind == .back ? "back" : kind == .disc ? "disc\(disc ?? 1)" : "booklet\(disc ?? 1)"
+    let name = "\(albumID.uuidString)_\(label)-\(UUID().uuidString).\(ext)"
+    try FileManager.default.createDirectory(at: AppPaths.artwork, withIntermediateDirectories: true)
+    try data.write(to: fileURL(name), options: .atomic)
+    return AlbumImage(kind: kind, file: name, disc: kind == .back ? nil : (disc ?? 1), pixelWidth: width, pixelHeight: height)
+  }
+
+  func removeExtras(_ images: [AlbumImage]) {
+    for image in images {
+      try? FileManager.default.removeItem(at: fileURL(image.file))
+      for pixels in [256, 512, 900, 1400, 2000] { cache.removeObject(forKey: "\(image.file)-\(pixels)" as NSString) }
+    }
+  }
+
+  /// Rounds a point size to a few cache sizes so scrolling reuses decoded images.
+  static func bucket(_ pixels: CGFloat) -> Int {
+    [256, 512, 900, 1400, 2000].first { CGFloat($0) >= pixels } ?? 2000
+  }
+
+  func cachedExtra(_ image: AlbumImage, pixels: Int) -> UIImage? {
+    cache.object(forKey: "\(image.file)-\(pixels)" as NSString)
+  }
+
+  func extra(_ image: AlbumImage, pixels: Int) async -> UIImage? {
+    let key = "\(image.file)-\(pixels)" as NSString
+    if let cached = cache.object(forKey: key) { return cached }
+    let url = fileURL(image.file)
+    let decoded = await Task.detached(priority: .utility) { () -> UIImage? in
+      guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        let image = CGImageSourceCreateThumbnailAtIndex(
+          source, 0,
+          [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: pixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+          ] as CFDictionary)
+      else { return nil }
+      return UIImage(cgImage: image)
+    }.value
+    if let decoded { cache.setObject(decoded, forKey: key, cost: Int(decoded.size.width * decoded.size.height * 4)) }
+    return decoded
+  }
+}
+
+extension LibraryStore {
+  /// Disc numbers of the album's tracks (1 when untagged).
+  func discNumbers(of album: Album) -> Set<Int> {
+    let discs = Set(tracks(of: album).map { max(1, $0.discNumber ?? 1) })
+    return discs.isEmpty ? [1] : discs
+  }
+
+  /// Whether the album still lacks a back cover or art for one of its discs.
+  func needsExtraArt(_ album: Album) -> Bool {
+    guard !album.isDemo else { return false }
+    let have = Set(album.discImages.compactMap(\.disc))
+    return album.backImage == nil || !discNumbers(of: album).isSubset(of: have)
+  }
+
+  /// Back, disc and booklet images beside `audio` or in its tags, for kinds and discs
+  /// the album doesn't have yet. Returns how many were added.
+  @discardableResult
+  func addLocalExtraArtwork(albumID: UUID, audio: URL, disc: Int) async -> Int {
+    guard let album = album(albumID) else { return 0 }
+    let have = Set((album.extraImages ?? []).map { "\($0.kind.rawValue)\($0.disc ?? 0)" })
+    let store = artwork
+    let saved = await Task.detached(priority: .utility) { () -> [AlbumImage] in
+      ExtraArtworkReader.read(for: audio, trackDisc: disc)
+        .filter { !have.contains("\($0.kind.rawValue)\($0.disc ?? 0)") }
+        .compactMap { try? store.saveExtra(data: $0.data, albumID: albumID, kind: $0.kind, disc: $0.disc) }
+    }.value
+    guard !saved.isEmpty else { return 0 }
+    guard let index = albums.firstIndex(where: { $0.id == albumID }) else {
+      store.removeExtras(saved)
+      return 0
+    }
+    albums[index].extraImages = (albums[index].extraImages ?? []) + saved
+    saveNow()
+    return saved.count
+  }
+
+  /// Saves images for an album, replacing the ones it had of the same kind and disc
+  /// (or booklet page). Returns how many were saved.
+  @discardableResult
+  func replaceExtraImages(_ id: UUID, with items: [(kind: AlbumImageKind, disc: Int?, data: Data)]) async -> Int {
+    guard album(id) != nil, !items.isEmpty else { return 0 }
+    let store = artwork
+    let payload = items.map { ($0.kind, $0.disc, $0.data) }
+    let saved = await Task.detached(priority: .userInitiated) { () -> [AlbumImage] in
+      payload.compactMap { try? store.saveExtra(data: $0.2, albumID: id, kind: $0.0, disc: $0.1) }
+    }.value
+    guard let index = albums.firstIndex(where: { $0.id == id }) else {
+      store.removeExtras(saved)
+      return 0
+    }
+    let replaced = Set(saved.map { "\($0.kind.rawValue)\($0.disc ?? 0)" })
+    let old = (albums[index].extraImages ?? []).filter { replaced.contains("\($0.kind.rawValue)\($0.disc ?? 0)") }
+    albums[index].extraImages = (albums[index].extraImages ?? []).filter {
+      !replaced.contains("\($0.kind.rawValue)\($0.disc ?? 0)")
+    } + saved
+    store.removeExtras(old)
+    saveNow()
+    return saved.count
+  }
+
+  /// Removes all of the album's back, disc and booklet art (audio files untouched).
+  func removeExtraImages(_ id: UUID) {
+    guard let index = albums.firstIndex(where: { $0.id == id }), let images = albums[index].extraImages else { return }
+    artwork.removeExtras(images)
+    albums[index].extraImages = nil
+    saveNow()
+  }
+
+  /// Removes particular images (a nil disc matches disc 1).
+  func removeExtraImages(_ id: UUID, only items: [(kind: AlbumImageKind, disc: Int?)]) {
+    guard let index = albums.firstIndex(where: { $0.id == id }), let images = albums[index].extraImages,
+      !items.isEmpty
+    else { return }
+    func key(_ kind: AlbumImageKind, _ disc: Int?) -> String { "\(kind.rawValue)\(kind == .back ? 0 : (disc ?? 1))" }
+    let keys = Set(items.map { key($0.kind, $0.disc) })
+    let gone = images.filter { keys.contains(key($0.kind, $0.disc)) }
+    guard !gone.isEmpty else { return }
+    artwork.removeExtras(gone)
+    let rest = images.filter { image in !gone.contains { $0.file == image.file } }
+    albums[index].extraImages = rest.isEmpty ? nil : rest
+    saveNow()
+  }
+
+  /// Booklet pages chosen by hand, in order, replace the album's booklet.
+  func setBookletPages(_ id: UUID, pages: [Data]) async -> Int {
+    guard let album = album(id), !pages.isEmpty else { return 0 }
+    let old = album.bookletPages.compactMap(\.disc)
+    let saved = await replaceExtraImages(
+      id, with: pages.prefix(40).enumerated().map { (kind: AlbumImageKind.booklet, disc: Optional($0.offset + 1), data: $0.element) })
+    removeExtraImages(id, only: old.filter { $0 > min(40, pages.count) }.map { (kind: AlbumImageKind.booklet, disc: Optional($0)) })
+    return saved
+  }
+
+  /// Fills in missing back covers and disc art for the albums: their own files first
+  /// (for music imported before this existed, nothing is left to read, since only the
+  /// audio was copied), then online — Cover Art Archive, TheAudioDB, and fanart.tv
+  /// with a key — for albums MusicBrainz matches confidently. Existing art is kept.
+  func findExtraArt(_ ids: [UUID]) {
+    guard extraArtProgress == nil, !importing else {
+      notice = "Cover Flow is busy. Try again when the current import or search finishes."
+      return
+    }
+    let targets = ids.compactMap { album($0) }.filter { needsExtraArt($0) }
+    guard !targets.isEmpty else {
+      notice = ids.count == 1
+        ? "This album already has a back cover and disc art. Use Find Artwork Online… to replace them."
+        : "Every album already has a back cover and disc art."
+      return
+    }
+    let fanartKey = ExtraArtSettings.fanartKey
+    extraArtProgress = "Finding back & disc art…"
+    Task {
+      var improved = 0, unmatched = 0, failed = 0
+      search: for (n, target) in targets.enumerated() {
+        extraArtProgress = "Back & disc art \(n + 1) of \(targets.count): \(target.title)"
+        guard let album = album(target.id), needsExtraArt(album) else { continue }
+        do {
+          if let count = try await downloadExtraArt(album, fanartKey: fanartKey) {
+            if count > 0 { improved += 1 }
+          } else {
+            unmatched += 1
+          }
+        } catch {
+          failed += 1
+          if case MusicLookupError.rateLimited = error { break search }
+        }
+      }
+      extraArtProgress = nil
+      var message = targets.count == 1
+        ? (improved == 1
+          ? "Added back cover or disc art to “\(targets[0].title)”. Flip the cover in Cover Flow to see it."
+          : unmatched == 1
+            ? "Couldn’t find “\(targets[0].title)” on MusicBrainz with that title and artist. Try Find Artwork Online… to search by hand."
+            : "No back cover or disc art found for “\(targets[0].title)”.")
+        : "Added back covers or disc art to \(improved) of \(targets.count) albums."
+      if targets.count > 1 && unmatched > 0 { message += " \(unmatched) couldn’t be matched on MusicBrainz." }
+      if failed > 0 { message += " \(failed) lookup\(failed == 1 ? "" : "s") failed; try again later." }
+      notice = message
+    }
+  }
+
+  /// Downloads online back/disc art the album lacks. Nil when no confident match.
+  private func downloadExtraArt(_ album: Album, fanartKey: String?) async throws -> Int? {
+    let client = MusicLookupClient.shared
+    guard let match = try await client.bestMatch(title: album.title, artist: album.artist) else { return nil }
+    let haveDiscs = Set(album.discImages.compactMap(\.disc))
+    let albumDiscs = discNumbers(of: album)
+    var found = await client.albumExtras(match, fanartKey: fanartKey)
+    if albumDiscs == [1], !found.contains(where: { $0.kind == .disc && $0.disc == 1 }),
+      let first = found.first(where: { $0.kind == .disc })
+    {
+      found.append(CoverArtExtra(kind: .disc, disc: 1, url: first.url, source: first.source))
+    }
+    let wanted = found.filter { extra in
+      extra.kind == .back
+        ? album.backImage == nil
+        : extra.kind == .disc && albumDiscs.contains(extra.disc ?? 1) && !haveDiscs.contains(extra.disc ?? 1)
+    }
+    var images: [(kind: AlbumImageKind, disc: Int?, data: Data)] = []
+    for extra in wanted {
+      try Task.checkCancellation()
+      if let data = try? await client.extraImage(extra) { images.append((extra.kind, extra.disc, data)) }
+    }
+    return images.isEmpty ? 0 : await replaceExtraImages(album.id, with: images)
   }
 }

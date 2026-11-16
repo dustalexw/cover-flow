@@ -209,6 +209,9 @@ struct MobileCoverFlow<MenuContent: View>: View {
   let onOpen: (Album) -> Void
   @ViewBuilder var menuContent: (Album) -> MenuContent
   @State private var focused: UUID?
+  /// The centred album turned over to show its back, discs or open jewel case.
+  @State private var flipped: UUID?
+  @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
   @AppStorage("mobile.focusedAlbum") private var savedFocused = ""
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.hingeDegrees) private var hinge
@@ -236,43 +239,84 @@ struct MobileCoverFlow<MenuContent: View>: View {
               GeometryReader { card in
                 let center = card.frame(in: .named("covers")).midX
                 let offset = (center - container.size.width / 2) / max(size, 1)
-                Button {
-                  onOpen(album)
-                } label: {
-                  VStack(spacing: 14) {
-                    MobileArtwork(album: album, pixels: 900)
-                      .overlay {
-                        if selected == album.id {
-                          RoundedRectangle(cornerRadius: 12).strokeBorder(
-                            MobilePalette.brass, lineWidth: 3)
+                let isFlipped = flipped == album.id
+                VStack(spacing: 14) {
+                  Button {
+                    onOpen(album)
+                  } label: {
+                    ZStack {
+                      if turnStyle == .flipWithDiscs && !album.discImages.isEmpty {
+                        DiscStack(album: album, size: size, out: isFlipped, reduceMotion: reduceMotion)
+                      } else if turnStyle == .flipWithSpinningDisc {
+                        DiscStack(album: album, size: size, out: isFlipped, reduceMotion: reduceMotion, spin: true)
+                      }
+                      sleeve(album, size: size, flipped: isFlipped)
+                        .overlay {
+                          if selected == album.id {
+                            RoundedRectangle(cornerRadius: 12).strokeBorder(
+                              MobilePalette.brass, lineWidth: 3)
+                          }
                         }
+                        .shadow(color: .black.opacity(0.3), radius: 16, y: 12)
+                    }
+                    .frame(width: size, height: size)
+                    .overlay(alignment: .bottom) {
+                      Group {
+                        if isFlipped { sleeve(album, size: size, flipped: true) } else { MobileCoverArt(album: album, size: size) }
                       }
-                      .shadow(color: .black.opacity(0.3), radius: 16, y: 12)
-                      .overlay(alignment: .bottom) {
-                        MobileArtwork(album: album, pixels: 600)
-                          .frame(width: size, height: size).scaleEffect(x: 1, y: -1)
-                          .frame(width: size, height: 60, alignment: .top).clipped()
-                          .mask(
-                            LinearGradient(
-                              colors: [.white.opacity(0.18), .clear], startPoint: .top,
-                              endPoint: .bottom)
-                          )
-                          .offset(y: 68).accessibilityHidden(true)
-                      }
-                    VStack(spacing: 4) {
-                      Text(album.title).font(.system(.title3, design: .serif).weight(.semibold))
-                        .lineLimit(2)
+                        .scaleEffect(x: 1, y: -1)
+                        .frame(width: size, height: 60, alignment: .top).clipped()
+                        .mask(
+                          LinearGradient(
+                            colors: [.white.opacity(0.18), .clear], startPoint: .top,
+                            endPoint: .bottom)
+                        )
+                        .offset(y: 68).accessibilityHidden(true).allowsHitTesting(false)
+                    }
+                  }.buttonStyle(.plain)
+                  VStack(spacing: 4) {
+                    Text(album.title).font(.system(.title3, design: .serif).weight(.semibold))
+                      .lineLimit(2)
+                    HStack(spacing: 8) {
                       Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    }.multilineTextAlignment(.center).padding(.top, 45)
-                  }.foregroundStyle(.primary)
-                }.buttonStyle(.plain)
+                      if focused == album.id {
+                        Button {
+                          toggleFlip(album)
+                        } label: {
+                          Image(systemName: turnStyle == .jewelCase ? "opticaldisc" : "rectangle.2.swap")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 34, height: 30)
+                            .background(.thinMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(flipLabel(isFlipped))
+                        .contextMenu { turnStylePicker }
+                      }
+                    }
+                  }.multilineTextAlignment(.center).padding(.top, 45)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onOpen(album) }
+                }.foregroundStyle(.primary)
+                  .accessibilityElement(children: .contain)
+                  .accessibilityAction(named: flipLabel(isFlipped)) { toggleFlip(album) }
                   .rotation3DEffect(
                     .degrees(reduceMotion ? 0 : -max(-1, min(1, offset)) * 40),
                     axis: (x: 0, y: 1, z: 0), perspective: 0.5
                   )
                   .scaleEffect(reduceMotion ? 1 : 1 - min(0.14, abs(offset) * 0.1))
-                  .contextMenu { menuContent(album) }
+                  .contextMenu {
+                    Button(flipLabel(isFlipped), systemImage: turnStyle == .jewelCase ? "opticaldisc" : "rectangle.2.swap") {
+                      if focused != album.id {
+                        withAnimation(reduceMotion ? nil : .spring(duration: 0.35)) { focused = album.id }
+                      }
+                      toggleFlip(album)
+                    }
+                    Menu("Turning Covers Over", systemImage: "rectangle.2.swap") { turnStylePicker }
+                    Divider()
+                    menuContent(album)
+                  }
               }.frame(width: size, height: size + 130).id(album.id)
+                .zIndex(flipped == album.id ? 1 : 0)
             }
           }.scrollTargetLayout()
             .padding(.horizontal, max(0, (container.size.width - size) / 2))
@@ -287,7 +331,10 @@ struct MobileCoverFlow<MenuContent: View>: View {
               UUID(uuidString: savedFocused).flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
           }
         }
-        .onChange(of: focused) { _, id in if let id { savedFocused = id.uuidString } }
+        .onChange(of: focused) { _, id in
+          if let id { savedFocused = id.uuidString }
+          if flipped != nil && flipped != id { setFlipped(nil) }
+        }
         .onChange(of: savedFocused) { _, value in
           // Another view asked to reveal an album (⌘L, Show Playing Album).
           if let id = UUID(uuidString: value), id != focused, albums.contains(where: { $0.id == id }) {
@@ -332,6 +379,47 @@ struct MobileCoverFlow<MenuContent: View>: View {
         onOpen(album)
         return .handled
       }
+      // F turns the centred cover over, as on the Mac.
+      .onKeyPress(characters: CharacterSet(charactersIn: "fF"), phases: .down) { press in
+        guard press.modifiers.intersection([.command, .control, .option]).isEmpty,
+          let id = focused, let album = albums.first(where: { $0.id == id })
+        else { return .ignored }
+        toggleFlip(album)
+        return .handled
+      }
+    }
+  }
+
+  @ViewBuilder private func sleeve(_ album: Album, size: CGFloat, flipped: Bool) -> some View {
+    if turnStyle == .jewelCase {
+      JewelCaseView(openness: flipped ? 1 : 0, album: album, size: size, reduceMotion: reduceMotion)
+    } else {
+      FlippableCover(angle: flipped ? 180 : 0, reduceMotion: reduceMotion) {
+        MobileCoverArt(album: album, size: size)
+      } back: {
+        BackCoverView(album: album, size: size)
+      }
+      .frame(width: size, height: size)
+    }
+  }
+
+  private var turnStylePicker: some View {
+    Picker("Turning Covers Over", selection: $turnStyle) {
+      ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
+    }
+  }
+
+  private func flipLabel(_ isFlipped: Bool) -> String {
+    turnStyle == .jewelCase ? (isFlipped ? "Close Case" : "Open Case") : (isFlipped ? "Show Front" : "Flip Cover")
+  }
+
+  private func toggleFlip(_ album: Album) {
+    setFlipped(flipped == album.id ? nil : album.id)
+  }
+
+  private func setFlipped(_ id: UUID?) {
+    withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.6, dampingFraction: 0.86)) {
+      flipped = id
     }
   }
 }
