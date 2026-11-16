@@ -68,6 +68,17 @@ import SwiftUI
       MainActor.assumeIsolated { engine?.refreshLibraryMetadata() }
     }
     player.restore()
+    // Screenshot and UI-review runs (CI, Device Hub): start with the demo collection playing.
+    if ProcessInfo.processInfo.arguments.contains("-CoverFlowDemoSession") {
+      let engine = player
+      Task { @MainActor in
+        if library.albums.isEmpty { await library.addDemoCollection() }
+        if let first = library.albums.first, engine.currentTrackID == nil {
+          engine.play(albumID: first.id)
+          engine.pause()
+        }
+      }
+    }
     let albumIDs = Set(library.albums.map(\.id))
     Task.detached(priority: .background) { await MobileSceneStore.shared.prune(keeping: albumIDs) }
     observers.append(
