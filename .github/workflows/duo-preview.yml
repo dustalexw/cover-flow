@@ -72,8 +72,15 @@ jobs:
           # The command line can't unfold the Duo simulator, so check the expanded
           # (inner display) shell on iPad mini, which runs the same layout code.
           COVERFLOW_IOS_NATIVE=0 bash build-ipad.command --simulator
-          PAD_TYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if 'iPad mini' in d['name']]; print(t[-1])")
-          PAD=$(xcrun simctl create pad "$PAD_TYPE" "$RUNTIME")
+          read PAD_TYPE PAD_RUNTIME < <(xcrun simctl list runtimes -j | python3 -c "
+          import json,sys
+          best=None
+          for r in json.load(sys.stdin)['runtimes']:
+              if r['platform']!='iOS' or not r['isAvailable']: continue
+              pads=[d['identifier'] for d in r.get('supportedDeviceTypes',[]) if d['name'].startswith('iPad mini')]
+              if pads: best=(pads[-1], r['identifier'])
+          print(*best)")
+          PAD=$(xcrun simctl create pad "$PAD_TYPE" "$PAD_RUNTIME")
           xcrun simctl boot "$PAD"; xcrun simctl bootstatus "$PAD" -b
           xcrun simctl install "$PAD" "iPad/build-simulator/Build/Products/Release-iphonesimulator/Cover Flow.app"
           UDID=$PAD BUNDLE=app.coverflow.player.ipad
