@@ -61,7 +61,10 @@ struct Demucs {
     Ort::RunOptions run;
     std::string input, output;
     int64_t segment = 0, stems = 0;
-    explicit Demucs(const char *path) {
+    /// `hint`: the stem count when the export leaves it dynamic (4 or 6), or 0 to
+    /// find it out later with probe() — which runs a whole segment, so it's avoided
+    /// whenever the count is known (the built-in downloads).
+    explicit Demucs(const char *path, int64_t hint) {
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(4);
         // The optimizer's constant folding needs several gigabytes for this graph.
@@ -78,13 +81,15 @@ struct Demucs {
         auto out = session.GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo();
         auto odims = out.GetShape();
         if (out.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || odims.size()!=4) throw std::runtime_error("This is not a Demucs stem model.");
-        stems = odims[1];
-        if (stems < 0) {
-            // Dynamic output dimensions: count the stems with a silent segment.
-            std::vector<float> silence(2 * segment, 0.0f);
-            auto result = predict(silence.data());
-            stems = (int64_t)(result.size() / (2 * segment));
-        }
+        stems = odims[1] > 0 ? odims[1] : (hint == 4 || hint == 6 ? hint : 0);
+        if (stems!=0 && stems!=4 && stems!=6) throw std::runtime_error("Choose a 4-stem or 6-stem HTDemucs model.");
+    }
+    /// Dynamic output dimensions: count the stems with a silent segment.
+    void probe() {
+        if (stems != 0) return;
+        std::vector<float> silence(2 * segment, 0.0f);
+        auto result = predict(silence.data());
+        stems = (int64_t)(result.size() / (2 * segment));
         if (stems!=4 && stems!=6) throw std::runtime_error("Choose a 4-stem or 6-stem HTDemucs model.");
     }
     std::vector<float> predict(float *mix) {
@@ -105,8 +110,14 @@ struct Demucs {
 @end
 @implementation CFDemucsRuntime
 - (instancetype)initWithPath:(NSString *)path error:(NSError **)error {
-    if ((self=[super init])) { try { _model=std::make_unique<Demucs>(path.fileSystemRepresentation); } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; } }
+    return [self initWithPath:path stems:0 error:error];
+}
+- (instancetype)initWithPath:(NSString *)path stems:(NSInteger)stems error:(NSError **)error {
+    if ((self=[super init])) { try { _model=std::make_unique<Demucs>(path.fileSystemRepresentation, (int64_t)stems); } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; } }
     return self;
+}
+- (BOOL)probeStems:(NSError **)error {
+    try { _model->probe(); return YES; } catch(const std::exception &e) { if(error) *error=makeError(e); return NO; }
 }
 - (NSInteger)stemCount { return (NSInteger)_model->stems; }
 - (NSInteger)segment { return (NSInteger)_model->segment; }
@@ -114,6 +125,7 @@ struct Demucs {
     try {
         if (mix.length!=(NSUInteger)(2*_model->segment)*sizeof(float)) throw std::runtime_error("Incorrect Demucs input size.");
         auto result=_model->predict((float *)mix.bytes);
+        if (_model->stems==0) _model->stems=(int64_t)(result.size()/(2*_model->segment));
         if ((int64_t)result.size()!=_model->stems*2*_model->segment) throw std::runtime_error("The Demucs model returned unexpected stems.");
         return [NSData dataWithBytes:result.data() length:result.size()*sizeof(float)];
     } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; }

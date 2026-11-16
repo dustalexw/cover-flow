@@ -13,6 +13,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// 25,000-node graph, while the unoptimized session stays under 1 GB.
 @interface CFDemucsRuntime : NSObject
 - (nullable instancetype)initWithPath:(NSString *)path error:(NSError **)error;
+/// `stems` is the known stem count (4 or 6) for exports whose output shape is
+/// dynamic, or 0 when unknown (then stemCount is 0 until probeStems: runs).
+- (nullable instancetype)initWithPath:(NSString *)path stems:(NSInteger)stems error:(NSError **)error;
+/// Counts the stems of a dynamic-shaped export by separating a silent segment.
+- (BOOL)probeStems:(NSError **)error;
 @property(nonatomic, readonly) NSInteger stemCount;
 @property(nonatomic, readonly) NSInteger segment;
 /// `mix` holds 2 × segment floats, channel-major. Returns stemCount × 2 × segment floats.

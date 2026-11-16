@@ -281,7 +281,8 @@ enum NativeKaraokeEngine {
     try cancellation.check()
     if model.backend == .demucs {
       notify("Loading Demucs", 0)
-      let runtime = try CFDemucsRuntime(path: model.url(in: models).path)
+      let runtime = try CFDemucsRuntime(path: model.url(in: models).path, stems: model.stems?.count ?? 0)
+      if runtime.stemCount == 0 { try runtime.probeStems() }
       try cancellation.install(runtime)
       return try DemucsSeparation.process(
         input: input, output: output, model: runtime, cancellation: cancellation, notify: notify

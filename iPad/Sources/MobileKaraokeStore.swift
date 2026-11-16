@@ -25,6 +25,7 @@ import Foundation
     let url: URL
     let sha256: String
     let megabytes: Int
+    let stems: Int
   }
   static let demucs4 = BuiltInModel(
     title: "Demucs · 4 stems", filename: "htdemucs_fp16weights.onnx",
@@ -32,14 +33,14 @@ import Foundation
       string:
         "https://huggingface.co/adowu/htdemucs-onnx/resolve/e6b688a9a9f977e2efaba79d0f18b9b0cfc606ea/htdemucs_fp16weights.onnx"
     )!,
-    sha256: "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a", megabytes: 166)
+    sha256: "d05c269d0178d2a72ad484b10b11dd370193fc923201c3b27a99f848745db70a", megabytes: 166, stems: 4)
   static let demucs6 = BuiltInModel(
     title: "Demucs · 6 stems", filename: "htdemucs_6s_fp16weights.onnx",
     url: URL(
       string:
         "https://huggingface.co/adowu/htdemucs-6s-onnx/resolve/d83893853e32af79f4ddc8d97d7e513eb5058d14/htdemucs_6s_fp16weights.onnx"
     )!,
-    sha256: "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869", megabytes: 136)
+    sha256: "7ce55792e2231c93fbf92de95f5fd5b3a5e6c89f7db690dfd693e8f1dce56869", megabytes: 136, stems: 6)
 
   /// Downloads a Demucs model once, verifies it and adds it to the selector.
   func download(_ builtIn: BuiltInModel, player: PlayerEngine) async {
@@ -67,7 +68,7 @@ import Foundation
       guard digest == builtIn.sha256 else {
         throw NativeKaraokeError.message("The downloaded model didn’t match its checksum.")
       }
-      try await importModel(file)
+      try await importModel(file, demucsStems: builtIn.stems)
       player.setKaraokePlayback(.original)
     } catch {
       self.error = error.localizedDescription
@@ -128,7 +129,9 @@ import Foundation
     refresh(player.currentTrack)
     save()
   }
-  func importModel(_ source: URL, settings: URL? = nil) async throws {
+  /// `demucsStems`: the stem count of a known HTDemucs export (the built-in
+  /// downloads), which skips the trial run otherwise needed to recognize one.
+  func importModel(_ source: URL, settings: URL? = nil, demucsStems: Int? = nil) async throws {
     guard !processing, !importingModel else { return }
     importingModel = true
     defer { importingModel = false }
@@ -152,12 +155,25 @@ import Foundation
       if ext == "onnx" {
         // HTDemucs exports take a stereo waveform and return 4 or 6 stems; MDX
         // models take spectra and fail this check.
-        let count = await Task.detached(priority: .userInitiated) {
-          (try? CFDemucsRuntime(path: destination.path))?.stemCount
+        let hint = demucsStems ?? 0
+        let detected = await Task.detached(priority: .userInitiated) { () -> (count: Int?, failure: String?) in
+          do {
+            let runtime = try CFDemucsRuntime(path: destination.path, stems: hint)
+            if runtime.stemCount == 0 { try runtime.probeStems() }
+            return (runtime.stemCount, nil)
+          } catch {
+            // MDX models fail the shape check; anything else is a real Demucs problem.
+            let message = error.localizedDescription
+            return (nil, message.contains("not a Demucs") ? nil : message)
+          }
         }.value
-        if let count, let names = DemucsSeparation.stemNames(count: count) {
+        if let count = detected.count, let names = DemucsSeparation.stemNames(count: count) {
           backend = .demucs
           stems = names
+        } else if let failure = detected.failure {
+          throw NativeKaraokeError.message("Demucs couldn’t start on this device: \(failure)")
+        } else if demucsStems != nil {
+          throw NativeKaraokeError.message("The downloaded file isn’t a Demucs model Cover Flow can run.")
         }
       }
       guard ["onnx", "mlmodel", "mlmodelc", "mlpackage"].contains(ext) else {
