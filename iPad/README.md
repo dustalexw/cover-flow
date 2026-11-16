@@ -39,23 +39,27 @@ narrow iPad windows use the compact interface.
 | Local library | Owned audio copies, original filenames and matching LRC sidecars; persistent library and playback queue; individual-track removal from the touch-and-hold menu |
 | Playback | Shared gapless engine, queue ordering, shuffle, repeat, seek, volume, mute and upcoming-track editing |
 | System audio | Background audio capability, lock-screen/Control Center commands, AirPlay routing and interruption/headphone handling |
-| Album View | Full Now Playing sheet, large artwork and artwork focus; long titles wrap or scroll in the compact bar |
-| Artwork | Embedded/folder covers, photo-picker replacement, MusicBrainz/Cover Art Archive search and download, removal and bounded thumbnail cache |
+| Album View | Compact player bar, Large sheet and full-screen Immersive with generated artwork scenes; artwork focus; long titles wrap or scroll in the compact bar |
+| Artwork | Embedded/folder covers, photo-picker replacement, MusicBrainz/Cover Art Archive search and download, removal and bounded thumbnail cache; with the iOS TagLib build, replaced covers are embedded in the imported audio files |
 | Album customization | Title/artist/year/genre and track edits in the library; calm artwork scenes, background color, strength and variations |
 | Lyrics | UTF-8/UTF-16 LRC and plain text imports; LRCLIB search, preview and download; offsets, translations, line seeking, follow and reload |
 | Karaoke | Native MDX ONNX processing, including Inst_HQ_5; Core ML GPU preference and CPU fallback; saved model selector |
 | Karaoke controls | Original/Karaoke/Vocals Only, automatic preparation, progress, cancellation, per-model saved stems, instrumental/vocal export |
-| Becruily audio | Import the Mac app's prepared stereo 44.1 kHz `vocals.wav` and `instrumental.wav` for a matching track |
+| Becruily and Demucs audio | Import the Mac app's prepared stereo 44.1 kHz `vocals.wav` and `instrumental.wav`, or a whole Demucs set, for a matching track; instrument isolation and Stem Mix |
 | Converted models | Native Core ML waveform-model support with the contract below |
-| Visualizer | Four native Metal styles, stereo spectral analysis, response control, 60/30 fps settings and reduced-motion handling |
+| Visualizer | Four native Metal styles, Auto, full screen, ← → styles, stereo spectral analysis, response control, 60/30 fps settings and reduced-motion handling |
+| Formats | MP3, AAC, ALAC, FLAC, WAV, AIFF, Opus; with the iOS FFmpeg build also Vorbis, Speex, Monkey's Audio, WavPack, WMA, DSD, Musepack, TTA, TAK, Shorten, DTS, Wave64 and Matroska/WebM audio |
+| Keyboard | The Mac's shortcuts; see the [iPhone guide](../iPhone/README.md#keyboard) |
+| iPhone Duo | Size-class layouts for the outer and inner displays, fold-aware book and tabletop postures; see the [iPhone guide](../iPhone/README.md#iphone-duo) |
 | Last.fm | Setup, browser authorization, Keychain credentials, Now Playing, listening-based scrobbles and pending retries; off until connected |
 | Demos | Three original generated demo albums with artwork and timed lyrics |
 
 The visualizer uses native drawing in place of desktop OpenGL/projectM, and does
-not import `.milk` presets. Stable Diffusion scene refinement is not included in
-this initial iPad version. Artwork and metadata edits affect the iPad collection;
-embedded audio-file tag writing is not included. Protected Apple Music streaming
-and DRM files are not imported as playable audio.
+not import `.milk` presets. Stable Diffusion scene refinement is not included;
+immersive scenes use the Mac's generator without refinement. Text edits affect the
+collection only; replaced covers are embedded in imported copies when TagLib is
+built (`../scripts/build-ios-native.sh`). Protected Apple Music streaming and DRM
+files are not imported as playable audio.
 
 ## Music and lyrics
 

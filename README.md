@@ -136,7 +136,13 @@ CPU when Metal acceleration is unavailable. Model weights remain user-supplied.
 ## iPhone and iPad projects
 
 Native iOS/iPadOS 17+ apps share the mobile player, lyrics, Files/iCloud import,
-AirPlay, background audio, native karaoke and visualizer. Open
+AirPlay, background audio, native karaoke, Stem Mix, immersive scenes and the
+visualizer, and play the Mac's full format list when built with
+`scripts/build-ios-native.sh`. The iPhone app is optimized for **iPhone Duo**: the
+outer display uses the phone layout, the inner display a Mac-like layout with the
+album panel beside the covers, and book and tabletop postures keep covers and
+controls clear of the fold (build with Xcode 27.1+). See the
+[iPhone guide](iPhone/README.md) for the full parity table. Open
 [iPhone/CoverFlow-iPhone.xcodeproj](iPhone/CoverFlow-iPhone.xcodeproj) or
 [iPad/CoverFlow-iPad.xcodeproj](iPad/CoverFlow-iPad.xcodeproj) and select your signing
 team to run on a device. Prepared project ZIPs include their native runtime;

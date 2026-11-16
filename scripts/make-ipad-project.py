@@ -15,7 +15,29 @@ SHARED = ['Model/Models.swift', 'Playback/PlayerEngine.swift', 'Playback/Gapless
           'Downloads/MusicLookupClient.swift', 'Downloads/MusicDownloadViews.swift',
           'Library/MetadataReader.swift', 'Library/OggOpus.swift', 'Lyrics/LyricsDocument.swift',
           'Lyrics/LyricsStore.swift', 'Scrobbling/LastFmAPI.swift', 'Scrobbling/LastFmKeychain.swift',
-          'Scrobbling/LastFmScrobbler.swift', 'Scrobbling/ScrobbleProgress.swift', 'Views/ScrollingTrackTitle.swift']
+          'Scrobbling/LastFmScrobbler.swift', 'Scrobbling/ScrobbleProgress.swift', 'Views/ScrollingTrackTitle.swift',
+          'Library/AlbumSceneGenerator.swift']
+# Built by scripts/build-ios-native.sh. When present, the projects play every format the
+# Mac app plays (decoder-only LGPL FFmpeg) and embed replaced covers with TagLib.
+NATIVE_FFMPEG = ['../Sources/CFFmpegAudio/CFAudioFile.c', '../Sources/CoverFlow/Library/FFmpegAudio.swift',
+                 '../Sources/CoverFlow/Library/FFmpegDurationCache.swift']
+NATIVE_TAGLIB = ['../Sources/CArtworkTags/CFArtworkTags.cpp', '../Sources/CoverFlow/Library/ArtworkTagWriter.swift']
+# The iOS 27.1 SDK (Xcode 27.1) adds iPhone Duo's fold APIs: reserved regions and the
+# hinge. Older SDKs build the same app without them.
+DUO_SDKS = ['27.%d*' % minor for minor in range(1, 10)] + ['%d*' % major for major in range(28, 32)]
+
+
+def native_libraries(root):
+    """Which optional native libraries are prepared, unless disabled for this build."""
+    vendor = root / 'iPad/Vendor'
+    if os.environ.get('COVERFLOW_IOS_NATIVE', '1') == '0':
+        return set()
+    found = set()
+    if (vendor / 'CoverFlowFFmpeg.xcframework').is_dir() and (vendor / 'ffmpeg-include').is_dir():
+        found.add('ffmpeg')
+    if (vendor / 'CoverFlowTagLib.xcframework').is_dir() and (vendor / 'taglib-include').is_dir():
+        found.add('taglib')
+    return found
 
 
 def generate(device):
@@ -33,6 +55,11 @@ def generate(device):
     sources = [os.path.relpath(p, folder) for part in ['Sources', 'Core']
                for p in sorted((ROOT / 'iPad' / part).glob('*.swift'))]
     sources += [prefix + 'Native/CFMDXRuntime.mm'] + ['../Sources/CoverFlow/' + p for p in SHARED]
+    native = native_libraries(ROOT)
+    if 'ffmpeg' in native:
+        sources += NATIVE_FFMPEG
+    if 'taglib' in native:
+        sources += NATIVE_TAGLIB
     resources = ['../Sources/CoverFlow/Visualizer/Shaders/Visualizer.metal']
     resources += [prefix + p for p in ['Resources/Assets.xcassets', 'Resources/ONNX-Runtime-LICENSE.txt',
                   'Resources/ONNX-Runtime-ThirdPartyNotices.txt', 'Resources/PrivacyInfo.xcprivacy']]
@@ -52,15 +79,19 @@ def generate(device):
     files, builds, resource_builds, framework_builds = [], [], [], []
     for path in sources + resources:
         kind = ('sourcecode.cpp.objcpp' if path.endswith('.mm') else 'sourcecode.swift' if path.endswith('.swift')
+                else 'sourcecode.c.c' if path.endswith('.c') else 'sourcecode.cpp.cpp' if path.endswith('.cpp')
                 else 'folder.assetcatalog' if path.endswith('.xcassets') else 'text.json' if path.endswith('.json') else 'text')
         ref = add('file:' + path, f'isa = PBXFileReference; lastKnownFileType = {kind}; path = {q(path)}; sourceTree = SOURCE_ROOT;')
         files.append(ref)
         build = add('build:' + path, f'isa = PBXBuildFile; fileRef = {ref};')
         (builds if path in sources else resource_builds).append(build)
-    runtime = prefix + 'Vendor/onnxruntime.xcframework'
-    ref = add('file:' + runtime, f'isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = {q(runtime)}; sourceTree = SOURCE_ROOT;')
-    files.append(ref)
-    framework_builds.append(add('build:' + runtime, f'isa = PBXBuildFile; fileRef = {ref};'))
+    runtimes = [prefix + 'Vendor/onnxruntime.xcframework']
+    runtimes += [prefix + 'Vendor/CoverFlowFFmpeg.xcframework'] if 'ffmpeg' in native else []
+    runtimes += [prefix + 'Vendor/CoverFlowTagLib.xcframework'] if 'taglib' in native else []
+    for runtime in runtimes:
+        ref = add('file:' + runtime, f'isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = {q(runtime)}; sourceTree = SOURCE_ROOT;')
+        files.append(ref)
+        framework_builds.append(add('build:' + runtime, f'isa = PBXBuildFile; fileRef = {ref};'))
     for framework in ['CoreML', 'Accelerate', 'Metal', 'AVFoundation', 'MediaPlayer', 'Security', 'AudioToolbox', 'UIKit']:
         ref = add('system:' + framework, f'isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = {framework}.framework; path = System/Library/Frameworks/{framework}.framework; sourceTree = SDKROOT;')
         files.append(ref)
@@ -88,8 +119,25 @@ def generate(device):
                       HEADER_SEARCH_PATHS='$(SRCROOT)/' + prefix + 'Native/include',
                       LD_RUNPATH_SEARCH_PATHS='$(inherited) @executable_path/Frameworks', OTHER_LDFLAGS='$(inherited) -ObjC',
                       ENABLE_BITCODE='NO', ENABLE_TESTABILITY='YES' if mode == 'Debug' else 'NO')
+        headers = ['$(SRCROOT)/' + prefix + 'Native/include']
+        if 'ffmpeg' in native:
+            headers += ['$(SRCROOT)/../Sources/CFFmpegAudio/include', '$(SRCROOT)/' + prefix + 'Vendor/ffmpeg-include']
+        if 'taglib' in native:
+            headers += ['$(SRCROOT)/../Sources/CArtworkTags/include', '$(SRCROOT)/' + prefix + 'Vendor/taglib-include/taglib']
+            target['OTHER_LDFLAGS'] = '$(inherited) -ObjC -lz'
+        target['HEADER_SEARCH_PATHS'] = ' '.join(headers)
+        if native:
+            # Swift sees the native modules only when their libraries are linked.
+            modules = {'ffmpeg': 'FFmpeg', 'taglib': 'TagLib'}
+            target['SWIFT_INCLUDE_PATHS'] = ' '.join(
+                '$(SRCROOT)/' + prefix + 'Native/Modules/' + modules[name] for name in sorted(native))
+        if os.environ.get('COVERFLOW_DUO_SDK', '1') != '0':
+            conditions = ('DEBUG ' if mode == 'Debug' else '') + 'COVERFLOW_DUO_SDK'
+            for platform in ['iphoneos', 'iphonesimulator']:
+                for version in DUO_SDKS:
+                    values['SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=' + platform + version + ']'] = conditions
         for category, settings, ids in [('project', values, project_configs), ('target', target, target_configs)]:
-            body = ''.join(k + ' = ' + q(v) + ';' for k, v in settings.items())
+            body = ''.join((q(k) if '[' in k else k) + ' = ' + q(v) + ';' for k, v in settings.items())
             ids.append(add(category + mode, f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{{body}}};'))
     def configs(key, ids):
         return add(key, f'isa = XCConfigurationList; buildConfigurations = ({",".join(ids)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
@@ -108,7 +156,7 @@ def generate(device):
 <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0">{reference}</BuildableProductRunnable></LaunchAction>
 <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES"/><AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/></Scheme>''')
     info = dict(CFBundleDisplayName='Cover Flow', CFBundleName='Cover Flow', CFBundleIdentifier='$(PRODUCT_BUNDLE_IDENTIFIER)',
-                CFBundleExecutable='$(EXECUTABLE_NAME)', CFBundlePackageType='APPL', CFBundleShortVersionString='1.2.0', CFBundleVersion='3',
+                CFBundleExecutable='$(EXECUTABLE_NAME)', CFBundlePackageType='APPL', CFBundleShortVersionString='1.3.0', CFBundleVersion='4',
                 LSRequiresIPhoneOS=True, UILaunchScreen={}, UIApplicationSceneManifest={'UIApplicationSupportsMultipleScenes': False},
                 UIBackgroundModes=['audio'], UIFileSharingEnabled=True, LSSupportsOpeningDocumentsInPlace=True,
                 CFBundleDocumentTypes=[{'CFBundleTypeName': 'Audio files', 'LSHandlerRank': 'Alternate', 'LSItemContentTypes': ['public.audio', 'public.movie']}],
@@ -117,7 +165,8 @@ def generate(device):
     info['UISupportedInterfaceOrientations~ipad'] = info['UISupportedInterfaceOrientations'] + ['UIInterfaceOrientationPortraitUpsideDown']
     with (folder / 'Info.plist').open('wb') as file:
         plistlib.dump(info, file)
-    print(f'Generated {device}/{project_name}: {len(sources)} source files, device family ' + ('2' if device == 'iPad' else '1'))
+    print(f'Generated {device}/{project_name}: {len(sources)} source files, device family ' + ('2' if device == 'iPad' else '1')
+          + (', native: ' + ', '.join(sorted(native)) if native else ', native formats: not prepared'))
 
 
 def main():

@@ -368,11 +368,19 @@ import Foundation
     refresh(currentTrack)
     save()
   }
-  func importStems(vocals: URL, instrumental: URL, track: Track) async throws {
+  /// Imports stems prepared by Cover Flow on the Mac: `vocals.wav` with
+  /// `instrumental.wav`, or a Demucs set (vocals, drums, bass, other, plus guitar and
+  /// piano from the six-stem model) for instrument isolation and Stem Mix. A Demucs
+  /// set without `instrumental.wav` gets one mixed from its instrument stems.
+  func importStems(_ files: [AudioStem: URL], track: Track) async throws {
     guard !processing, !importingModel else { return }
+    guard files[.vocals] != nil, files[.instrumental] != nil || files.count >= 3 else {
+      throw NativeKaraokeError.message(
+        "Select vocals.wav with instrumental.wav, or the stems from one Demucs preparation.")
+    }
     importingModel = true
     defer { importingModel = false }
-    let scoped = [vocals, instrumental].filter { $0.startAccessingSecurityScopedResource() }
+    let scoped = files.values.filter { $0.startAccessingSecurityScopedResource() }
     defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
     let root = self.root
     try await Task.detached(priority: .userInitiated) {
@@ -381,7 +389,8 @@ import Foundation
       let job = root.appendingPathComponent(".import-stems-" + UUID().uuidString)
       try FileManager.default.createDirectory(at: job, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: job) }
-      for (source, name) in [(vocals, "vocals.wav"), (instrumental, "instrumental.wav")] {
+      for (stem, source) in files {
+        let name = stem.rawValue + ".wav"
         try LocalAudioImport.coordinated(source) {
           try FileManager.default.copyItem(at: $0, to: job.appendingPathComponent(name))
         }
@@ -389,10 +398,18 @@ import Foundation
           [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
           ofItemAtPath: job.appendingPathComponent(name).path)
       }
+      let instruments = AudioStem.allCases.filter { $0 != .vocals && $0 != .instrumental && files[$0] != nil }
+      if files[.instrumental] == nil {
+        try MobileStemFiles.mix(
+          instruments.map { job.appendingPathComponent($0.rawValue + ".wav") },
+          to: job.appendingPathComponent("instrumental.wav"))
+      }
       let file = try AVAudioFile(forReading: job.appendingPathComponent("vocals.wav"))
+      // Two-stem imports keep the original manifest shape; Demucs sets list their stems.
+      let names: [String]? = instruments.isEmpty ? nil : ([AudioStem.vocals] + instruments).map(\.rawValue)
       var audio = KaraokeAudio(
         key: track.id.uuidString, trackID: track.id, frames: file.length, sampleRate: 44100,
-        modelSHA256: "imported-stems", directory: job)
+        modelSHA256: "imported-stems", directory: job, stemNames: names)
       try audio.validate()
       guard abs(Double(file.length) / 44100 - track.duration) < 0.25 else {
         throw NativeKaraokeError.message(

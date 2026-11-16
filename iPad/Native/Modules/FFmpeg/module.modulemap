@@ -1,0 +1,7 @@
+// Swift access to the decoder-only FFmpeg wrapper shared with the Mac app. The
+// project generator adds this folder to SWIFT_INCLUDE_PATHS only when
+// scripts/build-ios-native.sh has prepared the iOS FFmpeg libraries.
+module CFFmpegAudio {
+  header "../../../../Sources/CFFmpegAudio/include/CFAudioFile.h"
+  export *
+}

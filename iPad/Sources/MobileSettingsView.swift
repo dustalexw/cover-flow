@@ -63,25 +63,24 @@ struct MobileSettingsView: View {
       }
       Section("Karaoke on iPhone or iPad") {
         Text(
-          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPhone or iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav to use those stems here."
+          "MDX ONNX models including Inst_HQ_5 process locally with Core ML GPU enabled and CPU fallback. Converted waveform Core ML models can also be imported. Raw Becruily .ckpt files cannot run on iPhone or iPad. Prepare audio on your Mac and import vocals.wav and instrumental.wav, or a whole Demucs stem set for instrument isolation and Stem Mix."
         ).font(.footnote)
         Text("Keep the app open while preparing. No audio or model files are uploaded.").font(
           .footnote
         ).foregroundStyle(.secondary)
       }
       Section("About") {
-        LabeledContent("Cover Flow for iOS", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0")
-        Text(
-          "Touch Cover Flow · album grid · gapless playback · AirPlay · artwork · synced LRC lyrics · karaoke · Last.fm · audio visualizer"
-        ).font(.footnote).foregroundStyle(.secondary)
-        Link(
-          "Project & Source", destination: URL(string: "https://github.com/dustalexw/cover-flow")!)
-        Link(
-          "Report an Issue",
-          destination: URL(string: "https://github.com/dustalexw/cover-flow/issues")!)
-        Text(
-          "Native MDX processing uses ONNX Runtime 1.24.2, © Microsoft, under the MIT license. Its license is included with this app."
-        ).font(.caption).foregroundStyle(.secondary)
+        NavigationLink {
+          MobileAboutView()
+        } label: {
+          LabeledContent(
+            "About Cover Flow",
+            value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+              ?? "")
+        }
+        LabeledContent("Audio formats") {
+          Text(MobileFormats.summary).multilineTextAlignment(.trailing)
+        }.font(.footnote)
       }
     }.confirmationDialog(
       "Disconnect Last.fm and clear pending listens?", isPresented: $confirmDisconnect,

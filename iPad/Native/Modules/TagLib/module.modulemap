@@ -1,0 +1,6 @@
+// Swift access to the TagLib artwork writer shared with the Mac app. Added to
+// SWIFT_INCLUDE_PATHS only when the iOS TagLib library has been prepared.
+module CArtworkTags {
+  header "../../../../Sources/CArtworkTags/include/CFArtworkTags.h"
+  export *
+}

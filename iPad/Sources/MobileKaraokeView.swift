@@ -6,9 +6,10 @@ struct MobileKaraokeView: View {
   @EnvironmentObject private var player: PlayerEngine
   @EnvironmentObject private var app: MobileEnvironment
   @Environment(\.horizontalSizeClass) private var widthClass
-  private var compact: Bool {
-    UIDevice.current.userInterfaceIdiom == .phone || widthClass == .compact
-  }
+  @Environment(\.verticalSizeClass) private var heightClass
+  /// Size classes, not device idiom: iPhone Duo's inner display has room for the
+  /// controls beside the lyrics, as on iPad.
+  private var compact: Bool { widthClass == .compact || heightClass == .compact }
   @State private var importModel = false
   @State private var importSettings = false
   @State private var importStems = false
@@ -22,13 +23,31 @@ struct MobileKaraokeView: View {
       if compact {
         ScrollView {
           controlPanel
+          MobileStemButtons().padding(.horizontal, 20).padding(.bottom, 12)
           Button("Open Lyrics", systemImage: "quote.bubble") { app.tab = .lyrics }
             .buttonStyle(.bordered).padding(.bottom, 20)
         }
       } else {
-        controlPanel
-        Divider()
-        MobileLyricsView()
+        FoldReader { fold in
+          if fold.posture == .book {
+            // Book posture: controls on one page, lyrics on the other.
+            FoldSplit(ratio: 0.45) {
+              ScrollView {
+                controlPanel
+                MobileStemButtons().padding(.horizontal, 20)
+              }
+            } trailing: {
+              MobileLyricsView()
+            }
+          } else {
+            VStack(spacing: 0) {
+              controlPanel
+              MobileStemButtons().padding(.horizontal, 20).padding(.bottom, 12)
+              Divider()
+              MobileLyricsView()
+            }
+          }
+        }
       }
     }
     .confirmationDialog(
@@ -72,22 +91,15 @@ struct MobileKaraokeView: View {
       }
     }
     .fileImporter(
-      isPresented: $importStems, allowedContentTypes: [.wav], allowsMultipleSelection: true
+      isPresented: $importStems, allowedContentTypes: [.wav, .folder], allowsMultipleSelection: true
     ) { result in
-      guard case .success(let files) = result, let track = stemTrack else { return }
-      guard files.count == 2,
-        let vocals = files.first(where: { $0.lastPathComponent.lowercased().contains("vocal") }),
-        let music = files.first(where: {
-          $0.lastPathComponent.lowercased().contains("instrumental")
-        }), vocals != music
-      else {
-        karaoke.error =
-          "Select two files named vocals.wav and instrumental.wav from the same prepared track."
-        return
-      }
+      guard case .success(let picked) = result, let track = stemTrack else { return }
       Task {
+        let scoped = picked.filter { $0.startAccessingSecurityScopedResource() }
+        defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
+        let files = MobileStemFiles.match(picked)
         do {
-          try await karaoke.importStems(vocals: vocals, instrumental: music, track: track)
+          try await karaoke.importStems(files, track: track)
           if player.currentTrackID == track.id { player.setKaraokePlayback(.original) }
         } catch { karaoke.error = error.localizedDescription }
       }
@@ -102,7 +114,7 @@ struct MobileKaraokeView: View {
         if modelBusy || karaoke.importingModel { ProgressView() }
         Menu {
           Button("Add Model…", systemImage: "plus") { importModel = true }
-          Button("Import Prepared Stems…", systemImage: "square.and.arrow.down") {
+          Button("Import Prepared Stems or Demucs Set…", systemImage: "square.and.arrow.down") {
             stemTrack = player.currentTrack
             importStems = true
           }.disabled(!player.hasTrack)
@@ -160,6 +172,9 @@ struct MobileKaraokeView: View {
             Menu {
               ShareLink(item: audio.instrumental) { Text("Instrumental WAV") }
               ShareLink(item: audio.vocals) { Text("Vocals WAV") }
+              ForEach(audio.availableStems.filter { $0 != .vocals && $0 != .instrumental }) { stem in
+                if let url = audio.stemFiles[stem] { ShareLink(item: url) { Text("\(stem.title) WAV") } }
+              }
             } label: {
               Label("Export", systemImage: "square.and.arrow.up")
             }

@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct MobilePlaybackBar: View {
+  /// The window's fold. In book posture the track information sits on the left page
+  /// and every control on the right page, so nothing straddles the fold.
+  var fold: FoldGeometry = .flat
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var app: MobileEnvironment
   @EnvironmentObject private var player: PlayerEngine
@@ -8,6 +11,51 @@ struct MobilePlaybackBar: View {
   var body: some View {
     VStack(spacing: 6) {
       Divider()
+      if fold.posture == .book, fold.paneGap > 0 {
+        HStack(spacing: 0) {
+          information.padding(.horizontal, 18)
+            .frame(width: CGFloat(fold.leadingPaneWidth()), alignment: .leading)
+          Color.clear.frame(width: CGFloat(fold.paneGap)).accessibilityHidden(true)
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+              transport
+              Spacer(minLength: 4)
+              sourceButtons
+              RoutePicker().frame(width: 40, height: 40)
+              moreButton
+            }
+            HStack(spacing: 8) {
+              transport
+              Spacer(minLength: 4)
+              moreButton
+            }
+          }.padding(.horizontal, 12).frame(maxWidth: .infinity)
+        }.padding(.vertical, 8)
+      } else {
+        flatLayout
+      }
+      if karaoke.processing {
+        Button {
+          app.tab = .karaoke
+        } label: {
+          HStack {
+            ProgressView(value: karaoke.progress).frame(maxWidth: 250)
+            Text(
+              "\(Int(karaoke.progress*100))% · \(karaoke.cancelling ? "Cancelling" : "Preparing karaoke")"
+            ).font(.caption)
+          }
+        }.buttonStyle(.plain).padding(.bottom, 8)
+      }
+    }.background(.bar)
+  }
+  private var moreButton: some View {
+    Button {
+      app.nowPlaying = true
+    } label: {
+      Image(systemName: "ellipsis.circle").font(.title2).frame(width: 44, height: 44)
+    }.accessibilityLabel("Open Album View")
+  }
+  private var flatLayout: some View {
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 18) {
           information.frame(minWidth: 140, maxWidth: .infinity)
@@ -42,19 +90,6 @@ struct MobilePlaybackBar: View {
           }.accessibilityLabel("Open Now Playing")
         }
       }.padding(.horizontal, 18).padding(.vertical, 8)
-      if karaoke.processing {
-        Button {
-          app.tab = .karaoke
-        } label: {
-          HStack {
-            ProgressView(value: karaoke.progress).frame(maxWidth: 250)
-            Text(
-              "\(Int(karaoke.progress*100))% · \(karaoke.cancelling ? "Cancelling" : "Preparing karaoke")"
-            ).font(.caption)
-          }
-        }.buttonStyle(.plain).padding(.bottom, 8)
-      }
-    }.background(.bar)
   }
   private var information: some View {
     Button {
@@ -203,137 +238,6 @@ struct MobileTransport: View {
         ).frame(width: 44, height: 44)
       }.accessibilityLabel(player.repeatMode.label)
     }.buttonStyle(.plain).frame(minHeight: 60)
-  }
-
-}
-struct MobileNowPlayingView: View {
-  @EnvironmentObject private var library: LibraryStore
-  @EnvironmentObject private var player: PlayerEngine
-  @EnvironmentObject private var app: MobileEnvironment
-  @EnvironmentObject private var karaoke: MobileKaraokeStore
-  @Environment(\.dismiss) private var dismiss
-  @State private var artworkFocus = false
-  var body: some View {
-    NavigationStack {
-      GeometryReader { size in
-        ScrollView {
-          if size.size.width > 780 {
-            HStack(alignment: .top, spacing: 24) {
-              art.frame(width: min(size.size.width * 0.44, max(140, size.size.height - 48), 580))
-              if !artworkFocus { details.frame(maxWidth: 440) }
-            }.frame(maxWidth: .infinity, minHeight: size.size.height).padding(32)
-          } else {
-            VStack(spacing: 28) {
-              art.frame(maxWidth: 480)
-              if !artworkFocus { details.frame(maxWidth: 480) }
-            }.padding(20).frame(maxWidth: .infinity)
-          }
-        }
-      }.background {
-        if let album = library.album(player.currentAlbumID) {
-          MobileAlbumScene(album: album)
-        } else {
-          Color(uiColor: .systemBackground)
-        }
-      }
-      .navigationTitle("Now Playing").navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            artworkFocus.toggle()
-          } label: {
-            Image(
-              systemName: artworkFocus
-                ? "rectangle.compress.vertical" : "arrow.up.left.and.arrow.down.right")
-          }.accessibilityLabel("Artwork focus")
-        }
-      }
-    }
-  }
-  @ViewBuilder private var art: some View {
-    if let album = library.album(player.currentAlbumID) {
-      MobileArtwork(album: album, pixels: 1800).shadow(radius: 24)
-    } else {
-      Image(systemName: "opticaldisc").font(.system(size: 160)).foregroundStyle(.secondary).frame(
-        height: 300)
-    }
-  }
-  private var details: some View {
-    VStack(alignment: .leading, spacing: 24) {
-      VStack(alignment: .leading, spacing: 7) {
-        Text(library.track(player.currentTrackID)?.title ?? "Nothing playing").font(
-          .system(.title, design: .serif).weight(.semibold)
-        ).fixedSize(horizontal: false, vertical: true)
-        Text(library.track(player.currentTrackID)?.artist ?? "Select an album to begin").font(
-          .title3
-        )
-        .foregroundStyle(.secondary)
-        if let album = library.album(player.currentAlbumID) {
-          Text(album.title).font(.subheadline).foregroundStyle(.secondary)
-        }
-      }
-      MobileTransport()
-      HStack(spacing: 12) {
-        Button {
-          player.toggleMute()
-        } label: {
-          Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill").frame(
-            width: 44, height: 44)
-        }.accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
-        Slider(value: $player.volume, in: 0...1).accessibilityLabel("Player volume")
-      }
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: 12) {
-          sources
-          Spacer()
-          destinations
-        }
-        VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            sources
-            Spacer()
-          }
-          HStack {
-            destinations
-            Spacer()
-          }
-        }
-      }
-      if karaoke.processing {
-        VStack(alignment: .leading, spacing: 6) {
-          ProgressView(value: karaoke.progress)
-          Text(karaoke.stage).font(.caption).foregroundStyle(.secondary)
-          Button("Preparation details") {
-            app.tab = .karaoke
-            dismiss()
-          }
-        }
-      }
-    }
-  }
-  private var sources: some View {
-    HStack(spacing: 12) {
-      MobileSourceButton(mode: .instrumental)
-      MobileSourceButton(mode: .vocals)
-    }
-  }
-  private var destinations: some View {
-    HStack(spacing: 12) {
-      Button {
-        app.tab = .lyrics
-        dismiss()
-      } label: {
-        Image(systemName: "quote.bubble").frame(width: 44, height: 44)
-      }.accessibilityLabel("Lyrics")
-      RoutePicker().frame(width: 44, height: 44)
-      Button {
-        app.tab = .queue
-        dismiss()
-      } label: {
-        Image(systemName: "list.bullet").frame(width: 44, height: 44)
-      }.accessibilityLabel("Up Next")
-    }
   }
 
 }
