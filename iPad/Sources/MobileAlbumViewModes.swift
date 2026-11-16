@@ -87,7 +87,8 @@ struct MobileAlbumViewContent: View {
           }.frame(maxWidth: .infinity, minHeight: height).padding(32)
         } else {
           VStack(spacing: 28) {
-            art.frame(maxWidth: artworkFocus ? 640 : 480)
+            // Short displays (iPhone Duo's outer display) keep the transport on screen.
+            art.frame(maxWidth: artworkFocus ? 640 : min(480, max(160, height - 380)))
             if !artworkFocus { MobileAlbumViewDetails(leave: leave).frame(maxWidth: 480) }
           }.padding(20).frame(maxWidth: .infinity)
         }

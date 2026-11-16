@@ -69,18 +69,26 @@ jobs:
           shoot outer-collection 1
           shoot outer-album 1 album
           shoot outer-albumview 1 albumView
-          # Unfold: the outer display off, the inner display on.
-          xcrun simctl io "$UDID" screenConfig --display=1 power off 2>&1 | tee shots/screenconfig.txt || true
-          xcrun simctl io "$UDID" screenConfig --display=3 power on 2>&1 | tee -a shots/screenconfig.txt || true
-          sleep 8
-          shoot inner-collection 3
-          shoot inner-album 3 album
-          shoot inner-albumview 3 albumView
-          shoot inner-immersive 3 immersive
-          shoot inner-karaoke 3 karaoke
-          xcrun simctl io "$UDID" screenConfig --display=3 geometry 2853x2007 2>&1 | tee -a shots/screenconfig.txt || true
-          sleep 6
-          shoot inner-landscape 3 album
+          # The command line can't unfold the Duo simulator, so check the expanded
+          # (inner display) shell on iPad mini, which runs the same layout code.
+          COVERFLOW_IOS_NATIVE=0 bash build-ipad.command --simulator
+          PAD_TYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if 'iPad mini' in d['name']]; print(t[-1])")
+          PAD=$(xcrun simctl create pad "$PAD_TYPE" "$RUNTIME")
+          xcrun simctl boot "$PAD"; xcrun simctl bootstatus "$PAD" -b
+          xcrun simctl install "$PAD" "iPad/build-simulator/Build/Products/Release-iphonesimulator/Cover Flow.app"
+          UDID=$PAD BUNDLE=app.coverflow.player.ipad
+          shootpad() {
+            xcrun simctl terminate "$UDID" $BUNDLE 2>/dev/null || true
+            if [ -n "${2:-}" ]; then xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession -CoverFlowShow "$2"
+            else xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession; fi
+            sleep 15
+            xcrun simctl io "$UDID" screenshot "shots/$1.png" 2>&1 || true
+          }
+          shootpad expanded-collection
+          shootpad expanded-album album
+          shootpad expanded-albumview albumView
+          shootpad expanded-immersive immersive
+          shootpad expanded-karaoke karaoke
       - uses: actions/upload-artifact@v4
         if: always()
         with:
