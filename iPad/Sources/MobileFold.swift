@@ -18,7 +18,9 @@ extension FoldGeometry {
     #if COVERFLOW_DUO_SDK
       // Active regions only: the division is active while partially folded and
       // inactive (zero width) when the display is flat.
-      if let region = proxy.reservedRegions(kind: .division).first(where: { $0.isActive }) {
+      if #available(iOS 27.1, *),
+        let region = proxy.reservedRegions(kind: .division).first(where: { $0.isActive })
+      {
         let frame = region.frame
         division = RectValue(
           x: Double(frame.minX), y: Double(frame.minY), width: Double(frame.width),
@@ -57,17 +59,23 @@ struct FoldReader<Content: View>: View {
 struct HingeObserver: ViewModifier {
   @State private var degrees: Double?
   func body(content: Content) -> some View {
-    content
-      .environment(\.hingeDegrees, degrees)
-      #if COVERFLOW_DUO_SDK
-        .onHingeChange { _, context in
-          if let hinge = context.hinge, hinge.status == .partiallyOpen {
-            degrees = hinge.angle.degrees
-          } else {
-            degrees = nil
+    #if COVERFLOW_DUO_SDK
+      if #available(iOS 27.1, *) {
+        content
+          .environment(\.hingeDegrees, degrees)
+          .onHingeChange { _, context in
+            if let hinge = context.hinge, hinge.status == .partiallyOpen {
+              degrees = hinge.angle.degrees
+            } else {
+              degrees = nil
+            }
           }
-        }
-      #endif
+      } else {
+        content.environment(\.hingeDegrees, degrees)
+      }
+    #else
+      content.environment(\.hingeDegrees, degrees)
+    #endif
   }
 }
 
