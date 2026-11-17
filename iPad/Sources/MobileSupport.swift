@@ -47,9 +47,18 @@ extension Color {
       blue: Double(value & 255) / 255)
   }
 }
+/// The colours of the chosen theme (Settings › Colors). `brass` is the accent — the
+/// original brass, or a sipassgames.com colour — and `navy` the deep background.
 enum MobilePalette {
-  static let navy = Color(red: 0.045, green: 0.065, blue: 0.11)
-  static let brass = Color(red: 0.79, green: 0.64, blue: 0.36)
+  static var navy: Color { ColorTheme.current.deep }
+  static var brass: Color {
+    let theme = ColorTheme.current
+    if theme.isBrass { return Color(red: 0.79, green: 0.64, blue: 0.36) }
+    return Color(
+      uiColor: UIColor { traits in
+        UIColor(theme.accent(dark: traits.userInterfaceStyle == .dark))
+      })
+  }
   static let cream = Color(red: 0.96, green: 0.94, blue: 0.89)
 }
 struct RoutePicker: UIViewRepresentable {

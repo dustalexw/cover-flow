@@ -48,13 +48,15 @@ struct KaraokeAudio: Codable, Equatable, Sendable {
   }
 }
 struct MobileKaraokeModel: Codable, Identifiable, Equatable, Sendable {
-  enum Backend: String, Codable { case mdx, coreML }
+  enum Backend: String, Codable { case mdx, coreML, demucs }
   var id: UUID
   var name: String
   var filename: String
   var digest: String
   var parameters: MDXParameters?
   var backend: Backend
+  /// Demucs stem names in model output order; nil for two-stem models.
+  var stems: [String]? = nil
   var parameterData: Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = .sortedKeys
@@ -125,18 +127,21 @@ struct MobileKaraokeModel: Codable, Identifiable, Equatable, Sendable {
 /// current system call before the task observes cancellation and cleans up.
 final class NativeKaraokeCancellation: @unchecked Sendable {
   private let lock = NSLock()
-  private var runtime: CFMDXRuntime?
+  private var stop: (() -> Void)?
   private var cancelled = false
-  func install(_ value: CFMDXRuntime) throws {
+  func install(_ value: CFMDXRuntime) throws { try install { value.cancel() } }
+  func install(_ value: CFDemucsRuntime) throws { try install { value.cancel() } }
+  /// Interrupts the active model run when the preparation is cancelled.
+  func install(_ interrupt: @escaping () -> Void) throws {
     lock.lock()
     defer { lock.unlock() }
     if cancelled { throw CancellationError() }
-    runtime = value
+    stop = interrupt
   }
   func cancel() {
     lock.lock()
     cancelled = true
-    runtime?.cancel()
+    stop?()
     lock.unlock()
   }
   func commit<T>(_ operation: () throws -> T) throws -> T {
@@ -152,7 +157,7 @@ final class NativeKaraokeCancellation: @unchecked Sendable {
     if stopped { throw CancellationError() }
   }
 }
-private final class ScratchFloats {
+final class ScratchFloats {
   let pointer: UnsafeMutablePointer<Float>
   let count: Int
   private let descriptor: Int32
@@ -274,6 +279,15 @@ enum NativeKaraokeEngine {
     flags.isExcludedFromBackup = true
     try? cacheURL.setResourceValues(flags)
     try cancellation.check()
+    if model.backend == .demucs {
+      notify("Loading Demucs", 0)
+      let runtime = try CFDemucsRuntime(path: model.url(in: models).path, stems: model.stems?.count ?? 0)
+      if runtime.stemCount == 0 { try runtime.probeStems() }
+      try cancellation.install(runtime)
+      return try DemucsSeparation.process(
+        input: input, output: output, model: runtime, cancellation: cancellation, notify: notify
+      ).frames
+    }
     let source = try AVAudioFile(forReading: input)
     guard source.processingFormat.sampleRate == 44100, source.processingFormat.channelCount == 2,
       source.length > 0, source.length < Int64(Int.max / 64)

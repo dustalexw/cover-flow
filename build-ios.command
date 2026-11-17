@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 bash scripts/fetch-ipad-runtime.sh
+# Every Mac audio format and cover embedding (FFmpeg, TagLib). Optional: without them
+# the app builds with its smaller format list. COVERFLOW_IOS_NATIVE=0 skips this step.
+if [ "${COVERFLOW_IOS_NATIVE:-1}" != 0 ]; then
+  bash scripts/build-ios-native.sh || echo "Continuing without some native libraries."
+fi
 python3 scripts/make-ipad-project.py
 MODE="${1:---device}"
 if [ "$MODE" = --project ]; then

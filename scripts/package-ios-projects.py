@@ -21,7 +21,7 @@ def main():
     spec.loader.exec_module(module)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    name = 'Cover-Flow-iOS-Xcode-Projects-1.2.0'
+    name = 'Cover-Flow-iOS-Xcode-Projects-1.3.0'
     stage = output / name
     if stage.exists():
         shutil.rmtree(stage)
@@ -35,6 +35,16 @@ def main():
              'scripts/fetch-ipad-runtime.sh', 'scripts/package-ios-projects.py']
     paths += ['Sources/CoverFlow/' + path for path in module.SHARED]
     paths += ['Sources/CoverFlow/Visualizer/Shaders/Visualizer.metal']
+    native = module.native_libraries(ROOT)
+    if 'ffmpeg' in native:
+        paths += ['Sources/CFFmpegAudio'] + [p.replace('../', '', 1) for p in module.NATIVE_FFMPEG
+                                             if p.endswith('.swift')]
+        paths += ['Resources/Licenses/FFmpeg-LGPL-2.1.txt']
+    if 'taglib' in native:
+        paths += ['Sources/CArtworkTags'] + [p.replace('../', '', 1) for p in module.NATIVE_TAGLIB
+                                             if p.endswith('.swift')]
+        paths += ['Resources/Licenses/TagLib-MPL-1.1.txt', 'Resources/Licenses/utfcpp-Boost-1.0.txt']
+    paths += ['scripts/build-ios-native.sh']
     for relative in paths:
         source, destination = ROOT / relative, stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +60,8 @@ def main():
 3. For a physical device, select your Apple Developer team in Signing & Capabilities.
 4. Press Run (Command-R).
 
-Requires Xcode 16.4+ and iOS/iPadOS 17+. The projects, shared sources, artwork,
+Requires Xcode 16.4+ and iOS/iPadOS 17+. Build with Xcode 27.1 or later for
+iPhone Duo's fold-aware layouts (book and tabletop postures). The projects, shared sources, artwork,
 licenses and native ONNX Runtime are included. No dependency download is needed.
 Keep the entire folder together; do not move the project file on its own.
 

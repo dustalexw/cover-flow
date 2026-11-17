@@ -1,13 +1,26 @@
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
+/// An album's tracks and actions. Presented as a sheet on compact displays, and as
+/// the trailing pane beside the browser on wide displays such as iPhone Duo's inner
+/// display, like the Mac's album track panel.
 struct MobileAlbumView: View {
   let albumID: UUID
+  /// Shown inside another pane: no navigation stack or Done button, and actions
+  /// live in the header rather than a navigation bar.
+  var embedded = false
+  var onClose: (() -> Void)? = nil
   @EnvironmentObject private var library: LibraryStore
   @EnvironmentObject private var player: PlayerEngine
+  @EnvironmentObject private var artworkTags: MobileArtworkTagging
   @Environment(\.dismiss) private var dismiss
   @State private var editing = false
   @State private var downloadArtwork = false
+  @State private var downloadKind: ArtworkKind = .front
+  /// Which kind of picture "Choose Artwork from Files" is picking.
+  @State private var choosingExtra: (kind: AlbumImageKind, disc: Int?)?
+  @State private var choosingFiles = false
   @State private var appearance = false
   @State private var remove = false
   @State private var photo: PhotosPickerItem?
@@ -16,131 +29,259 @@ struct MobileAlbumView: View {
   @State private var confirmingTrackRemoval = false
   var album: Album? { library.album(albumID) }
   var body: some View {
-    NavigationStack {
-      if let album {
-        ScrollView {
-          VStack(alignment: .leading, spacing: 24) {
-            ViewThatFits(in: .horizontal) {
-              HStack(alignment: .center, spacing: 32) {
-                MobileArtwork(album: album, pixels: 1400).frame(width: 300)
-                header(album).frame(minWidth: 200)
-              }
-              VStack(alignment: .leading, spacing: 24) {
-                MobileArtwork(album: album, pixels: 1000).frame(maxWidth: 340).frame(
-                  maxWidth: .infinity)
-                header(album)
-              }
-            }
-            VStack(spacing: 0) {
-              ForEach(library.tracks(of: album)) { track in
-                Button {
-                  player.play(albumID: album.id, startAt: track.id)
-                } label: {
-                  MobileTrackRow(
-                    track: track, playing: player.currentTrackID == track.id && player.isPlaying)
-                }
-                .buttonStyle(.plain).contextMenu {
-                  Button("Play", systemImage: "play.fill") {
-                    player.play(albumID: album.id, startAt: track.id)
-                  }
-                  Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                    player.playNext([track.id])
-                  }
-                  Button("Add to Queue", systemImage: "text.append") {
-                    player.addToQueue([track.id])
-                  }
-                  Button("Edit Track", systemImage: "pencil") { trackEdit = track }
-                  ShareLink(item: track.fileURL) {
-                    Label("Share Audio", systemImage: "square.and.arrow.up")
-                  }
-                  Divider()
-                  Button("Remove from Collection", systemImage: "trash", role: .destructive) {
-                    trackToRemove = track
-                    confirmingTrackRemoval = true
-                  }.disabled(library.importing)
-                }
-                Divider().opacity(0.4)
-              }
-            }.padding(.horizontal, 14).background(
-              .regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            Text(
-              "\(album.trackIDs.count) tracks · \(formatLongDuration(library.totalDuration(album)))"
-            ).font(.footnote).foregroundStyle(.secondary)
-          }.padding(28)
-        }.background { MobileAlbumScene(album: album) }
-          .navigationTitle(album.title).navigationBarTitleDisplayMode(.inline)
-          .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-            ToolbarItem(placement: .topBarTrailing) {
-              Menu {
-                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                  player.playNext(album.trackIDs)
-                }
-                Button("Add to Queue", systemImage: "text.append") {
-                  player.addToQueue(album.trackIDs)
-                }
-                Button("Edit Album", systemImage: "pencil") { editing = true }
-                Button("Colors & Scene", systemImage: "paintpalette") { appearance = true }
-                Button("Find Artwork Online…", systemImage: "photo.badge.magnifyingglass") { downloadArtwork = true }
-                PhotosPicker(selection: $photo, matching: .images) {
-                  Label("Replace Artwork", systemImage: "photo")
-                }
-                if album.hasArtwork {
-                  Button("Remove Artwork", systemImage: "photo.badge.minus") {
-                    library.removeArtwork(album.id)
-                  }
-                }
-                Divider()
-                Button("Remove Album", systemImage: "trash", role: .destructive) { remove = true }
-              } label: {
-                Image(systemName: "ellipsis.circle").frame(width: 32, height: 32)
-              }.accessibilityLabel("Album actions")
-            }
-          }
-          .sheet(isPresented: $downloadArtwork) {
-            ArtworkDownloadView(album: album, saveDescription: "The cover will be saved to this device’s collection.") { data in
-              guard library.album(album.id) != nil else { throw MusicLookupError.itemRemoved }
-              try library.setArtwork(album.id, data: data)
-            }
-          }
-          .sheet(isPresented: $editing) { MobileAlbumEditor(album: album) }
-          .sheet(isPresented: $appearance) { MobileAppearanceEditor(album: album) }
-          .sheet(item: $trackEdit) { track in MobileTrackEditor(track: track) }
-          .confirmationDialog(
-            "Remove this album and its imported audio from this device?", isPresented: $remove,
-            titleVisibility: .visible
-          ) {
-            Button("Remove Album", role: .destructive) {
-              library.removeAlbums([album.id])
-              dismiss()
-            }
-          }
-          .onChange(of: photo) { _, item in
-            Task {
-              do {
-                if let data = try await item?.loadTransferable(type: Data.self) {
-                  try library.setArtwork(album.id, data: data)
-                }
-              } catch { library.notice = error.localizedDescription }
-            }
-          }
+    Group {
+      if embedded {
+        content
       } else {
-        ContentUnavailableView("Album unavailable", systemImage: "music.note")
+        NavigationStack {
+          content
+            .navigationTitle(album?.title ?? "Album").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+              ToolbarItem(placement: .cancellationAction) { Button("Done") { close() } }
+              ToolbarItem(placement: .topBarTrailing) {
+                if let album { actionsMenu(album) }
+              }
+            }
+        }
       }
     }
     .alert("Remove Track from Collection?", isPresented: $confirmingTrackRemoval, presenting: trackToRemove) { track in
       Button("Remove Track", role: .destructive) {
         library.removeTracks([track.id])
-        if library.album(albumID) == nil { dismiss() }
+        if library.album(albumID) == nil { close() }
       }
       Button("Cancel", role: .cancel) { }
     } message: { track in
       Text("“\(track.title)” and its imported audio will be removed from this device and the playback queue. The original file in Files or iCloud will stay untouched.")
     }
     .preferredColorScheme(
-      album?.panelAppearance.backgroundHex.map {
-        Color(hex: $0).relativeLuminance < 0.179 ? .dark : .light
-      })
+      embedded
+        ? nil
+        : album?.panelAppearance.backgroundHex.map {
+          Color(hex: $0).relativeLuminance < 0.179 ? .dark : .light
+        })
+  }
+  private func close() {
+    if let onClose { onClose() } else { dismiss() }
+  }
+  @ViewBuilder private var content: some View {
+    if let album {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 24) {
+          if embedded {
+            HStack {
+              Spacer()
+              actionsMenu(album)
+              if onClose != nil {
+                Button {
+                  close()
+                } label: {
+                  Image(systemName: "xmark.circle.fill").font(.title2).symbolRenderingMode(.hierarchical)
+                    .frame(width: 44, height: 44)
+                }.accessibilityLabel("Close album")
+              }
+            }.padding(.bottom, -16)
+          }
+          ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 32) {
+              MobileFlipArtwork(album: album, size: 300)
+              header(album).frame(minWidth: 200)
+            }
+            VStack(alignment: .leading, spacing: 24) {
+              MobileFlipArtwork(album: album, size: 320).frame(maxWidth: .infinity)
+              header(album)
+            }
+          }
+          VStack(spacing: 0) {
+            ForEach(library.tracks(of: album)) { track in
+              Button {
+                player.play(albumID: album.id, startAt: track.id)
+              } label: {
+                MobileTrackRow(
+                  track: track, playing: player.currentTrackID == track.id && player.isPlaying)
+              }
+              .buttonStyle(.plain).contextMenu {
+                Button("Play", systemImage: "play.fill") {
+                  player.play(albumID: album.id, startAt: track.id)
+                }
+                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                  player.playNext([track.id])
+                }
+                Button("Add to Queue", systemImage: "text.append") {
+                  player.addToQueue([track.id])
+                }
+                Button("Edit Track", systemImage: "pencil") { trackEdit = track }
+                ShareLink(item: track.fileURL) {
+                  Label("Share Audio", systemImage: "square.and.arrow.up")
+                }
+                Divider()
+                Button("Remove from Collection", systemImage: "trash", role: .destructive) {
+                  trackToRemove = track
+                  confirmingTrackRemoval = true
+                }.disabled(library.importing)
+              }
+              Divider().opacity(0.4)
+            }
+          }.padding(.horizontal, 14).background(
+            .regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+          Text(
+            "\(album.trackIDs.count) tracks · \(formatLongDuration(library.totalDuration(album)))"
+          ).font(.footnote).foregroundStyle(.secondary)
+        }.padding(embedded ? 22 : 28)
+      }.background { MobileAlbumScene(album: album) }
+        .environment(
+          \.colorScheme,
+          album.panelAppearance.backgroundHex.map {
+            Color(hex: $0).relativeLuminance < 0.179 ? ColorScheme.dark : .light
+          } ?? schemeFallback)
+        .sheet(isPresented: $downloadArtwork) {
+          ArtworkDownloadView(
+            album: album,
+            saveDescription: artworkTags.saveDescription
+              + " Back covers, disc art and booklets stay in the collection and show when you flip the cover.",
+            discCount: library.discNumbers(of: album).max() ?? 1, initialKind: downloadKind,
+            currentImage: { kind, disc in
+              guard let album = library.album(albumID) else { return nil }
+              let file: String?
+              switch kind {
+              case .front: file = album.artworkFile
+              case .back: file = album.backImage?.file
+              case .disc: file = album.discImages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+              case .booklet: file = album.bookletPages.first { ($0.disc ?? 1) == (disc ?? 1) }?.file
+              }
+              return file.map { library.artwork.fileURL($0) }
+            },
+            onUse: { data in
+              guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+              try library.setArtwork(albumID, data: data)
+              artworkTags.embed(data, album: albumID)
+            },
+            onUseExtras: { images in
+              guard library.album(albumID) != nil else { throw MusicLookupError.itemRemoved }
+              await library.replaceExtraImages(albumID, with: images)
+            },
+            onRemoveExtras: { items in library.removeExtraImages(albumID, only: items) })
+        }
+        .fileImporter(
+          isPresented: $choosingFiles, allowedContentTypes: [.image],
+          allowsMultipleSelection: choosingExtra?.kind == .booklet
+        ) { result in
+          guard let target = choosingExtra, case .success(let urls) = result, !urls.isEmpty else { return }
+          let sorted = urls.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+          }
+          Task {
+            let pages = await Task.detached(priority: .userInitiated) { () -> [Data] in
+              sorted.prefix(40).compactMap { url in
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url), data.count <= 40 * 1024 * 1024 else { return nil }
+                return data
+              }
+            }.value
+            guard !pages.isEmpty else {
+              library.notice = "Couldn’t read that image file."
+              return
+            }
+            if target.kind == .booklet {
+              let saved = await library.setBookletPages(albumID, pages: pages)
+              library.notice = saved > 0
+                ? "Saved a \(saved)-page booklet. Open the cover like a jewel case to see it."
+                : "Couldn’t use those files as booklet pages."
+            } else {
+              let saved = await library.replaceExtraImages(
+                albumID, with: [(kind: target.kind, disc: target.disc, data: pages[0])])
+              library.notice = saved > 0
+                ? "Saved. Flip the cover to see it."
+                : "Couldn’t use that file as artwork. Choose a JPEG, PNG, HEIC or other image."
+            }
+          }
+        }
+        .sheet(isPresented: $editing) { MobileAlbumEditor(album: album) }
+        .sheet(isPresented: $appearance) { MobileAppearanceEditor(album: album) }
+        .sheet(item: $trackEdit) { track in MobileTrackEditor(track: track) }
+        .confirmationDialog(
+          "Remove this album and its imported audio from this device?", isPresented: $remove,
+          titleVisibility: .visible
+        ) {
+          Button("Remove Album", role: .destructive) {
+            library.removeAlbums([album.id])
+            close()
+          }
+        }
+        .onChange(of: photo) { _, item in
+          Task {
+            do {
+              if let data = try await item?.loadTransferable(type: Data.self) {
+                try library.setArtwork(album.id, data: data)
+                artworkTags.embed(data, album: album.id)
+              }
+            } catch { library.notice = error.localizedDescription }
+          }
+        }
+    } else {
+      ContentUnavailableView("Album unavailable", systemImage: "music.note")
+    }
+  }
+  @Environment(\.colorScheme) private var schemeFallback
+  private func actionsMenu(_ album: Album) -> some View {
+    Menu {
+      Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+        player.playNext(album.trackIDs)
+      }
+      Button("Add to Queue", systemImage: "text.append") {
+        player.addToQueue(album.trackIDs)
+      }
+      Button("Edit Album", systemImage: "pencil") { editing = true }
+      Button("Colors & Scene", systemImage: "paintpalette") { appearance = true }
+      Button("Find Artwork Online…", systemImage: "photo.badge.magnifyingglass") {
+        downloadKind = .front
+        downloadArtwork = true
+      }
+      if !album.isDemo {
+        Button("Find Back Cover & Disc Art Online…", systemImage: "opticaldisc") {
+          downloadKind = album.backImage == nil ? .back : .disc
+          downloadArtwork = true
+        }
+        Button("Fill In Missing Back & Disc Art", systemImage: "wand.and.stars") {
+          library.findExtraArt([album.id])
+        }.disabled(library.extraArtProgress != nil || library.importing)
+      }
+      PhotosPicker(selection: $photo, matching: .images) {
+        Label("Replace Artwork", systemImage: "photo")
+      }
+      Menu("Choose Artwork from Files", systemImage: "folder") {
+        Button("Back Cover…") { chooseFiles(.back, nil) }
+        let discs = library.discNumbers(of: album).sorted()
+        if discs.count > 1 {
+          ForEach(discs, id: \.self) { number in
+            Button("Disc \(number) Art…") { chooseFiles(.disc, number) }
+          }
+        } else {
+          Button("Disc Art…") { chooseFiles(.disc, discs.first ?? 1) }
+        }
+        Button("Booklet Pages…") { chooseFiles(.booklet, nil) }
+      }
+      if album.hasArtwork {
+        Button("Remove Artwork", systemImage: "photo.badge.minus") {
+          library.removeArtwork(album.id)
+        }
+      }
+      if album.hasExtraImages {
+        Button(
+          album.bookletPages.isEmpty ? "Remove Back & Disc Art" : "Remove Back, Disc & Booklet Art",
+          systemImage: "rectangle.badge.minus"
+        ) { library.removeExtraImages(album.id) }
+      }
+      Divider()
+      Button("Remove Album", systemImage: "trash", role: .destructive) { remove = true }
+    } label: {
+      Image(systemName: "ellipsis.circle").font(embedded ? .title2 : .body).frame(width: 44, height: 44)
+    }.accessibilityLabel("Album actions")
+  }
+  private func chooseFiles(_ kind: AlbumImageKind, _ disc: Int?) {
+    choosingExtra = (kind, disc)
+    choosingFiles = true
   }
   private func header(_ album: Album) -> some View {
     VStack(alignment: .leading, spacing: 14) {

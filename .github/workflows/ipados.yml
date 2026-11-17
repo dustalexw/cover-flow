@@ -12,6 +12,13 @@ on:
       - 'Sources/CoverFlow/Scrobbling/**'
       - 'Sources/CoverFlow/Library/MetadataReader.swift'
       - 'Sources/CoverFlow/Library/OggOpus.swift'
+      - 'Sources/CoverFlow/Library/AlbumSceneGenerator.swift'
+      - 'Sources/CoverFlow/Library/FFmpegAudio.swift'
+      - 'Sources/CoverFlow/Library/FFmpegDurationCache.swift'
+      - 'Sources/CoverFlow/Library/ArtworkTagWriter.swift'
+      - 'Sources/CFFmpegAudio/**'
+      - 'Sources/CArtworkTags/**'
+      - 'scripts/*ios*'
       - 'scripts/*ipad*'
       - 'build-ipad.command'
       - 'build-ios.command'
@@ -41,12 +48,21 @@ jobs:
         with:
           path: |
             .build/vendor/ipados
+            .build/vendor/*.tar.*
             iPad/Vendor
-          key: ipad-runtime-xcode16.4-${{ runner.arch }}-${{ hashFiles('scripts/fetch-ipad-runtime.sh') }}
+          key: ipad-runtime-xcode16.4-${{ runner.arch }}-${{ hashFiles('scripts/fetch-ipad-runtime.sh', 'scripts/build-ios-native.sh') }}
       - name: Verify project generation
         run: python3 -m unittest discover -s scripts/tests -p 'test_mobile_projects.py' -v
       - name: Prepare native runtime
         run: bash scripts/fetch-ipad-runtime.sh
+      - name: Build FFmpeg and TagLib for iOS
+        run: bash scripts/build-ios-native.sh
+      - name: Verify native libraries are wired into the projects
+        run: |
+          python3 scripts/make-ipad-project.py | tee generate.log
+          grep -q 'native: ffmpeg, taglib' generate.log
+          grep -q 'CoverFlowFFmpeg.xcframework' iPhone/CoverFlow-iPhone.xcodeproj/project.pbxproj
+          grep -q 'COVERFLOW_DUO_SDK' iPhone/CoverFlow-iPhone.xcodeproj/project.pbxproj
       - name: Verify processing core
         run: swift test --package-path iPad --disable-sandbox
       - name: Build for iPad
@@ -57,3 +73,50 @@ jobs:
         run: bash build-ios.command --device
       - name: Build iPhone Simulator
         run: bash build-ios.command --simulator
+      - name: Confirm extended formats are compiled in
+        run: |
+          APP="iPhone/build/Build/Products/Release-iphoneos/Cover Flow.app/Cover Flow"
+          xcrun nm "$APP" | grep -q cf_audio_open
+          xcrun nm "$APP" | grep -q cf_artwork_write
+
+  # iPhone Duo's fold APIs (reserved regions, hinge) are in the iOS 27.1 SDK.
+  iphone-duo-sdk:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27.1 or later
+        run: |
+          best=""
+          for app in /Applications/Xcode*.app; do
+            version=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || true)
+            echo "$app: $version"
+            case "$version" in
+              27.0*|2[0-6].*|1*|"") ;;
+              *) if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$bestv" "$version" | sort -V | tail -1)" = "$version" ]; then best=$app; bestv=$version; fi ;;
+            esac
+          done
+          test -n "$best" || { echo "No Xcode 27.1+ on this runner"; exit 1; }
+          echo "$best/Contents/Developer" > "$RUNNER_TEMP/xcode"
+      - name: Show toolchain
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios
+      - name: Prepare native runtime
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          bash scripts/fetch-ipad-runtime.sh
+      - name: Build iPhone with the iPhone Duo SDK (simulator)
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          COVERFLOW_IOS_NATIVE=0 bash build-ios.command --simulator
+      - name: Build iPhone with the iPhone Duo SDK (device)
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          COVERFLOW_IOS_NATIVE=0 bash build-ios.command --device
+      - name: Build iPad with the iPhone Duo SDK
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          COVERFLOW_IOS_NATIVE=0 bash build-ipad.command --simulator
+

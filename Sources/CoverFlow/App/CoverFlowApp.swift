@@ -88,6 +88,7 @@ final class AppEnvironment {
         state = AppState()
         albumView = AlbumViewController()
         library.load()
+        library.scanLibraryForLocalExtraArtOnce()
         player.restore()
         let d = UserDefaults.standard
         if !d.bool(forKey: "didSeedDemo") {
@@ -153,7 +154,7 @@ struct CoverFlowApp: App {
 
     var body: some Scene {
         Window("Cover Flow", id: "main") {
-            RootView()
+            ThemedRoot { RootView() }
                 .environmentObject(env.library)
                 .environmentObject(env.player)
                 .environmentObject(env.state)
@@ -176,7 +177,7 @@ struct CoverFlowApp: App {
         .defaultPosition(.center)
 
         Settings {
-            SettingsView()
+            ThemedRoot { SettingsView() }
                 .environmentObject(env.media)
                 .environmentObject(env.lastfm)
                 .environmentObject(env.library)
@@ -193,6 +194,7 @@ struct AppCommands: Commands {
     @ObservedObject var state: AppState
     @ObservedObject var library: LibraryStore
     @ObservedObject var albumView: AlbumViewController
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -202,6 +204,10 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Import Music…") { library.presentImportPanel() }
                 .keyboardShortcut("o")
+            Button("Find Missing Back Covers & Disc Art") {
+                library.findExtraArt(library.albums.filter { library.needsExtraArt($0) }.map(\.id))
+            }
+            .disabled(library.importProgress != nil || library.albums.allSatisfy { $0.isDemo })
             Divider()
             Button(library.hasDemoContent ? "Rebuild Demo Collection" : "Add Demo Collection") { library.addDemoCollection() }
             if library.hasDemoContent {
@@ -230,6 +236,9 @@ struct AppCommands: Commands {
                         if state.sortOrder == order { Label(order.label, systemImage: "checkmark") } else { Text(order.label) }
                     }
                 }
+            }
+            Picker("Turning Covers Over", selection: $turnStyle) {
+                ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
             }
             Divider()
             Button(state.showQueue ? "Hide Queue" : "Show Queue") { state.showQueue.toggle() }
@@ -278,5 +287,15 @@ struct AppCommands: Commands {
             Button(player.repeatMode.next.label) { player.cycleRepeat() }
                 .keyboardShortcut("r", modifiers: [.command, .control])
         }
+    }
+}
+
+/// Redraws a window when the colour theme changes, since the palette is read while
+/// views draw.
+struct ThemedRoot<Content: View>: View {
+    @AppStorage(ColorTheme.defaultsKey) private var themeID = ColorTheme.brass.id
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        content().id(themeID)
     }
 }

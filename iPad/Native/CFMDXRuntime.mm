@@ -3,6 +3,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 Ort::Env &environment() { static Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "CoverFlow-iPad"); env.DisableTelemetryEvents(); return env; }
@@ -49,6 +50,87 @@ NSError *makeError(const std::exception &exception) { return [NSError errorWithD
         auto dimensions=info.GetShape();
         if (dimensions.size()!=4 || !std::equal(dimensions.begin(),dimensions.end(),_model->shape.begin()) || info.GetElementCount()!=_model->count || info.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) throw std::runtime_error("The model returned invalid spectra.");
         return [NSData dataWithBytes:outputs[0].GetTensorData<float>() length:_model->count*sizeof(float)];
+    } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; }
+}
+- (void)cancel { if (_model) { try { _model->run.SetTerminate(); } catch(...) {} } }
+@end
+
+namespace {
+struct Demucs {
+    Ort::Session session{nullptr};
+    Ort::RunOptions run;
+    std::string input, output;
+    int64_t segment = 0, stems = 0;
+    /// `hint`: the stem count when the export leaves it dynamic (4 or 6), or 0 to
+    /// find it out later with probe() — which runs a whole segment, so it's avoided
+    /// whenever the count is known (the built-in downloads).
+    explicit Demucs(const char *path, int64_t hint) {
+        Ort::SessionOptions options;
+        options.SetIntraOpNumThreads(4);
+        // The optimizer's constant folding needs several gigabytes for this graph.
+        options.SetGraphOptimizationLevel(ORT_DISABLE_ALL);
+        options.DisableCpuMemArena();
+        session = Ort::Session(environment(), path, options);
+        if (session.GetInputCount()!=1 || session.GetOutputCount()!=1) throw std::runtime_error("This is not a Demucs stem model.");
+        Ort::AllocatorWithDefaultOptions allocator;
+        input = session.GetInputNameAllocated(0,allocator).get(); output = session.GetOutputNameAllocated(0,allocator).get();
+        // Keep each TypeInfo alive: the shape info is a view into it.
+        auto inputType = session.GetInputTypeInfo(0);
+        auto in = inputType.GetTensorTypeAndShapeInfo();
+        auto dims = in.GetShape();
+        if (in.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || dims.size()!=3 || (dims[0]>=0 && dims[0]!=1) || dims[1]!=2) throw std::runtime_error("This is not a Demucs stem model.");
+        segment = dims[2] > 0 ? dims[2] : 343980;
+        auto outputType = session.GetOutputTypeInfo(0);
+        auto out = outputType.GetTensorTypeAndShapeInfo();
+        auto odims = out.GetShape();
+        if (out.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || odims.size()!=4) throw std::runtime_error("This is not a Demucs stem model.");
+        stems = odims[1] > 0 ? odims[1] : (hint == 4 || hint == 6 ? hint : 0);
+        if (stems!=0 && stems!=4 && stems!=6) throw std::runtime_error("Choose a 4-stem or 6-stem HTDemucs model.");
+    }
+    /// Dynamic output dimensions: count the stems with a silent segment.
+    void probe() {
+        if (stems != 0) return;
+        std::vector<float> silence(2 * segment, 0.0f);
+        auto result = predict(silence.data());
+        stems = (int64_t)(result.size() / (2 * segment));
+        if (stems!=4 && stems!=6) throw std::runtime_error("Choose a 4-stem or 6-stem HTDemucs model.");
+    }
+    std::vector<float> predict(float *mix) {
+        auto memory=Ort::MemoryInfo::CreateCpu(OrtArenaAllocator,OrtMemTypeDefault);
+        std::array<int64_t,3> shape{1,2,segment};
+        auto tensor=Ort::Value::CreateTensor<float>(memory,mix,(size_t)(2*segment),shape.data(),3);
+        const char *in=input.c_str(), *out=output.c_str();
+        auto outputs=session.Run(run,&in,&tensor,1,&out,1);
+        auto info=outputs[0].GetTensorTypeAndShapeInfo();
+        auto dims=info.GetShape();
+        if (dims.size()!=4 || dims[0]!=1 || dims[2]!=2 || dims[3]!=segment || info.GetElementType()!=ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) throw std::runtime_error("The Demucs model returned unexpected stems.");
+        const float *data=outputs[0].GetTensorData<float>();
+        return std::vector<float>(data, data + info.GetElementCount());
+    }
+};
+}
+@interface CFDemucsRuntime () { std::unique_ptr<Demucs> _model; }
+@end
+@implementation CFDemucsRuntime
+- (instancetype)initWithPath:(NSString *)path error:(NSError **)error {
+    return [self initWithPath:path stems:0 error:error];
+}
+- (instancetype)initWithPath:(NSString *)path stems:(NSInteger)stems error:(NSError **)error {
+    if ((self=[super init])) { try { _model=std::make_unique<Demucs>(path.fileSystemRepresentation, (int64_t)stems); } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; } }
+    return self;
+}
+- (BOOL)probeStems:(NSError **)error {
+    try { _model->probe(); return YES; } catch(const std::exception &e) { if(error) *error=makeError(e); return NO; }
+}
+- (NSInteger)stemCount { return (NSInteger)_model->stems; }
+- (NSInteger)segment { return (NSInteger)_model->segment; }
+- (NSData *)predict:(NSData *)mix error:(NSError **)error {
+    try {
+        if (mix.length!=(NSUInteger)(2*_model->segment)*sizeof(float)) throw std::runtime_error("Incorrect Demucs input size.");
+        auto result=_model->predict((float *)mix.bytes);
+        if (_model->stems==0) _model->stems=(int64_t)(result.size()/(2*_model->segment));
+        if ((int64_t)result.size()!=_model->stems*2*_model->segment) throw std::runtime_error("The Demucs model returned unexpected stems.");
+        return [NSData dataWithBytes:result.data() length:result.size()*sizeof(float)];
     } catch(const std::exception &e) { if(error) *error=makeError(e); return nil; }
 }
 - (void)cancel { if (_model) { try { _model->run.SetTerminate(); } catch(...) {} } }

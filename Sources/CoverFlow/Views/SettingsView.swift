@@ -32,6 +32,8 @@ struct SettingsView: View {
     @State private var confirmClear = false
     @State private var confirmOrganize = false
     @State private var organizeCount = 0
+    @AppStorage(ExtraArtSettings.fanartKeyDefaultsKey) private var fanartKey = ""
+    @AppStorage(CoverTurnStyle.defaultsKey) private var turnStyle: CoverTurnStyle = .flipWithDiscs
 
     var body: some View {
         Form {
@@ -41,6 +43,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 Text("Dark lets covers stand out most. The background takes a quiet tint from the album you’re browsing.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Colors") {
+                    ColorThemePicker().frame(maxWidth: 360)
+                }
+                Text("Brass is Cover Flow’s original. The others come from the game colours on sipassgames.com.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -86,6 +93,23 @@ struct SettingsView: View {
                             .disabled(!media.keepOrganized)
                     }
                 }
+            }
+
+            Section("Back Covers & Disc Art") {
+                Picker("When turning a cover over", selection: $turnStyle) {
+                    ForEach(CoverTurnStyle.allCases) { Text($0.label).tag($0) }
+                }
+                Text("Flip a cover in Cover Flow (F or ⌥-click) to see its back and its discs. Cover Flow looks for images named like “Back.jpg” or “CD1.png” beside your music (and in Scans or Artwork folders), pictures embedded in the files, and online in the Cover Art Archive and TheAudioDB.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField("fanart.tv API key (optional)", text: $fanartKey)
+                    .textFieldStyle(.roundedBorder)
+                Text("A free personal key from fanart.tv adds its large collection of disc art.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Find Missing Back Covers & Disc Art") {
+                    library.findExtraArt(library.albums.filter { library.needsExtraArt($0) }.map(\.id))
+                }
+                .disabled(library.importProgress != nil || library.albums.allSatisfy { $0.isDemo })
             }
 
             LastFmSettings()

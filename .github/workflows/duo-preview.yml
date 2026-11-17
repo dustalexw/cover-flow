@@ -1,0 +1,142 @@
+name: iPhone Duo preview
+on:
+  pull_request:
+    paths:
+      - 'iPad/**'
+      - 'iPhone/**'
+      - 'scripts/make-ipad-project.py'
+      - '.github/workflows/duo-preview.yml'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27.1 or later
+        run: |
+          best=""; bestv=""
+          for app in /Applications/Xcode_27.*.app; do
+            version=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || true)
+            case "$version" in 27.0*|"") ;; *) if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$bestv" "$version" | sort -V | tail -1)" = "$version" ]; then best=$app; bestv=$version; fi ;; esac
+          done
+          test -n "$best"
+          echo "$best/Contents/Developer" > "$RUNNER_TEMP/xcode"
+      - name: Build for the simulator
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          bash scripts/fetch-ipad-runtime.sh
+          COVERFLOW_IOS_NATIVE=0 bash build-ios.command --simulator
+      - name: Explore simulator support
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          xcrun simctl list devicetypes | grep -i -E "duo|iphone 18" || true
+          xcrun simctl list runtimes
+          xcrun simctl help ui 2>&1 | head -60 || true
+          xcrun simctl help io 2>&1 | head -60 || true
+          xcrun simctl help 2>&1 | head -80 || true
+      - name: Screenshots
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          set -x
+          TYPE=$(xcrun simctl list devicetypes -j | python3 -c "import json,sys; t=[d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if 'Duo' in d['name']]; print(t[0] if t else '')")
+          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x['identifier'] for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable'] and any('Duo' in d['name'] for d in x.get('supportedDeviceTypes',[]))]; print(r[-1])")
+          echo "type=$TYPE runtime=$RUNTIME"
+          test -n "$TYPE"
+          UDID=$(xcrun simctl create duo "$TYPE" "$RUNTIME")
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          APP="iPhone/build-simulator/Build/Products/Release-iphonesimulator/Cover Flow.app"
+          xcrun simctl install "$UDID" "$APP"
+          mkdir -p shots
+          xcrun simctl launch "$UDID" app.coverflow.player.iphone -CoverFlowDemoSession
+          sleep 25
+          xcrun simctl io "$UDID" screenshot shots/01-default.png || true
+          xcrun simctl io "$UDID" enumerate 2>&1 | tee shots/displays.txt || true
+          BUNDLE=app.coverflow.player.iphone
+          shoot() { # name display [CoverFlowShow]
+            xcrun simctl terminate "$UDID" $BUNDLE 2>/dev/null || true
+            if [ -n "${3:-}" ]; then xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession -CoverFlowShow "$3"
+            else xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession; fi
+            sleep 12
+            xcrun simctl io "$UDID" screenshot --display=$2 "shots/$1.png" 2>&1 || true
+          }
+          shoot outer-collection 1
+          shoot outer-album 1 album
+          shoot outer-albumview 1 albumView
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duo-screenshots
+          path: shots
+
+  # The command line can't unfold the iPhone Duo simulator, so the expanded
+  # (inner-display) shell is checked on iPad mini, which runs the same layout code.
+  expanded:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 27.1 or later
+        run: |
+          best=""; bestv=""
+          for app in /Applications/Xcode_27.*.app; do
+            version=$(defaults read "$app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || true)
+            case "$version" in 27.0*|"") ;; *) if [ -z "$best" ] || [ "$(printf '%s\n%s\n' "$bestv" "$version" | sort -V | tail -1)" = "$version" ]; then best=$app; bestv=$version; fi ;; esac
+          done
+          test -n "$best"
+          echo "$best/Contents/Developer" > "$RUNNER_TEMP/xcode"
+      - name: Build iPad for the simulator
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          bash scripts/fetch-ipad-runtime.sh
+          COVERFLOW_IOS_NATIVE=0 bash build-ipad.command --simulator
+      - name: Screenshots
+        timeout-minutes: 20
+        run: |
+          export DEVELOPER_DIR="$(cat "$RUNNER_TEMP/xcode")"
+          set -x
+          mkdir -p shots
+          # The command line can't unfold the Duo simulator, so check the expanded
+          # (inner display) shell on iPad mini, which runs the same layout code.
+          read PAD_TYPE PAD_RUNTIME < <(xcrun simctl list runtimes -j | python3 -c "
+          import json,sys
+          best=None
+          for r in json.load(sys.stdin)['runtimes']:
+              if r['platform']!='iOS' or not r['isAvailable']: continue
+              pads=[d['identifier'] for d in r.get('supportedDeviceTypes',[]) if d['name'].startswith('iPad mini')]
+              if pads: best=(pads[-1], r['identifier'])
+          print(*best)")
+          echo "$PAD_TYPE $PAD_RUNTIME"
+          PAD=$(xcrun simctl create pad "$PAD_TYPE" "$PAD_RUNTIME")
+          xcrun simctl boot "$PAD"; xcrun simctl bootstatus "$PAD" -b
+          xcrun simctl install "$PAD" "iPad/build-simulator/Build/Products/Release-iphonesimulator/Cover Flow.app"
+          UDID=$PAD BUNDLE=app.coverflow.player.ipad
+          shootpad() {
+            xcrun simctl terminate "$UDID" $BUNDLE 2>/dev/null || true
+            if [ -n "${2:-}" ]; then xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession -CoverFlowShow "$2"
+            else xcrun simctl launch "$UDID" $BUNDLE -CoverFlowDemoSession; fi
+            sleep 15
+            xcrun simctl io "$UDID" screenshot "shots/$1.png" 2>&1 || true
+            xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -i coverflow > "shots/$1-running.txt" || echo "not running" > "shots/$1-running.txt"
+          }
+          xcrun simctl launch --stdout="$PWD/shots/pad-stdout.txt" --stderr="$PWD/shots/pad-stderr.txt" "$UDID" $BUNDLE -CoverFlowDemoSession || true
+          sleep 20
+          xcrun simctl io "$UDID" screenshot shots/expanded-first.png || true
+          xcrun simctl spawn "$UDID" log show --last 3m --predicate 'process == "Cover Flow"' --style compact 2>/dev/null | tail -150 > shots/pad-log.txt || true
+          cp ~/Library/Logs/DiagnosticReports/*Cover* shots/ 2>/dev/null || true
+          shootpad expanded-collection
+          shootpad expanded-album album
+          shootpad expanded-albumview albumView
+          shootpad expanded-immersive immersive
+          shootpad expanded-karaoke karaoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: expanded-screenshots
+          path: shots

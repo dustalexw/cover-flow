@@ -9,18 +9,27 @@ struct MobileRootView: View {
   @State private var importingFiles = false
   @State private var importingFolder = false
   @Environment(\.horizontalSizeClass) private var widthClass
-  private var usesTabs: Bool {
-    UIDevice.current.userInterfaceIdiom == .phone || widthClass == .compact
+  @Environment(\.verticalSizeClass) private var heightClass
+  /// iPhone Duo's outer display (and every other iPhone) is compact; its inner display
+  /// and iPad are regular in both dimensions. Landscape Plus/Max phones report regular
+  /// width with compact height and keep the phone layout.
+  private var layout: MobileLayoutClass {
+    MobileLayoutClass(regularWidth: widthClass == .regular, regularHeight: heightClass == .regular)
   }
 
   var body: some View {
     Group {
-      if usesTabs { phoneNavigation } else { tabletNavigation }
+      switch layout {
+      case .compact: phoneNavigation
+      case .expanded:
+        MobileExpandedShell(
+          importFiles: { $0 ? (importingFolder = true) : (importingFiles = true) })
+      }
     }
-    .onChange(of: usesTabs) { _, compact in
-      if !compact, app.tab == .more { app.tab = .settings }
-    }
+    .onChange(of: layout, initial: true) { _, value in app.layoutChanged(to: value) }
+    .observesHinge()
     .sheet(isPresented: $app.nowPlaying) { MobileNowPlayingView() }
+    .fullScreenCover(isPresented: $app.immersive) { MobileImmersiveAlbumView() }
     .fileImporter(
       isPresented: $importingFiles, allowedContentTypes: [.audio, .movie, .data],
       allowsMultipleSelection: true
@@ -72,6 +81,16 @@ struct MobileRootView: View {
     .onChange(of: player.currentTrackID, initial: true) { _, _ in
       karaoke.refresh(player.currentTrack)
     }
+    .overlay(alignment: .bottom) {
+      if let progress = library.extraArtProgress {
+        HStack(spacing: 10) {
+          ProgressView()
+          Text(progress).font(.caption).lineLimit(1)
+        }
+        .padding(12).background(.regularMaterial, in: Capsule()).padding(.bottom, 90)
+        .frame(maxWidth: 600)
+      }
+    }
     .overlay(alignment: .top) {
       if library.importing {
         HStack {
@@ -85,11 +104,7 @@ struct MobileRootView: View {
         .frame(maxWidth: 600)
       }
     }
-    .background {
-      Button("Play or pause") { player.togglePlayPause() }.keyboardShortcut(
-        "p", modifiers: .command
-      ).hidden()
-    }
+    .background { MobileKeyCommands(layout: layout) }
   }
   private var phoneNavigation: some View {
     TabView(selection: Binding(get: { app.tab.compactSelection }, set: { app.tab = $0 })) {
@@ -115,20 +130,96 @@ struct MobileRootView: View {
           }
         }
         .navigationTitle("More")
-        .toolbar { importToolbar }
+        .toolbar { MobileImportToolbar(importFiles: importFiles, app: app) }
         .navigationDestination(for: MobileTab.self) { route in
-          destination(route).navigationTitle(route.title).toolbar { importToolbar }
+          MobileDestination(tab: route, inlineAlbums: false, importFiles: importFiles)
+            .navigationTitle(route.title).toolbar { MobileImportToolbar(importFiles: importFiles, app: app) }
         }
       }
     } else {
       NavigationStack {
-        destination(tab).navigationTitle(tab.title).toolbar { importToolbar }
+        MobileDestination(tab: tab, inlineAlbums: false, importFiles: importFiles)
+          .navigationTitle(tab.title).toolbar { MobileImportToolbar(importFiles: importFiles, app: app) }
       }
     }
   }
+  private func importFiles(_ folder: Bool) {
+    if folder { importingFolder = true } else { importingFiles = true }
+  }
+}
 
-  private var tabletNavigation: some View {
-    NavigationSplitView {
+/// The destination for a tab, shared by the phone tabs and the expanded sidebar.
+struct MobileDestination: View {
+  let tab: MobileTab
+  let inlineAlbums: Bool
+  let importFiles: (Bool) -> Void
+  var body: some View {
+    switch tab {
+    case .library:
+      MobileCollectionView(importFiles: importFiles, inlineAlbums: inlineAlbums)
+    case .queue: MobileQueueView()
+    case .lyrics: MobileLyricsView()
+    case .karaoke: MobileKaraokeView()
+    case .visualizer: MobileVisualizerView()
+    case .settings: MobileSettingsView()
+    case .more: EmptyView()
+    }
+  }
+}
+
+struct MobileImportToolbar: ToolbarContent {
+  let importFiles: (Bool) -> Void
+  let app: MobileEnvironment
+  var body: some ToolbarContent {
+    ToolbarItem(placement: .topBarTrailing) {
+      Menu {
+        Button("Import audio files", systemImage: "music.note") { importFiles(false) }
+        Button("Import folder", systemImage: "folder") { importFiles(true) }
+        Divider()
+        Button("Album View", systemImage: "play.rectangle") { app.nowPlaying = true }
+        Button("Immersive Album View", systemImage: "arrow.up.left.and.arrow.down.right") {
+          app.immersive = true
+        }
+        Button("Show Playing Album", systemImage: "scope") {
+          app.tab = .library
+          app.revealPlaying += 1
+        }
+      } label: {
+        Image(systemName: "plus").frame(width: 32, height: 32)
+      }.accessibilityLabel("Import music and player actions")
+    }
+  }
+}
+
+/// The inner-display shell for iPhone Duo (and iPad): a sidebar, the browser with the
+/// album track panel beside it, and a full-width player bar. In book posture the
+/// browser and album panel become the two pages either side of the fold; in tabletop
+/// posture Album View stands up with artwork above the fold and controls below.
+struct MobileExpandedShell: View {
+  let importFiles: (Bool) -> Void
+  @EnvironmentObject private var app: MobileEnvironment
+  /// The sidebar starts tucked away so Cover Flow fills the display; the sidebar
+  /// button brings it back.
+  @State private var columns: NavigationSplitViewVisibility = .detailOnly
+  /// Set when the person leaves the tabletop player to browse; cleared when the pose changes.
+  @State private var tabletopBrowsing = false
+  var body: some View {
+    FoldReader { fold in
+      Group {
+        if fold.posture == .tabletop && !tabletopBrowsing {
+          MobileTabletopPlayer(fold: fold) { tabletopBrowsing = true }
+        } else {
+          split(fold)
+        }
+      }
+      .environment(\.foldGeometry, fold)
+      .onChange(of: fold.posture) { old, posture in
+        if posture != old { tabletopBrowsing = false }
+      }
+    }
+  }
+  private func split(_ fold: FoldGeometry) -> some View {
+    NavigationSplitView(columnVisibility: $columns) {
       List(
         MobileTab.sidebarTabs,
         selection: Binding<MobileTab?>(
@@ -139,8 +230,8 @@ struct MobileRootView: View {
       .navigationTitle("Cover Flow")
       .safeAreaInset(edge: .bottom) {
         Menu {
-          Button("Audio files", systemImage: "music.note") { importingFiles = true }
-          Button("A folder", systemImage: "folder") { importingFolder = true }
+          Button("Audio files", systemImage: "music.note") { importFiles(false) }
+          Button("A folder", systemImage: "folder") { importFiles(true) }
         } label: {
           Label("Import Music", systemImage: "plus.circle.fill")
             .frame(maxWidth: .infinity).padding(.vertical, 10)
@@ -148,35 +239,14 @@ struct MobileRootView: View {
       }
     } detail: {
       NavigationStack {
-        destination(app.tab).navigationTitle(app.tab.title).toolbar { importToolbar }
+        detail
+          .navigationTitle(app.tab.title).toolbar { MobileImportToolbar(importFiles: importFiles, app: app) }
       }
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) { MobilePlaybackBar() }
+    .safeAreaInset(edge: .bottom, spacing: 0) { MobilePlaybackBar(fold: fold) }
   }
-
-  @ViewBuilder private func destination(_ tab: MobileTab) -> some View {
-    switch tab {
-    case .library:
-      MobileCollectionView(importFiles: { $0 ? (importingFolder = true) : (importingFiles = true) })
-    case .queue: MobileQueueView()
-    case .lyrics: MobileLyricsView()
-    case .karaoke: MobileKaraokeView()
-    case .visualizer: MobileVisualizerView()
-    case .settings: MobileSettingsView()
-    case .more: EmptyView()
-    }
+  @ViewBuilder private var detail: some View {
+    // Cover Flow takes the whole display; albums open over it.
+    MobileDestination(tab: app.tab, inlineAlbums: false, importFiles: importFiles)
   }
-
-  @ToolbarContentBuilder private var importToolbar: some ToolbarContent {
-    ToolbarItem(placement: .topBarTrailing) {
-      Menu {
-        Button("Import audio files", systemImage: "music.note") { importingFiles = true }
-        Button("Import folder", systemImage: "folder") { importingFolder = true }
-        Button("Now Playing", systemImage: "play.circle") { app.nowPlaying = true }
-      } label: {
-        Image(systemName: "plus").frame(width: 32, height: 32)
-      }.accessibilityLabel("Import music and player actions")
-    }
-  }
-
 }
