@@ -64,27 +64,19 @@ extension NSColor {
 
 /// The visual system: a quiet near-black (or warm paper) base, one brass accent, hairlines.
 enum Palette {
-    static func base(_ s: ColorScheme) -> Color {
-        s == .dark ? Color(red: 0.063, green: 0.063, blue: 0.071) : Color(red: 0.955, green: 0.945, blue: 0.925)
-    }
+    static func base(_ s: ColorScheme) -> Color { ColorTheme.current.base(dark: s == .dark) }
     static func raised(_ s: ColorScheme) -> Color {
         s == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)
     }
     static func raisedHover(_ s: ColorScheme) -> Color {
         s == .dark ? Color.white.opacity(0.13) : Color.black.opacity(0.09)
     }
-    static func accent(_ s: ColorScheme) -> Color {
-        s == .dark ? Color(red: 0.95, green: 0.77, blue: 0.49) : Color(red: 0.52, green: 0.34, blue: 0.09)
-    }
-    static func onAccent(_ s: ColorScheme) -> Color {
-        s == .dark ? Color(red: 0.10, green: 0.08, blue: 0.05) : .white
-    }
+    static func accent(_ s: ColorScheme) -> Color { ColorTheme.current.accent(dark: s == .dark) }
+    static func onAccent(_ s: ColorScheme) -> Color { ColorTheme.current.onAccent(dark: s == .dark) }
     static func hairline(_ s: ColorScheme) -> Color {
         s == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.09)
     }
-    static func bar(_ s: ColorScheme) -> Color {
-        s == .dark ? Color(red: 0.085, green: 0.085, blue: 0.095).opacity(0.92) : Color(red: 0.975, green: 0.968, blue: 0.952).opacity(0.94)
-    }
+    static func bar(_ s: ColorScheme) -> Color { ColorTheme.current.bar(dark: s == .dark) }
 
     /// Turns an artwork's average colour into a quiet background tint that keeps text legible.
     static func tint(hex: String?, scheme: ColorScheme) -> Color? {

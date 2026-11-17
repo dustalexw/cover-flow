@@ -18,6 +18,13 @@ struct MobileSettingsView: View {
           ForEach(AppTheme.allCases) { Text($0.label).tag($0.rawValue) }
         }
       }
+      Section {
+        ColorThemePicker(columns: 5).padding(.vertical, 6)
+      } header: {
+        Text("Colors")
+      } footer: {
+        Text("Brass is Cover Flow’s original. The others come from the game colours on sipassgames.com.")
+      }
       Section("Last.fm") {
         if scrobbler.connected {
           LabeledContent("Account", value: scrobbler.username)

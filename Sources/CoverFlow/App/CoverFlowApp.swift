@@ -154,7 +154,7 @@ struct CoverFlowApp: App {
 
     var body: some Scene {
         Window("Cover Flow", id: "main") {
-            RootView()
+            ThemedRoot { RootView() }
                 .environmentObject(env.library)
                 .environmentObject(env.player)
                 .environmentObject(env.state)
@@ -177,7 +177,7 @@ struct CoverFlowApp: App {
         .defaultPosition(.center)
 
         Settings {
-            SettingsView()
+            ThemedRoot { SettingsView() }
                 .environmentObject(env.media)
                 .environmentObject(env.lastfm)
                 .environmentObject(env.library)
@@ -287,5 +287,15 @@ struct AppCommands: Commands {
             Button(player.repeatMode.next.label) { player.cycleRepeat() }
                 .keyboardShortcut("r", modifiers: [.command, .control])
         }
+    }
+}
+
+/// Redraws a window when the colour theme changes, since the palette is read while
+/// views draw.
+struct ThemedRoot<Content: View>: View {
+    @AppStorage(ColorTheme.defaultsKey) private var themeID = ColorTheme.brass.id
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        content().id(themeID)
     }
 }

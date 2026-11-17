@@ -137,9 +137,10 @@ import SwiftUI
   @StateObject private var app = MobileEnvironment()
   @Environment(\.scenePhase) private var phase
   @AppStorage("mobile.theme") private var theme = "system"
+  @AppStorage(ColorTheme.defaultsKey) private var colorTheme = ColorTheme.brass.id
   var body: some Scene {
     WindowGroup {
-      MobileRootView().environmentObject(app).environmentObject(app.library).environmentObject(
+      MobileRootView().id(colorTheme).environmentObject(app).environmentObject(app.library).environmentObject(
         app.player
       ).environmentObject(app.scrobbler).environmentObject(app.lyrics).environmentObject(
         app.karaoke

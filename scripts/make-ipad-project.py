@@ -16,7 +16,7 @@ SHARED = ['Model/Models.swift', 'Playback/PlayerEngine.swift', 'Playback/Gapless
           'Library/MetadataReader.swift', 'Library/OggOpus.swift', 'Lyrics/LyricsDocument.swift',
           'Lyrics/LyricsStore.swift', 'Scrobbling/LastFmAPI.swift', 'Scrobbling/LastFmKeychain.swift',
           'Scrobbling/LastFmScrobbler.swift', 'Scrobbling/ScrobbleProgress.swift', 'Views/ScrollingTrackTitle.swift',
-          'Library/AlbumSceneGenerator.swift', 'Library/ExtraArtworkReader.swift']
+          'Library/AlbumSceneGenerator.swift', 'Library/ExtraArtworkReader.swift', 'Support/ColorThemes.swift']
 # Built by scripts/build-ios-native.sh. When present, the projects play every format the
 # Mac app plays (decoder-only LGPL FFmpeg) and embed replaced covers with TagLib.
 NATIVE_FFMPEG = ['../Sources/CFFmpegAudio/CFAudioFile.c', '../Sources/CoverFlow/Library/FFmpegAudio.swift',

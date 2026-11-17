@@ -44,6 +44,11 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 Text("Dark lets covers stand out most. The background takes a quiet tint from the album you’re browsing.")
                     .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Colors") {
+                    ColorThemePicker().frame(maxWidth: 360)
+                }
+                Text("Brass is Cover Flow’s original. The others come from the game colours on sipassgames.com.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Album View") {
